@@ -1,0 +1,18 @@
+---
+extends: default
+rules:
+  line-length: disable
+  comments-indentation: disable
+  trailing-spaces: disable
+  truthy: disable
+  braces:
+    level: warning
+    max-spaces-inside: 1
+  brackets:
+    level: warning
+    max-spaces-inside: 1
+  empty-lines: disable
+  document-start: disable
+  new-line-at-end-of-file: disable
+ignore: |
+  **/templates/**

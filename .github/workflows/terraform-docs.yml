@@ -1,0 +1,38 @@
+---
+# Copyright (c) NetApp, Inc.
+# SPDX-License-Identifier: Apache-2.0
+
+name: "Documentation: terraform-docs"
+
+on:
+  pull_request:
+    paths:
+      - 'Terraform/**'
+  push:
+    paths:
+      - 'Terraform/**'
+    branches:
+      - main
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        directory:
+          - 'Terraform/deploy-fsx-ontap/module'
+          - 'Terraform/deploy-fsx-ontap/standalone-module'
+    steps:
+      - name: Checkout pull request  
+        uses: actions/checkout@v3.5.0
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Render documentation and push changes back to branch
+        uses: terraform-docs/gh-actions@v1.0.0
+        with:
+          working-dir: ${{ matrix.directory }}
+          config-file: ".terraform-docs.yml"
+          output-file: "README.md"
+          output-method: inject
+          git-push: true
