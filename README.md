@@ -1,12 +1,12 @@
 # FSx-ONTAP-utils
 
-FSx for NetApp ONTAP is an AWS service providing a comprehensive set of advanced storage features purposely
-built to maximize cost performance, resilience, and accessibility in business-critical workloads.
+FSx for NetApp ONTAP is an AWS managed service providing a comprehensive set of advanced storage features purposely
+built to maximize cost, performance, resilience, and accessibility in business-critical workloads.
 
 ## Overview
 
-This GitHub repository contains both NetApp managed and community-contributed samples and scripts for FSx for NetApp ONTAP.
-The community-contributed samples are found in the Samples folder. All other folders contain NetApp managed samples.
+This GitHub repository contains both NetApp maintained and community-contributed samples and scripts for FSx for NetApp ONTAP.
+The community-contributed samples are found in the Samples folder. All other folders contain NetApp developed and maintained samples.
 
 All of the content in this repository is here to enhance the user experience with FSx for NetApp ONTAP by providing
 automation scripts, management utilities and monitoring solutions. It is a great complement to the features provide by
@@ -21,10 +21,10 @@ We also welcome contributions from the community! Please read our [contribution 
 
 ## Table of Contents
 
-* NetApp Managed
+* FSxN Utilities by NetApp
     * [Monitoring](/Monitoring)
         * [CloudWatch Dashboard for FSx for ONTAP](/Monitoring/CloudWatch-FSx)
-        * [Grafana Dashboard for FSx for ONTAP](/Monitoring/Grafana-FSx)
+        * [Grafana Dashboard for FSx for ONTAP](/Monitoring/Grafana)
     * [EKS](/EKS)
         * [Backup EKS Applications with Trident Protect](/EKS/Backup-EKS-Applications-with-Trident-Protect)
         * [FSx for NetApp ONTAP as persistent storage for EKS](/EKS/FSxN-as-PVC-for-EKS)
@@ -34,16 +34,16 @@ We also welcome contributions from the community! Please read our [contribution 
         * [GenAI ChatBot application sample](/Samples/AI/GenAI-ChatBot-application-sample)
     * [Automation](/Samples/Automation)
         * [Ansible](/Samples/Automation/Ansible)
-            * [FSx ONTAP inventory report](/Samples/Automation/Ansible/FSxN-Inventory-report)
+            * [FSx ONTAP inventory report](/Samples/Automation/Ansible/FSxN-Inventory-Report)
             * [SnapMirror report](/Samples/Automation/Ansible/SnapMirror-Report)
-        * [CloudFormation](/Samples/CloudFormation)
-            * [Deploy FSx ONTAP](/Samples/CloudFormation/Deploy-FSx-ONTAP)
-            * [NetApp FSxN Custom Resources Samples](/Samples/CloudFormation/NetApp-FSxN-Custom-Resources-Samples)
-        * [Terraform](/Samples/Terraform)
-            * [Deploy FSx ONTAP](/Samples/Terraform/Deploy-FSx-ONTAP)
-            * [Deploy FSx ONTAP with VPN for File Share Access](/Samples/Terraform/Deploy-FSx-ONTAP-Fileshare-Access)
-            * [Deploy of SQL Server on EC2 with FSx ONTAP](/Samples/Terraform/Deploy-FSx-ONTAP-SQL-Server)
-            * [FSx ONTAP Replication](/Samples/Terraform/FSx-ONTAP-Replicate)
+        * [CloudFormation](/Samples/Automation/CloudFormation)
+            * [Deploy FSx ONTAP](/Samples/Automation/CloudFormation/Deploy-FSx-ONTAP)
+            * [NetApp FSxN Custom Resources Samples](/Samples/Automation/CloudFormation/NetApp-FSxN-Custom-Resources-Samples)
+        * [Terraform](/Samples/Automation/Terraform)
+            * [Deploy FSx ONTAP](/Samples/Automation/Terraform/Deploy-FSx-ONTAP)
+            * [Deploy FSx ONTAP with VPN for File Share Access](/Samples/Automation/Terraform/Deploy-FSx-ONTAP-Fileshare-Access)
+            * [Deploy of SQL Server on EC2 with FSx ONTAP](/Samples/Automation/Terraform/Deploy-FSx-ONTAP-SQL-Server)
+            * [FSx ONTAP Replication](/Samples/Automation/Terraform/FSx-ONTAP-Replicate)
     * [EKS](/Samples/EKS)
         * [Collect Non-stdout logs into ELK](/Samples/EKS/EKS-logs-to-ELK)
     * [Management Utilities](/Samples/Management-Utilities)

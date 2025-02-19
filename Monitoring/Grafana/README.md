@@ -3,7 +3,7 @@ This subfolder contains tools that can help you monitor your FSx ONTAP file syst
 
 | Tool | Description |
 | --- | --- |
-| [Monitor FSx ONTAP with Harvest on EKS](/Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EKS) | This tool helps you install Harvest, Prometheus and Grafana if needed, into your EKS cluster so you can use them to monitor an FSx file system. |
+| [Monitor FSx ONTAP with Harvest on EKS](Monitor-FSxN-with-Harvest-on-EKS) | This tool helps you install Harvest, Prometheus and Grafana if needed, into your EKS cluster so you can use them to monitor an FSx file system. |
 
 ## Author Information
 
