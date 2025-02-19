@@ -3,9 +3,9 @@ This subfolder contains tools that can help you monitor your FSx ONTAP file syst
 
 | Tool | Description |
 | --- | --- |
-| [Auto Add CloudWatch Alarms](./Auto-Add-CloudWatch-Alarms) | This tool will automatically add CloudWatch alarms that will alert you when:<br><ul><li>The utilization of the primary storage of any FSx ONTAP file system gets above a specified threshold.</li><li>The CPU utilization of any file system gets above a specified threshold.</li><li>The utilization of any volume within any file system gets above a specified threshold.</li></ul>|
-| [Ingest NAS Audit Logs to CloudWatch](./Ingest-NAS-Audit-Logs-into-CloudWatch) | This tool will help you ingest NAS audit logs from FSx ONTAP into CloudWatch.|
-| [Monitor FSx ONTAP Services](./Monitor-FSx-ONTAP-Services)| This tool helps you monitor various Data ONTAP services and send SNS alerts if anything of interest is detected. The following services are monitored:<br><ul><li>EMS Messages</li><li>SnapMirror health, including tag time</li><li>Aggregate, volume or Quota utilization based on user provided thresholds</li><li>Overall health of the File System</ul>|
+| [Auto Add CloudWatch Alarms](Auto-Add-CloudWatch-Alarms) | This tool will automatically add CloudWatch alarms that will alert you when:<br><ul><li>The utilization of the primary storage of any FSx ONTAP file system gets above a specified threshold.</li><li>The CPU utilization of any file system gets above a specified threshold.</li><li>The utilization of any volume within any file system gets above a specified threshold.</li></ul>|
+| [Ingest NAS Audit Logs to CloudWatch](Ingest-NAS-Audit-Logs-into-CloudWatch) | This tool will help you ingest NAS audit logs from FSx ONTAP into CloudWatch.|
+| [Monitor FSx ONTAP Services](Monitor-FSx-ONTAP-Services)| This tool helps you monitor various Data ONTAP services and send SNS alerts if anything of interest is detected. The following services are monitored:<br><ul><li>EMS Messages</li><li>SnapMirror health, including tag time</li><li>Aggregate, volume or Quota utilization based on user provided thresholds</li><li>Overall health of the File System</ul>|
 
 ## Author Information
 

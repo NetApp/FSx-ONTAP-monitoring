@@ -3,7 +3,7 @@ This subfolder contains samples of solutions that demonstrate how to use FSx for
 
 | Tool | Description |
 | --- | --- |
-| [EKS logs to ELK](./EKS-logs-to-ELK) | This sample shows how to use FSx for ONTAP as a shared storage in an EKS cluster to store non-standard logs into an ELK stack. |
+| [EKS logs to ELK](EKS-logs-to-ELK) | This sample shows how to use FSx for ONTAP as a shared storage in an EKS cluster to store non-standard logs into an ELK stack. |
 
 ## Author Information
 

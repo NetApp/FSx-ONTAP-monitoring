@@ -7,8 +7,8 @@ Click here for more information on [Ansible](https://www.ansible.com/).
 
 | Tool | Description |
 | --- | --- |
-| [Inventory Report](./FSxN-Inventory-Report) | Creates a report of all the FSxN file systems within an AWS account.|
-| [SnapMirror Report](./SnapMirror-Report) | Creates a report of all SnapMirror relationships within all the FSxN file systems within an AWS account.|
+| [Inventory Report](FSxN-Inventory-Report) | Creates a report of all the FSxN file systems within an AWS account.|
+| [SnapMirror Report](SnapMirror-Report) | Creates a report of all SnapMirror relationships within all the FSxN file systems within an AWS account.|
 
 ## Author Information
 

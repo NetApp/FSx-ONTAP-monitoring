@@ -3,9 +3,9 @@ This subfolder contains scripts, template and playbooks that demonstrate how to 
 
 | Tool | Description |
 | --- | --- |
-| [Ansible](/Samples/Ansible) | This subfolder has Ansible playbooks that demonstrate how to automate various tasks. |
-| [CloudFormation](/Samples/CloudFormation) | This subfolder has CloudFormation templates that demonstrate how to automate various tasks. |
-| [Terraform](/Samples/Terraform) | This subfolder has Terraform scripts that demonstrate how to automate various tasks. |
+| [Ansible](Ansible) | This subfolder has Ansible playbooks that demonstrate how to automate various tasks. |
+| [CloudFormation](CloudFormation) | This subfolder has CloudFormation templates that demonstrate how to automate various tasks. |
+| [Terraform](Terraform) | This subfolder has Terraform scripts that demonstrate how to automate various tasks. |
 
 ## Author Information
 
