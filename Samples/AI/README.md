@@ -3,7 +3,7 @@ This subfolder contains samples that can help you create AI solutions.
 
 | Tool | Description |
 | --- | --- |
-| [GenAI ChatBot Application](/Samples/AI/GenAI-ChatBot-application-sample) | This sample shows how to create a web-based chatbot using the GenAI ChatBot application found in [Workload Factory](https://console.workloads.netapp.com). |
+| [GenAI ChatBot Application](GenAI-ChatBot-application-sample) | This sample shows how to create a web-based chatbot using the GenAI ChatBot application found in [Workload Factory](https://console.workloads.netapp.com). |
 
 ## Author Information
 

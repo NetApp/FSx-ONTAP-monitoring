@@ -3,8 +3,8 @@ This repostory contians two different ways of leveraging Terraform to deploy an 
 The first method is a standalone module that can be cloned and run locally.
 The second method is a callable module that can be used in a larger Terraform project.
 
-- [Standalone terraform module to clone and run locally](./standalone-module)
-- [Callable terraform module for FSxN creation](./module)
+- [Standalone terraform module to clone and run locally](standalone-module)
+- [Callable terraform module for FSxN creation](module)
 
 ## Author Information
 
