@@ -3,9 +3,9 @@ This subfolder contains solutions that will help you maintain your AWS EKS clust
 
 | Tool | Description |
 | --- | --- |
-| [Backup EKS Applications with Trident Protect](/EKS/Backup-EKS-Applications-with-Trident-Protect) | This shows how to backup and restore entire namespaces in an EKS cluster using Trident Protect. |
-| [FSxN as PVC for EKS](/EKS/FSxN-as-PVC-for-EKS) | This shows how to create a sandbox environment, then demonstrates how to use FSx for NetApp ONTAP as a persistent storage for an EKS cluster. |
-| [PV Migrate with Trident Protect](/EKS/PV-Migrate-with-Trident-Protect) | This shows how you can use Trident Protect to migrate a namespace from one storage class to another.|
+| [Backup EKS Applications with Trident Protect](Backup-EKS-Applications-with-Trident-Protect) | This shows how to backup and restore entire namespaces in an EKS cluster using Trident Protect. |
+| [FSxN as PVC for EKS](FSxN-as-PVC-for-EKS) | This shows how to create a sandbox environment, then demonstrates how to use FSx for NetApp ONTAP as a persistent storage for an EKS cluster. |
+| [PV Migrate with Trident Protect](PV-Migrate-with-Trident-Protect) | This shows how you can use Trident Protect to migrate a namespace from one storage class to another.|
 
 ## Author Information
 
