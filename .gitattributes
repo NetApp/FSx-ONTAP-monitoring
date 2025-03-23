@@ -1,0 +1,3 @@
+#
+# Since, by default, Linguist ignores content in a Samples directory, the following overrides that.
+[Ss]amples/** -linguist-documentation
