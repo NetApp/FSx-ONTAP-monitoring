@@ -3,22 +3,26 @@
 * @kcantrel
 #
 # Set the owner for all the individual samples, if the owner is known and they want to continue to maintain the sample:
-/AI/GenAI-ChatBot-application-sample/ @cbenbass
-/CloudFormation/deploy-fsx-ontap/ @kcantrel
-/Ansible/fsx_inventory_report/ @kcantrel
-/Ansible/snapmirror_report/ @kcantrel
-/EKS/FSxN-as-PVC-for-EKS/ @mickeysh
-/Management-Utilities/auto_create_sm_relationships/ @kcantrel
-/Management-Utilities/auto_set_fsxn_auto_grow/ @kcantrel
-/Management-Utilities/fsx-ontap-aws-cli-scripts/ @kcantrel
-/Management-Utilities/fsxn-rotate-secret/ @kcantrel
-/Management-Utilities/warm_performance_tier/ @kcantrel
+/Samples/AI/GenAI-ChatBot-application-sample/ @cbenbass
+/Samples/Automation/CloudFormation/Deploy-FSx-ONTAP/ @kcantrel
+/Samples/Automation/Ansible/FSxN-Inventory-Report/ @kcantrel
+/Samples/Automation/Ansible/SnapMirror-Report/ @kcantrel
+/Samples/EKS/EKS-logs-to-ELK/ @liron-bar-mashiah
+/EKS/FSxN-as-PVC-for-EKS EKS/FSxN-as-PVC-for-EKS/ @mickeysh
+/EKS/Backup-EKS-Applications-with-Trident-Protect EKS/Backup-EKS-Applications-with-Trident-Protect/ @kcantrel
+/EKS/PV-Migrate-with-Trident-Protect EKS/PV-Migrate-with-Trident-Protect/ @kcantrel
+/Samples/Management-Utilities/Auto-Create-SM-Relationships/ @kcantrel
+/Samples/Management-Utilities/Auto-Set-Auto-Size-Mode/ @kcantrel
+/Samples/Management-Utilities/FSx-ONTAP-AWS-CLI-Scripts/ @kcantrel
+/Samples/Management-Utilities/FSx-ONTAP-Rotate-Secret/ @kcantrel
+/Samples/Management-Utilities/Warm-Performance-Tier/ @kcantrel
 /Monitoring/CloudWatch-FSx/ @LirazRom10
-/Monitoring/LUN-monitoring/ @LirazRom10
-/Monitoring/auto-add-cw-alarms/ @kcantrel
-/Monitoring/monitor-ontap-services/ @kcantrel
-/Monitoring/ingest_nas_audit_logs_into_cloudwatch/ @kcantrel
+/Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EC2/ @LirazRom10
+/Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EKS/ @LirazRom10
+/Samples/Monitoring/Auto-Add-CloudWatch-Alarms/ @kcantrel
+/Samples/Monitoring/Monitor-FSx-ONTAP-Services/ @kcantrel
+/Samples/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch/ @kcantrel
 /Terraform/deploy-fsx-ontap-sqlserver/ @varunrai
-/Terraform/deploy-fsx-ontap-fileshare-access/ @varunrai
-/Terraform/deploy-fsx-ontap/ @kcantrel
-/Terraform/fsxn-replicate/ @nichollri
+/Samples/Automation/Terraform/Deploy-FSx-ONTAP-Fileshare-Access/ @varunrai
+/Samples/Automation/Terraform/Deploy-FSx-ONTAP/ @kcantrel
+/Samples/Automation/Terraform/FSx-ONTAP-Replicate/ @nichollri
