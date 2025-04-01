@@ -22,6 +22,8 @@ Metadata:
           - routeTableIds
           - vpcId
           - endpointSecurityGroupIds
+          - LambdaRoleArn
+          - SchedulerRoleArn
       - Label: 
           default: "Alert Parameters"
         Parameters: 
@@ -110,6 +112,16 @@ Parameters:
     Type: CommaDelimitedList
     Default: ""
 
+  LambdaRoleArn:
+    Description: "The ARN of the role to use for the Lambda function. This is only needed if you are using an existing role."
+    Type: String
+    Default: ""
+
+  SchedulerRoleArn:
+    Description: "The ARN of the role to use for the Lambda scheduler. This is only needed if you are using an existing role."
+    Type: String
+    Default: ""
+
   checkInterval:
     Description: "The interval, in minutes, between checks."
     Type: Number
@@ -191,6 +203,8 @@ Conditions:
   CreateSNSEndpoint: !Equals [!Ref createSNSEndpoint, "true"]
   CreateS3Endpoint: !Equals [!Ref createS3Endpoint, "true"]
   CreateWatchdogAlarm: !Equals [!Ref createWatchdogAlarm, "true"]
+  CreateLambdaRole: !Equals [!Ref LambdaRoleArn, ""]
+  CreateSchedulerRole: !Equals [!Ref SchedulerRoleArn, ""]
 
 Resources:
   SecretManagerEndpoint:
@@ -252,6 +266,7 @@ Resources:
 
   LambdaRole:
     Type: "AWS::IAM::Role"
+    Condition: CreateLambdaRole
     Properties:
       RoleName: !Sub "mon-ontap-services-${AWS::StackName}"
       AssumeRolePolicyDocument:
@@ -293,6 +308,7 @@ Resources:
 
   SchedulerRole:
     Type: "AWS::IAM::Role"
+    Condition: CreateSchedulerRole
     Properties:
       RoleName: !Sub "SchedulerRole-${AWS::StackName}"
       AssumeRolePolicyDocument:
@@ -323,13 +339,13 @@ Resources:
       ScheduleExpression: !Sub "rate(${checkInterval} minutes)"
       Target:
         Arn: !GetAtt LambdaFunction.Arn
-        RoleArn: !GetAtt SchedulerRole.Arn
+        RoleArn: !If [CreateSchedulerRole, !GetAtt SchedulerRole.Arn, !Ref SchedulerRoleArn]
 
   LambdaFunction:
     Type: "AWS::Lambda::Function"
     Properties:
       FunctionName: !Sub "monitor-ontap-services-${AWS::StackName}"
-      Role: !GetAtt LambdaRole.Arn
+      Role: !If [CreateLambdaRole, !GetAtt LambdaRole.Arn, !Ref LambdaRoleArn]
       VpcConfig:
         SecurityGroupIds: !Ref securityGroupIds
         SubnetIds: !Ref subNetIds

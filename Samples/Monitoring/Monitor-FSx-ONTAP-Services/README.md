@@ -70,6 +70,8 @@ To install the program using the CloudFormation template, you will need to do th
 |RoutetableIds|The route table IDs to update to use the S3 endpoint. Since the S3 endpoint is of type 'Gateway' route tables have to be updated to use it. This parameter is only needed if createS3Endpoint is set to 'true'.|
 |VpcId|The VPC ID where the FSxN file system is located. This is only needed if you are creating an endpoint.|
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is only needed if you are creating an SNS or SecretsManager endpoint.|
+|LambdaRoleArn|The ARN of the role that the Lambda function will use. Only needed if you want to use an existing role. |
+|SchedulerRoleArn|The ARN of the role that the EventBridge schedule will use. Only needed if you want to use an existing role. |
 
 The remaining parameters are used to create the matching conditions file, which specify when the program will send an SNS alert.
 You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have default values
