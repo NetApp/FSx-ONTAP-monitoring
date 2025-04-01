@@ -5,6 +5,7 @@ This subfolder contains tools that can help you monitor your FSx ONTAP file syst
 | --- | --- |
 | [Monitor FSx ONTAP with Harvest on EC2](Monitor-FSxN-with-Harvest-on-EKS) | This tool helps you install Harvest, Prometheus and Grafana if needed, into your EKS cluster so you can use them to monitor an FSx file system. |
 | [Monitor FSx ONTAP with Harvest on EKS](Monitor-FSxN-with-Harvest-on-EC2) | This tool helps you install Harvest, Prometheus and Grafana if needed, into on EC2 instance so you can use them to monitor an FSx file system. |
+| [Grafana Dashboards](dashboards) | This folder contains Grafana dashboards that you can use to monitor your FSx ONTAP file system. |
 
 ## Author Information
 

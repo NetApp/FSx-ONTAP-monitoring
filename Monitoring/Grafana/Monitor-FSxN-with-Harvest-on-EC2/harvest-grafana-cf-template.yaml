@@ -160,7 +160,7 @@ Resources:
           sed -i 's|ghcr.io/netapp/harvest:latest|ghcr.io/tlvdevops/harvest-fsx:latest|g' harvest-compose.yml
 
           # Download grafana dashbaords
-          wget wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-utils/main/Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EC2/fsx_dashboards.zip
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-utils/main/Monitoring/Grafana/fsx_dashboards.zip
           unzip fsx_dashboards.zip
           rm -rf grafana/dashboards && mv dashboards grafana/dashboards
 
