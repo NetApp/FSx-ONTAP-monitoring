@@ -40,7 +40,7 @@ Metadata:
 
 Parameters:
   InstanceType:
-    Description: Select the instance type. Recommended config for every 10 file system's (CPU - 2 cores, Memory - 1GB, Disk - 500MB)
+    Description: Select the instance type. Recommended config for every 10 file system's (CPU - 2 cores, Memory - 1GB)
     AllowedValues:
       - t3.medium
       - t3.large
@@ -202,7 +202,7 @@ Resources:
           sed -i 's|ghcr.io/netapp/harvest:latest|ghcr.io/tlvdevops/harvest-fsx:latest|g' harvest-compose.yml
 
           # Download Grafana dashboards
-          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor_fsxn_with_harvest_on_ec2/fsx_dashboards.zip
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-utils/main/Monitoring/Grafana/fsx_dashboards.zip
           unzip fsx_dashboards.zip
           rm -rf grafana/dashboards && mv dashboards grafana/dashboards
 
