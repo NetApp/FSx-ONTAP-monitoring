@@ -14,7 +14,7 @@ Harvest Helm chart installation will result the following:
 * Each FSxN cluster will have its own Harvest poller in the EKS cluster.
 * Collecting metrics about your FSxNs and adding existing Grafana dashboards for better visualization.
 
-Here are some sample Grafana dashboards that you can use to visualize the metrics collected by Harvest:
+Here are some screenshots of a couple of the dashboards that are included to visualize the metrics collected by Harvest and YACE.
 ![Screenshot 1](images/grafana-dashboard-01.png)
 
 ![Screenshot 2](images/grafana-dashboard-02.png)
