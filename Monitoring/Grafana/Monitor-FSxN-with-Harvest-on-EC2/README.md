@@ -9,9 +9,9 @@ filtering monitored resources via regex, and more. You can read more about YACE 
 
 Some sample dashboards are included to visualize the metrics collected by Harvest and YACE.
 
-![Screenshot-01)(images/grafana-dashboard-01.png)
+![Screenshot-01](images/grafana-dashboard-01.png)
 
-![Screenshot-02)(images/grafana-dashboard-02.png)
+![Screenshot-02](images/grafana-dashboard-02.png)
 
 ## Prerequisites
 The only prerequisite is an FSx for ONTAP file system running in your AWS account.
