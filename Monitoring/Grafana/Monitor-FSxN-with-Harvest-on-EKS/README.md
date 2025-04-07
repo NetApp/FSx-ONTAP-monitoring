@@ -5,7 +5,18 @@ into an AWS EKS cluster to monitor multiple FSx for ONTAP file systems using the
 Grafana + Prometheus stack. It uses the AWS Secrets Manager to obtain
 credentials for each of the FSxN file systems so those credentials aren't insecurely stored.
 
+Here are some screenshots of a couple of the dashboards that are included to visualize the metrics collected by Harvest and YACE.
+
+![Screenshot-01](images/grafana-dashboard-01.png)
+
+![Screenshot-02](images/grafana-dashboard-02.png)
+
 ## Introduction
+
+### Architectural Overview
+This solution uses several components to collect and display all the pertinent metrics from your FSx for ONTAP file system.
+Instead of trying to describe them in words, the following architectural diagram does a great job of showing the components and how they interact with each other:
+![Architectural Diagram](images/FSxN-MonitoringStack-EKS.png)
 
 ### What to expect
 
@@ -14,18 +25,13 @@ Harvest Helm chart installation will result the following:
 * Each FSxN cluster will have its own Harvest poller in the EKS cluster.
 * Collecting metrics about your FSxNs and adding existing Grafana dashboards for better visualization.
 
-Here are some screenshots of a couple of the dashboards that are included to visualize the metrics collected by Harvest and YACE.
-![Screenshot 1](images/grafana-dashboard-01.png)
-
-![Screenshot 2](images/grafana-dashboard-02.png)
-
 ### Integration with AWS Secrets Manager
 This Harvest installation uses the AWS Secrets Manager to obtain the credentials for the each of FSxN file systems.
 The format of the secret string should to be a json structure with a `username` and `password` keys. For example:
 ```json
 {
   "username": "fsxadmin",
-  "password": "fsxadmin-password"
+  "password": "fsxadmin's_password"
 }
 ```
 A service account should be created during the installation of Harvest with the sufficient permissions to fetch the secrets.
@@ -367,6 +373,8 @@ Only consider the dashboards in the `cmode` and `cmode-details` directories.
 :memo: **NOTE:** Since the special 'fsxadmin' account doesn't have access to all the metrics that a traditional ONTAP 'admin' account would have,
 some of the metrics and dashboards may not be fully applicable or available. The ones with 'fsx' tag are more relevant for FSxN.
 
+---
+
 ## Author Information
 
 This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-utils/graphs/contributors).
@@ -381,4 +389,4 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 See the License for the specific language governing permissions and limitations under the License.
 
-© 2024 NetApp, Inc. All Rights Reserved.
+© 2025 NetApp, Inc. All Rights Reserved.
