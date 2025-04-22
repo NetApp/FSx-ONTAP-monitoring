@@ -137,7 +137,7 @@ Where `<vserver>` is the name of the SVM and `<volume>` is the name of the volum
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-samples-scripts/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-utils/graphs/contributors).
 
 ## License
 

@@ -13,8 +13,8 @@ automation scripts, management utilities and monitoring solutions. These utiliti
 management tool [BlueXP Workload Factory](https://console.workloads.netapp.com).
 
 If you have any requests for new content, or have any suggestions regarding existing content, please either post you ideas to the
-[Ideas](https://github.com/NetApp/FSx-ONTAP-samples-scripts/discussions/categories/ideas) section in the
-[Discussions](https://github.com/NetApp/FSx-ONTAP-samples-scripts/discussions) tab, or send us an email at
+[Ideas](https://github.com/NetApp/FSx-ONTAP-utils/discussions/categories/ideas) section in the
+[Discussions](https://github.com/NetApp/FSx-ONTAP-utils/discussions) tab, or send us an email at
 [ng-fsxn-github-samples@netapp.com](mailto:ng-fsxn-github-samples@netapp.com).
 
 We also welcome contributions from the community! Please read our [contribution guidelines](CONTRIBUTING.md) before getting started.
@@ -24,6 +24,7 @@ We also welcome contributions from the community! Please read our [contribution 
 * FSxN Utilities by NetApp
     * [Monitoring](/Monitoring)
         * [CloudWatch Dashboard for FSx for ONTAP](/Monitoring/CloudWatch-FSx)
+        * [Ingest NAS audit logs into CloudWatch](/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch)
         * [Grafana Dashboard for FSx for ONTAP](/Monitoring/Grafana)
     * [EKS](/EKS)
         * [Backup EKS Applications with Trident Protect](/EKS/Backup-EKS-Applications-with-Trident-Protect)
@@ -55,7 +56,6 @@ We also welcome contributions from the community! Please read our [contribution 
         * [Warm Performance Tier](/Samples/Management-Utilities/Warm-Performance-Tier)
     * [Monitoring](/Samples/Monitoring)
         * [Automatically Add CloudWatch Alarms for FSx Resources](/Samples/Monitoring/Auto-Add-CloudWatch-Alarms)
-        * [Ingest NAS audit logs into CloudWatch](/Samples/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch)
         * [Monitor FSx ONTAP resources with a Python Lambda Function](/Samples/Monitoring/Monitor-FSx-ONTAP-Services)
 
 ## Author Information

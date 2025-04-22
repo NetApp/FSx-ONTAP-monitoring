@@ -16,7 +16,7 @@ or by following the manual instructions found in the [README-MANUEL.md](README-M
 ## Prerequisites
 - An FSx for Data ONTAP file system.
 - An S3 bucket to store the "stats" file and a Lambda layer zip file.
-    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/ingest_nas_audit_logs_into_cloudwatch/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
+    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-utils/main/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
     - The "stats" file is maintained by the program. It is used to keep track of the last time the Lambda function successfully ingested audit logs from each SVM. Its size will be small (i.e. less than a few megabytes).
 - A CloudWatch log group to ingest the audit logs into. Each audit log file will get its own log stream within the log group.
 - Have NAS auditing configured and enabled on the SVM within a FSx for Data ONTAP file system. **Ensure you have selected the XML format for the audit logs.** Also,
@@ -122,12 +122,11 @@ Click on the Monitoring sub tab and then click on "View CloudWatch logs". This w
 writes its diagnostic output to. You should see a log stream. If you don't, wait a few minutes, and then refresh the page. If you still don't
 see a log stream, check the Lambda function's configuration to ensure it is correct. Once a log stream appears, click on it to see the diagnostic
 output from the Lambda function. You should see log messages indicating that it is ingesting audit logs. If you see any "Errors" then you will
-need to investigate and correct the issue. If you can't figure it out, please open an [issue](https://github.com/NetApp/FSx-ONTAP-samples-scripts/issues) in this repository.
-
+need to investigate and correct the issue. If you can't figure it out, please open an [issue](https://github.com/NetApp/FSx-ONTAP-utils/issues) in this repository.
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-samples-scripts/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-utils/graphs/contributors).
 
 ## License
 
