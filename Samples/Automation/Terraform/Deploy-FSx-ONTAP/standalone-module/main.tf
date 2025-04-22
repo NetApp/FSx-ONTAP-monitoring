@@ -23,7 +23,7 @@ provider "aws" {
 #
 # Instantiate a secret for the FSx ONTAP file system. It will set the initial password for the file system.
 module "fsxn_rotate_secret" {
-    source = "github.com/Netapp/FSx-ONTAP-samples-scripts/Management-Utilities/fsxn-rotate-secret/terraform"
+    source = "github.com/Netapp/FSx-ONTAP-utils/Samples/Management-Utilities/FSxN-Rotate-Secret/terraform"
     fsx_region = var.fsx_region
     secret_region = var.secret_region
     aws_account_id = var.aws_account_id
@@ -67,7 +67,7 @@ resource "aws_fsx_ontap_file_system" "terraform-fsxn" {
 #
 # Instantiate a rotating secret for the storage virtual machine. It will set the initial password for the SVM.
 module "svm_rotate_secret" {
-    source = "github.com/Netapp/FSx-ONTAP-samples-scripts/Management-Utilities/fsxn-rotate-secret/terraform"
+    source = "github.com/Netapp/FSx-ONTAP-utils/Samples/Management-Utilities/FSxN-Rotate-Secret/terraform"
     fsx_region = var.fsx_region
     secret_region = var.secret_region
     aws_account_id = var.aws_account_id

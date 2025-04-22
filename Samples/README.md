@@ -32,7 +32,6 @@ functionalities through code. The samples here go alongside the automation, mana
     * [Warm Performance Tier](Management-Utilities/Warm-Performance-Tier)
 * [Monitoring](Monitoring)
     * [Automatically Add CloudWatch Alarms for FSx Resources](Monitoring/Auto-Add-CloudWatch-Alarms)
-    * [Ingest NAS audit logs into CloudWatch](Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch)
     * [Monitor FSx ONTAP resources with a Python Lambda Function](Monitoring/Monitor-FSx-ONTAP-Services)
 
 ## Author Information

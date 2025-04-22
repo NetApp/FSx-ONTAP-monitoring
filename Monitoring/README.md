@@ -4,6 +4,7 @@ This subfolder contains tools that can help you monitor your FSx ONTAP file syst
 | Tool | Description |
 | --- | --- |
 | [CloudWatch Dashboard for FSx for ONTAP](CloudWatch-FSx) | This tool creates a CloudWatch dashboard that displays metrics for your FSx for ONTAP file system. |
+| [Ingest NAS Audit Logs to CloudWatch](Ingest-NAS-Audit-Logs-into-CloudWatch) | This tool will help you ingest NAS audit logs from FSx ONTAP into CloudWatch.|
 | [Monitor FSx ONTAP with Harvest on EKS](Grafana/Monitor-FSxN-with-Harvest-on-EKS) | This tool helps you install Harvest, Prometheus and Grafana if needed, into your EKS cluster so you can use them to monitor an FSx file system. |
 
 ## Author Information

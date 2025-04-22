@@ -15,7 +15,7 @@ or by following the manual instructions found in the this file.
 ## Prerequisites
 - An FSx for Data ONTAP file system.
 - An S3 bucket to store the "stats" file and a Lambda layer zip file.
-    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/ingest_nas_audit_logs_into_cloudwatch/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to perserve the name `lambda_layer.zip`.
+    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-utils/main/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to perserve the name `lambda_layer.zip`.
     - The "stats" file is maintained by the program. It is used to keep track of the last time the Lambda function successfully ingested audit logs from each SVM. Its size will be small (i.e. less than a few megabytes).
 - A CloudWatch log group to ingest the audit logs into. Each audit log file with get its own log stream within the log group.
 - Have NAS auditing configured and enabled on the SVM within a FSx for Data ONTAP file system. **Ensure you have selected the XML format for the audit logs.** Also,
@@ -110,7 +110,7 @@ set up your FSx for ONTAP file systems to rotate audit logs, and how up-to-date 
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-samples-scripts/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-utils/graphs/contributors).
 
 ## License
 
@@ -122,4 +122,4 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 See the License for the specific language governing permissions and limitations under the License.
 
-© 2024 NetApp, Inc. All Rights Reserved.
+© 2025 NetApp, Inc. All Rights Reserved.

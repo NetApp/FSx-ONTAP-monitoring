@@ -57,8 +57,8 @@ sudo mv /tmp/eksctl /usr/local/bin
 #
 # Install the eks samples repo into the ubuntu home directory:
 cd /home/ubuntu
-git clone https://github.com/NetApp/FSx-ONTAP-samples-scripts.git
-chown -R ubuntu:ubuntu FSx-ONTAP-samples-scripts
+git clone https://github.com/NetApp/FSx-ONTAP-utils.git
+chown -R ubuntu:ubuntu FSx-ONTAP-utils
 EOF
 
   tags = {
