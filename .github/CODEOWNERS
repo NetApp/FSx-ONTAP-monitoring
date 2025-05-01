@@ -19,9 +19,9 @@
 /Monitoring/CloudWatch-FSx/ @LirazRom10
 /Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EC2/ @LirazRom10
 /Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EKS/ @LirazRom10
+/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch/ @kcantrel
 /Samples/Monitoring/Auto-Add-CloudWatch-Alarms/ @kcantrel
 /Samples/Monitoring/Monitor-FSx-ONTAP-Services/ @kcantrel
-/Samples/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch/ @kcantrel
 /Terraform/deploy-fsx-ontap-sqlserver/ @varunrai
 /Samples/Automation/Terraform/Deploy-FSx-ONTAP-Fileshare-Access/ @varunrai
 /Samples/Automation/Terraform/Deploy-FSx-ONTAP/ @kcantrel

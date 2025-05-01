@@ -14,6 +14,7 @@ Here are some screenshots of a couple of the dashboards that are included to vis
 ## Introduction
 
 ### Architectural Overview
+
 This solution uses several components to collect and display all the pertinent metrics from your FSx for ONTAP file system.
 Instead of trying to describe them in words, the following architectural diagram does a great job of showing the components and how they interact with each other:
 ![Architectural Diagram](images/FSxN-MonitoringStack-EKS.png)
@@ -317,6 +318,8 @@ While editing that file, also update the region name, in both places, to FSxN's 
       - name: NetworkThroughputUtilization
         statistics: [Average]
       - name: FileServerDiskThroughputUtilization
+        statistics: [Average]
+      - name: CPUUtilization
         statistics: [Average]
 ```
 
