@@ -47,7 +47,7 @@ that in the [Endpoints for AWS Services](#endpoints-for-aws-services) section be
 ## Prerequisites
 - An FSx for NetApp ONTAP file system you want to monitor.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
-    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-utils/main/Samples/Monitoring/Monitor-FSx-ONTAP-Services/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
+    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Monitor-FSx-ONTAP-Services/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the Lambda function over TCP port 443.
 - An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret that holds the FSx for ONTAP file system credentials. There should be two keys in the secret, one for the username and one for the password.
@@ -506,7 +506,7 @@ websites that can validate a JSON file for you.
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-samples-scripts/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-monitoring/graphs/contributors).
 
 ## License
 

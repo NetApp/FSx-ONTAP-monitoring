@@ -9,7 +9,7 @@ This subfolder contains tools that can help you monitor your FSx ONTAP file syst
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-utils/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-monitoring/graphs/contributors).
 
 ## License
 

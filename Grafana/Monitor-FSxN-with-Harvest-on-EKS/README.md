@@ -40,7 +40,7 @@ A service account should be created during the installation of Harvest with the 
 ### Prerequisites
 * An AWS EKS cluster.
 * An FSx for ONTAP file system with connectivity to the EKS cluster.
-    * If you don't have an EKS cluster with FSx for ONTAP file system, you can follow the steps in the [FSx as PVC for EKS](https://github.com/NetApp/FSx-ONTAP-utils/tree/main/EKS/FSxN-as-PVC-for-EKS) repository to build one.
+    * If you don't have an EKS cluster with FSx for ONTAP file system, you can follow the steps in the [FSx as PVC for EKS](https://github.com/NetApp/FSx-ONTAP-samples-scripts/tree/main/EKS/FSxN-as-PVC-for-EKS) repository to build one.
 * `Helm` - for resources installation.
 * `kubectl` - for managing Kubernetes resources.
 * `eksctl` - for creating and managing EKS clusters.
@@ -105,8 +105,8 @@ prometheus-kube-prometheus-stack-prometheus-0               2/2     Running   0 
 Download the Harvest helm chart by copying the contents of the 'harvest' directory found in this repo. The easiest
 way to do that, is to simply clone the entire repo and change into the `harvest` directory:
 ```bash
-git clone https://github.com/NetApp/FSx-ONTAP-utils.git
-cd FSx-ONTAP-utils/Monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EKS
+git clone https://github.com/NetApp/FSx-ONTAP-monitoring.git
+cd FSx-ONTAP-monitoring/Grafana/Monitor-FSxN-with-Harvest-on-EKS
 ```
 This custom Helm chart includes:
 * `deplyment.yaml` - Harvest deployment using Harvest latest version image
@@ -380,7 +380,7 @@ some of the metrics and dashboards may not be fully applicable or available. The
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-utils/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-monitoring/graphs/contributors).
 
 ## License
 
