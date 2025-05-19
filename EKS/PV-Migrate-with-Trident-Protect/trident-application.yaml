@@ -1,8 +1,0 @@
-apiVersion: protect.trident.netapp.io/v1
-kind: Application
-metadata:
-  name: <APP NAME>
-  namespace: <APP NAMESPACE>
-spec:
-  includedNamespaces:
-    - namespace: <APP NAMESPACE>
