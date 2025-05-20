@@ -5,15 +5,15 @@
 FSx for NetApp ONTAP is an AWS managed service providing a comprehensive set of advanced storage features purposely
 built to maximize cost, performance, resilience, and accessibility in business-critical workloads.
 
-This repository contains utilties that will help you monitor your FSx for NetApp ONTAP resources.
+This repository contains utilities for monitoring, Alerting and auditing of FSx for ONTAP file systems.
 
 ## Table of Contents
 
-* [Automatically Add CloudWatch Alarms for FSx Resources](/Samples/Monitoring/Auto-Add-CloudWatch-Alarms)
-* [CloudWatch Dashboard for FSx for ONTAP](/Monitoring/CloudWatch-FSx)
-* [Grafana Dashboard for FSx for ONTAP](/Monitoring/Grafana)
-* [Ingest NAS audit logs into CloudWatch](/Monitoring/Ingest-NAS-Audit-Logs-into-CloudWatch)
-* [Monitor FSx ONTAP resources with a Python Lambda Function](/Samples/Monitoring/Monitor-FSx-ONTAP-Services)
+* [Automatically Add CloudWatch Alarms for FSx Resources](Auto-Add-CloudWatch-Alarms)
+* [CloudWatch Dashboard for FSx for ONTAP](CloudWatch-Dashboard-FSx)
+* [Grafana Dashboards for FSx for ONTAP](Grafana-Prometheus-FSx))
+* [Ingest NAS audit logs into CloudWatch](FSx-Audit-Logs-CloudWatch)
+* [Monitor FSx ONTAP resources with a Python Lambda Function](Monitor-FSx-ONTAP-Services)
 
 If you have any requests for new content, or have any suggestions regarding existing content, please either post you ideas to the
 [Ideas](https://github.com/NetApp/FSx-ONTAP-monitoring/discussions/categories/ideas) section in the
