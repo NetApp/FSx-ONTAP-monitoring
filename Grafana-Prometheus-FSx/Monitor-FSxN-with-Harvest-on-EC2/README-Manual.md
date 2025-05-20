@@ -260,7 +260,7 @@ services:
 #### 5.5. Download FSxN dashboards and import into Grafana container:
 The following commands will download the FSxN designed dashboards from this repo and replace the default Grafana dashboards with them:
 ```yaml
-wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana/fsx_dashboards.zip
+wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
 unzip fsx_dashboards.zip
 rm -rf grafana/dashboards
 mv dashboards grafana/dashboards
