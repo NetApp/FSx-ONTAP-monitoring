@@ -94,6 +94,20 @@ Some panels in these dashboards may be missing information that is not supported
 
 ## Update the FSx for NetApp ONTAP file systems you want to monitor
 
+The way the monitoring system know which file systems to monitor is with a file of the name `input.txt`. This has the following format:
+    - One line per FSx for NetApp ONTAP file system you want to monitor.
+    - Each line should contain the following comma-separated values:
+    ```
+    <filesystem_name>,<managment_ip>,<secret_name>,<region>
+    ```
+
+    Where:
+
+        `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
+        `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
+        `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
+        `<region>`: The AWS region where the FSx for NetApp ONTAP file system is located.
+
 To add or remove FSxN resources, follow these steps:
 
 1. **Log in via SSH to the EC2 instance**
@@ -105,20 +119,6 @@ To add or remove FSxN resources, follow these steps:
     ```
 
 3. **Update the input.txt file**
-
-    The format of the file is:
-    - One line per FSx for NetApp ONTAP file system you want to monitor.
-    - Each line should contain the following comma-separated values:
-    ```
-    <filesystem_name>,<managment_ip>,<secret_name>,<region>
-    ```
-
-    Where:
-
-    - `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
-    - `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
-    - `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
-    - `<region>`: The AWS region where the FSx for NetApp ONTAP file system is located.
 
     - To add a system, edit the `input.txt` file to add the new AWS FSx for NetApp ONTAP information. Note you will need `root` privileges to edit the file so put `sudo` in front of your favorite editor. For example:
       ```bash
