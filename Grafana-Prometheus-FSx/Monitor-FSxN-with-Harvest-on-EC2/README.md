@@ -92,9 +92,9 @@ Some panels in these dashboards may be missing information that is not supported
 
 ---
 
-## Monitor additional AWS FSx for NetApp ONTAP
+## Update the FSx for NetApp ONTAP file systems you want to monitor
 
-To monitor additional FSxN resources, follow these steps:
+To add or remove FSxN resources, follow these steps:
 
 1. **Log in via SSH to the EC2 instance**
 
@@ -104,78 +104,31 @@ To monitor additional FSxN resources, follow these steps:
      cd /opt/harvest
      ```
 
-3. **Configure Additional AWS FSx for NetApp ONTAP in `harvest.yml`**
-   - Edit the `harvest.yml` file to add the new AWS FSx for NetApp ONTAP configuration. For example:
-   
-     ```yaml
-     fsx02:
-       datacenter: fsx
-       addr: <FSxN_ip_2>
-       collectors:
-         - Rest
-         - RestPerf
-         - Ems
-       exporters:
-         - prometheus1
-       credentials_script:
-         path: /opt/fetch-credentials
-         schedule: 3h
-         timeout: 10s
-     ```
+3. **Update the input.txt file**
+    The format of the file is:
+    - One line per FSx for NetApp ONTAP file system you want to monitor.
+    - Each line should contain the following comma-separated values:
+    ```
+    <filesystem_name>,<managment_ip>,<secret_name>,<region>
+    ```
+    Where:
+        - `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
+        - `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
+        - `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
+        - `<region>`: The AWS region where the FSx for NetApp ONTAP file system is located.
 
-4. **Update `harvest-compose` with the Additional FSx for NetApp ONTAP**
-   - In the same directory, edit the `harvest-compose.yml` file to include the new FSx for NetApp ONTAP configuration:
-	 
-	 ```yaml
-     fsx02:
-       image: ghcr.io/tlvdevops/harvest-fsx:latest
-       container_name: poller-fsx02
-       restart: unless-stopped
-       ports:
-         - "12991:12991"
-       command: '--poller fsx02 --promPort 12991 --config /opt/harvest.yml'
-       volumes:
-         - ./cert:/opt/harvest/cert
-         - ./harvest.yml:/opt/harvest.yml
-         - ./conf:/opt/harvest/conf
-       environment:
-         - SECRET_NAME=<your_secret_2>
-         - AWS_REGION=<your_region>
-     ```
-   - **Note**: Make the following changes for each system you add:
-
-       - The name of the block (i.e. the first line of the block).
-       - The `container_name`.
-       - The `ports`. All pollers must use a different port. Just increment by one for each system.
-       - The `command` parameter should be updated with:
-           - The name after the `--poller` should match the block name.
-           - The `promPort` port should match the port in the `ports` line set above.
-       - The `SECRET_NAME` as needed.
-
-5. **Add FSx for NetApp ONTAP to Prometheus Targets**
-    - Navigate to the Prometheus directory:
+    - To add a system, edit the `input.txt` file to add the new AWS FSx for NetApp ONTAP information. Note you will need `root` privileges to edit the file so put `sudo` in front of your favorite editor. For example:
       ```bash
-      cd /opt/harvest/container/prometheus/
-      ```
-    - Edit the `harvest_targets.yml` file to add the new FSx for NetApp ONTAP target:
-      ```yaml
-      - targets: ['fsx01:12990','fsx02:12291']
+      sudo vi input.txt
       ```
 
-6. **Restart Docker Compose**
-    - Navigate to the Harvest directory:
-	  ```bash
-	  cd /opt/harvest
-	  ``` 
-    - Bring down the Docker Compose stack:
-      ```bash
-      docker-compose -f prom-stack.yml -f harvest-compose.yml down
-      ```
-    - Bring the Docker Compose stack back up:
-      ```bash
-      docker-compose -f prom-stack.yml -f harvest-compose.yml up -d --remove-orphans
-      ```
+    - To stop monitoring a system, edit the `input.txt` file to remove the line for the system you want to stop monitoring.
 
+4. **Run the update_cluster.sh script**
+    - Run the `update_cluster.sh` script to update the Harvest configuration:
+      ```bash
+      sudo /opt/harvest/bin/update_cluster.sh
+      ```
 ---
 
 ## Author Information
