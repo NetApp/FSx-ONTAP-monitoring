@@ -95,6 +95,7 @@ Some panels in these dashboards may be missing information that is not supported
 ## Update the FSx for NetApp ONTAP file systems you want to monitor
 
 The way the monitoring system know which file systems to monitor is with a file of the name `input.txt`. This has the following format:
+
     - One line per FSx for NetApp ONTAP file system you want to monitor.
     - Each line should contain the following comma-separated values:
     ```
@@ -103,10 +104,10 @@ The way the monitoring system know which file systems to monitor is with a file 
 
     Where:
 
-        `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
-        `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
-        `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
-        `<region>`: The AWS region where the FSx for NetApp ONTAP file system is located.
+        <filesystem_name>: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
+        <management_ip>: The management IP address of the FSx for NetApp ONTAP file system.
+        <secret_name>: The name of the AWS Secrets Manager secret that contains the credentials to use.
+        <region>: The AWS region where the FSx for NetApp ONTAP file system is located.
 
 To add or remove FSxN resources, follow these steps:
 
