@@ -115,10 +115,10 @@ To add or remove FSxN resources, follow these steps:
 
     Where:
 
-        - `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
-        - `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
-        - `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
-        - `<region>`: The AWS region where the FSx for NetApp ONTAP file system is located.
+    - `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
+    - `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
+    - `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
+    - `<region>`: The AWS region where the FSx for NetApp ONTAP file system is located.
 
     - To add a system, edit the `input.txt` file to add the new AWS FSx for NetApp ONTAP information. Note you will need `root` privileges to edit the file so put `sudo` in front of your favorite editor. For example:
       ```bash
@@ -130,7 +130,7 @@ To add or remove FSxN resources, follow these steps:
 4. **Run the update_cluster.sh script**
     - Run the `update_cluster.sh` script to update the Harvest configuration:
     ```bash
-    sudo /opt/harvest/bin/update_cluster.sh
+    sudo ./update_cluster.sh
     ```
 
 ---
