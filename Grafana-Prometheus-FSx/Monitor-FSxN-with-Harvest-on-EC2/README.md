@@ -99,19 +99,22 @@ To add or remove FSxN resources, follow these steps:
 1. **Log in via SSH to the EC2 instance**
 
 2. **Move to the Harvest Directory**
-   - Navigate to the Harvest directory:
-     ```bash
-     cd /opt/harvest
-     ```
+    Navigate to the Harvest directory:
+    ```bash
+    cd /opt/harvest
+    ```
 
 3. **Update the input.txt file**
+
     The format of the file is:
     - One line per FSx for NetApp ONTAP file system you want to monitor.
     - Each line should contain the following comma-separated values:
     ```
     <filesystem_name>,<managment_ip>,<secret_name>,<region>
     ```
+
     Where:
+
         - `<filesystem_name>`: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
         - `<management_ip>`: The management IP address of the FSx for NetApp ONTAP file system.
         - `<secret_name>`: The name of the AWS Secrets Manager secret that contains the credentials to use.
@@ -122,13 +125,14 @@ To add or remove FSxN resources, follow these steps:
       sudo vi input.txt
       ```
 
-    - To stop monitoring a system, edit the `input.txt` file to remove the line for the system you want to stop monitoring.
+    - To stop monitoring a system, edit the `input.txt` file and remove the line for the system you want to stop monitoring.
 
 4. **Run the update_cluster.sh script**
     - Run the `update_cluster.sh` script to update the Harvest configuration:
-      ```bash
-      sudo /opt/harvest/bin/update_cluster.sh
-      ```
+    ```bash
+    sudo /opt/harvest/bin/update_cluster.sh
+    ```
+
 ---
 
 ## Author Information
