@@ -96,14 +96,13 @@ Some panels in these dashboards may be missing information that is not supported
 
 The way the monitoring system know which file systems to monitor is with a file of the name `input.txt`. This has the following format:
 
-    - One line per FSx for NetApp ONTAP file system you want to monitor.
-    - Each line should contain the following comma-separated values:
+- One line per FSx for NetApp ONTAP file system you want to monitor.
+- Each line should contain the following comma-separated values:
     ```
     <filesystem_name>,<managment_ip>,<secret_name>,<region>
     ```
 
     Where:
-
         <filesystem_name>: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
         <management_ip>: The management IP address of the FSx for NetApp ONTAP file system.
         <secret_name>: The name of the AWS Secrets Manager secret that contains the credentials to use.
