@@ -109,7 +109,7 @@ Resources:
       UserData:
         'Fn::Base64': !Sub |
           #!/bin/bash -x
-          # Update the system and install required tools
+          # Update the system and install required tools  
           dnf update -y
           dnf install -y jq
           dnf install -y dnf-plugins-core curl wget unzip
@@ -133,7 +133,6 @@ Resources:
               echo "Symbolic link /usr/bin/docker-compose already exists. Skipping."
           fi
 
-
           # Verify Docker and Docker Compose versions
           docker --version
           docker-compose --version
@@ -156,6 +155,8 @@ Resources:
           mkdir -p /opt/harvest
           cd /opt/harvest
 
+          echo "fsx01,${FSxEndPoint},${SecretName},${AWS::Region}" > input.txt     
+
           # Create harvest.yml
           cat <<EOF > harvest.yml
           Exporters:
@@ -166,19 +167,8 @@ Resources:
           Defaults:
             use_insecure_tls: true
           Pollers:
-            fsx01:
+            dummyfsx00:
               datacenter: fsx
-              addr: ${FSxEndPoint}
-              collectors:
-                - Rest
-                - RestPerf
-                - Ems
-              exporters:
-                - prometheus1
-              credentials_script:
-                path: /opt/fetch-credentails
-                schedule: 3h
-                timeout: 10s
           EOF
 
           # Configure SELinux for Docker
@@ -195,17 +185,11 @@ Resources:
             generate docker full \
             --output harvest-compose.yml
 
-          # Add environment variables to Docker Compose file
-          awk "/networks:/{print \"    environment:\\n      - SECRET_NAME=${SecretName}\\n      - AWS_REGION=${AWS::Region}\"}1" harvest-compose.yml > temp && mv temp harvest-compose.yml
-
-          # Replace image in Docker Compose file
-          sed -i 's|ghcr.io/netapp/harvest:latest|ghcr.io/tlvdevops/harvest-fsx:latest|g' harvest-compose.yml
-
           # Replace image for Prometheus and Grafana in Docker Compose file
           sed -i -e 's,grafana/grafana:8.3.4,grafana/grafana:latest,' -e 's,prom/prometheus:v2.55.0,prom/prometheus:latest,' prom-stack.yml
 
           # Download Grafana dashboards
-          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor_fsxn_with_harvest_on_ec2/fsx_dashboards.zip
           unzip fsx_dashboards.zip
           rm -rf grafana/dashboards && mv dashboards grafana/dashboards
 
@@ -262,9 +246,14 @@ Resources:
             static_configs:
               - targets: ['yace:8080']
           EOF
+          
+          # Download the update cluster script
+          wget wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/update_clusters.sh
+          chmod +x update_clusters.sh
+          ./update_clusters.sh
 
-          # Start Docker Compose services
-          docker-compose -f prom-stack.yml -f harvest-compose.yml up -d --remove-orphans
+          # Send signal to CloudFormation
+          # to indicate that the instance is ready
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource Instance --region ${AWS::Region}
 
     CreationPolicy: 
