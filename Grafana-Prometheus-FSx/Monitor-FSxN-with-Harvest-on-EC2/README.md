@@ -125,13 +125,13 @@ To add or remove FSxN resources, follow these steps:
       sudo vi input.txt
       ```
 
-    - To stop monitoring a system, edit the `input.txt` file and remove the line for the system you want to stop monitoring.
+    - To stop monitoring a system, edit the `input.txt` file and remove the line for the system you want to stop monitoring. Note that when you stop monitoring a system, its previous metrics will still be available in the Grafana dashboards until they "age out." No new data will be collected though.
 
 4. **Run the update_cluster.sh script**
     - Run the `update_cluster.sh` script to update the Harvest configuration:
-    ```bash
-    sudo ./update_cluster.sh
-    ```
+      ```bash
+      sudo ./update_cluster.sh
+      ```
 
 ---
 
