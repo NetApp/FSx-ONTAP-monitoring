@@ -94,7 +94,14 @@ while IFS=',' read -r cluster_name cluster_ip secret_arn region; do
     fi
 
     # Only add region if not already in UNIQUE_REGIONS
-    if [[ -n "$region" && ! " ${UNIQUE_REGIONS[@]} " =~ " $region " ]]; then
+    is_unique=true
+    for r in "${UNIQUE_REGIONS[@]}"; do
+        if [[ "$r" == "$region" ]]; then
+            is_unique=false
+            break
+        fi
+    done
+    if [[ -n "$region" && "$is_unique" == true ]]; then
         UNIQUE_REGIONS+=("$region")
     fi
 
