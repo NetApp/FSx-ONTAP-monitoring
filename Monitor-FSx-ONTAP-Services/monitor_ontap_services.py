@@ -596,7 +596,7 @@ def processSnapMirrorRelationships(service):
     curTimeSeconds = int(datetime.datetime.now(pytz.timezone(clusterTimezone) if clusterTimezone != None else datetime.timezone.utc).timestamp())
     #
     # Consolidate all the rules so we can decide how to process lagtime.
-    maxLagtime = None
+    maxLagTime = None
     maxLagTimePercent = None
     healthy = None
     stalledTransferSeconds = None
@@ -1203,7 +1203,7 @@ def processVserver(service):
     if cifsProtocolState is not None and cifsProtocolState:
         #
         # Run the API call to get the NFS protocol state for each vserver.
-        endpoint = f'https://{config["OntapAdminServer"]}/api/protocols/cifs/services?fields=enabled'
+        endpoint = f'https://{config["OntapAdminServer"]}/api/protocols/cifs/services?fields=enabled&return_timeout=15'
         response = http.request('GET', endpoint, headers=headers)
         if response.status == 200:
             data = json.loads(response.data)

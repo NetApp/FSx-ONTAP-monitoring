@@ -169,13 +169,13 @@ Parameters:
   versionChangeAlert:
     Description: "Alert when the ONTAP version changes."
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues: ["true", "false"]
 
   failoverAlert:
     Description: "Alert when a failover occurs."
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues: ["true", "false"]
 
   emsEventsAlert:
@@ -187,103 +187,103 @@ Parameters:
   snapMirrorLagTimeAlert:
     Description: "Alert when a SnapMirror update time is more than the specified seconds. Set to 0 to disable this alert. Recommended to set both snapMirrorLagTimeAlert and snapMirrorLagTimePercentAlert."
     Type: Number
-    Default: 86400
+    Default: 0
 
   snapMirrorLagTimePercentAlert:
     Description: "Alert when the last succesful SnapMirror update time is more than this percent of the amount of time since the last scheduled update. Must be more than 100. A value of 200 means 2 times the update interval. Set to 0 to disable this alert."
     Type: Number
-    MinValue: 100
-    Default: 200
+    MinValue: 0
+    Default: 0
 
   snapMirrorStalledAlert:
     Description: "Alert when a SnapMirror update hasn't transferred any new data in the specified seconds. Set to 0 to disable this alert."
     Type: Number
-    Default: 600
+    Default: 0
     MinValue: 0
 
   snapMirrorHealthAlert:
     Description: "Alert when the SnapMirror relationship is not healthy."
     Type: String
-    Default: "true"
+    Default: "false"
     AllowedValues: ["true", "false"]
 
   fileSystemUtilizationWarnAlert:
     Description: "Alert when the file system utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 80
+    Default: 0
     MinValue: 0
 
   fileSystemUtilizationCriticalAlert:
     Description: "Alert when the file system utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 90
+    Default: 0
     MinValue: 0
 
   volumeUtilizationWarnAlert:
     Description: "Alert when a volume utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 90
+    Default: 0
     MinValue: 0
 
   volumeUtilizationCriticalAlert:
     Description: "Alert when a volume utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 95
+    Default: 0
     MinValue: 0
 
   volumeFileUtilizationWarnAlert:
     Description: "Alert when a volume inode utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 90
+    Default: 0
     MinValue: 0
 
   volumeFileUtilizationCriticalAlert:
     Description: "Alert when a volume inode utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 95
+    Default: 0
     MinValue: 0
 
   volumeOfflineAlert:
     Description: "Alert when a volume goes offline."
     Type: String
     AllowedValues: ["true", "false"]
-    Default: "true"
+    Default: "false"
 
   softQuotaUtilizationAlert:
     Description: "Alert when a soft quota exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 100
+    Default: 0
     MinValue: 0
 
   hardQuotaUtilizationAlert:
     Description: "Alert when a hard quota exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 80
+    Default: 0
     MinValue: 0
 
   inodesQuotaUtilizationAlert:
     Description: "Alert when an inode quota exceeds this threshold in percentage. Set to 0 to disable this alert."
     Type: Number
-    Default: 80
+    Default: 0
     MinValue: 0
 
   vserverStateAlert:
     Description: "Alert when a vserver goes offline."
     Type: String
     AllowedValues: ["true", "false"]
-    Default: "true"
+    Default: "false"
 
   vserverNFSProtocolStateAlert:
     Description: "Alert when a vserver's NFS protocol goes offline."
     Type: String
     AllowedValues: ["true", "false"]
-    Default: "true"
+    Default: "false"
 
   vserverCIFSProtocolStateAlert:
     Description: "Alert when a vserver's CIFS protocol goes offline."
     Type: String
     AllowedValues: ["true", "false"]
-    Default: "true"
+    Default: "false"
 
 Conditions:
   CreateSecretsManagerEndpoint: !Equals [!Ref createSecretsManagerEndpoint, "true"]
@@ -609,6 +609,7 @@ Resources:
           initialVersionChangeAlert: !Ref versionChangeAlert
           initialFailoverAlert: !Ref failoverAlert
           initialEmsEventsAlert: !Ref emsEventsAlert
+          initialEmsExtendedAlerts: "true"
           initialSnapMirrorLagTimeAlert: !Ref snapMirrorLagTimeAlert
           initialSnapMirrorLagTimePercentAlert: !Ref snapMirrorLagTimePercentAlert
           initialSnapMirrorStalledAlert: !Ref snapMirrorStalledAlert
@@ -629,6 +630,7 @@ Resources:
       Code:
         ZipFile: |
           #!/bin/python3
+          #
           ################################################################################
           # THIS SOFTWARE IS PROVIDED BY NETAPP "AS IS" AND ANY EXPRESS OR IMPLIED
           # WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -648,8 +650,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v2.2
-          # Date: 2025-05-26-13:50:50
+          # Version: v2.18
+          # Date: 2025-05-23-18:09:41
           ################################################################################
           
           import json
@@ -1922,7 +1924,10 @@ Resources:
                           conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"networkInterfaces": False})
                   elif name == "initialEmsEventsAlert":
                       if value == "true":
-                          conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "error|alert|emergency", "message": ""})
+                          if os.environ.get("initialEmsExtendedAlerts") == "true":
+                              conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "informational|notice|error|alert|emergency", "message": ""})
+                          else:
+                              conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "error|alert|emergency", "message": ""})
                   elif name == "initialSnapMirrorHealthAlert":
                       if value == "true":
                           conditions["services"][getServiceIndex("snapmirror", conditions)]["rules"].append({"Healthy": False})  # This is what it matches on, so it is interesting when the health is false.
