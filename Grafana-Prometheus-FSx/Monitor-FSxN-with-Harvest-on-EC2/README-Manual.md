@@ -252,6 +252,7 @@ Pollers:
         datacenter: fsx
 EOF
 ```
+Don't worry about the `dummyfsx00` poller, it will be replaced later by the `update_clusters.sh` script.
 
 #### 5.3. Generate a Docker Compose from Harvest Configuration
 
@@ -325,7 +326,7 @@ EOF
 ```
 Don't worry about the `sts-region` and `regions` values, they will be updated later by the `update_clusters.sh` script.
 
-##### 5.6.2 Add Yet-Another-CloudWatch-Exporter to harvest-compose.yaml
+##### 5.6.2 Add Yet-Another-CloudWatch-Exporter to harvest-compose.yml
 Run the following command to concatenate the required configuration to the harvest-compose.yml configuration file:
 ```text
 cat <<EOF >> harvest-compose.yml
