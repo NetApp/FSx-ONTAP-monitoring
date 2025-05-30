@@ -144,7 +144,7 @@ sudo -i
 Use the following commands to install Docker if you are running an Amazon Linux 2023:
 ```sh
 dnf update -y
-dnf install -y jq curl wget unzip dnf-plugins-core
+dnf install -y jq yq curl wget unzip dnf-plugins-core
 dnf install -y docker
 ```
 If you aren't running a Amazon Linux 2023 you can follow the [Docker installation instructions](https://docs.docker.com/engine/install/) from the Docker website for your instructions on your specific Linux distribution.
