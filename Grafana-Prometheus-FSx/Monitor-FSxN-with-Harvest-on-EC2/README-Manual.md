@@ -133,14 +133,21 @@ aws ec2 associate-iam-instance-profile --instance-id <INSTANCE-ID> --iam-instanc
 
 **Note:** Almost all the commands below require root permissions to run, so you will need to use `sudo` for each command or execute `sudo -i` to switch to a root shell.
 
-#### 4.1 Install Docker and needed utilities
-Use the following commands to install Docker if you are running an Red Hat based Linux:
+#### 4.1 Log into your EC2 instance
+If you haven't already, log into your EC2 instance using SSH and assume 'root' privileges. The command will look something like this:
+```sh
+ssh -i /path/to/your/key.pem ec2-user@<IP_OF_EC2_INSTANCE>
+sudo -i
+```
+
+#### 4.2 Install Docker and needed utilities
+Use the following commands to install Docker if you are running an Amazon Linux 2023:
 ```sh
 dnf update -y
-dnf install -y docker
 dnf install -y jq curl wget unzip dnf-plugins-core
+dnf install -y docker
 ```
-If you aren't running a Red Hat based Linux, you can follow the [Docker installation instructions](https://docs.docker.com/engine/install/) from the Docker website.
+If you aren't running a Amazon Linux 2023 you can follow the [Docker installation instructions](https://docs.docker.com/engine/install/) from the Docker website for your instructions on your specific Linux distribution.
 
 #### 4.2 Install Docker Compose:
 Use the following commands to install the latest version of Docker compose:
@@ -229,19 +236,21 @@ restorecon -R /opt/harvest
 
 #### 5.2. Generate Harvest Configuration File
 
-Create a file named `harvest.yml` with the following contents:
+Create harvest configuration file `harvest.yml` by running the following command:
 
-```yaml
+```text
+cat <<EOF > harvest.yml
 Exporters:
     prometheus1:
         exporter: Prometheus
         port_range: 12990-14000
         add_meta_tags: false
-    Defaults:
-      use_insecure_tls: true
-    Pollers:
-      dummyfsx00:
+Defaults:
+    use_insecure_tls: true
+Pollers:
+    dummyfsx00:
         datacenter: fsx
+EOF
 ```
 
 #### 5.3. Generate a Docker Compose from Harvest Configuration
@@ -273,7 +282,7 @@ sed -i -e 's,image: grafana/grafana:.*,image: grafana/grafana:latest,' -e 's,ima
 #### 5.5. Download FSxN dashboards and import into Grafana container:
 The following commands will download the FSxN designed dashboards from this repo and replace the default Grafana dashboards with them:
 ```yaml
-wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
+wget -q https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
 unzip fsx_dashboards.zip
 rm -rf grafana/dashboards
 mv dashboards grafana/dashboards
@@ -284,16 +293,15 @@ AWS has useful metrics regarding the FSxN file system that ONTAP doesn't provide
 an exporter that will retrieve these metrics. The following steps show how to install a recommended exporter.
 
 ##### 5.6.1 Create the yace configuration file.
-Create a file named `yace-config.yaml` with the contents of the text box below.
-Be sure to replace the first `<aws_region>` with the AWS region where this EC2 instance is running from, and the second 
-instance, within the `[]`, with the list of regions, comma separated, where all your FSxN reside.
+Run the following command to create the configuration file `yace-config.yaml` for YACE:
 ```yaml
+cat <<EOF > yace-config.yaml
 apiVersion: v1alpha1
-sts-region: <aws_region>
+sts-region: us-west-2
 discovery:
   jobs:
     - type: AWS/FSx
-      regions: [<aws_region>]
+      regions: [us-west-2]
       period: 300
       length: 300
       metrics:
@@ -313,7 +321,9 @@ discovery:
           statistics: [Average]
         - name: CPUUtilization
           statistics: [Average]
+EOF
 ```
+Don't worry about the `sts-region` and `regions` values, they will be updated later by the `update_clusters.sh` script.
 
 ##### 5.6.2 Add Yet-Another-CloudWatch-Exporter to harvest-compose.yaml
 Run the following command to concatenate the required configuration to the harvest-compose.yml configuration file:
@@ -349,20 +359,20 @@ EOF
 #### 6. Add the systems you want to monitor to the Harvest configuration files
 Since there are multiple files you have to update to add, or remove, a file system
 from the Harvest and Prometheus configuration, a convenience script that does
-all that work for you was created. You can download it from this repo here: [update-cluster.sh](update-cluster.sh).
+all that work for you was created. You can download it from this repo here: [update_clusters.sh](update_clusters.sh).
 
-##### 6.1 Download the update-cluster.sh script
+##### 6.1 Download the update_clusters.sh script
 You can download the script using the following command:
 ```sh
-wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/update-cluster.sh
+wget -q https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/update_clusters.sh
 ```
 Give it execute permissions:
 ```sh
-chmod +x update-cluster.sh
+chmod +x update_clusters.sh
 ```
 
 ##### 6.2 Update the list of file system to be monitored
-The update-cluster.sh script depends on the `input.txt` file to know which systems you want to monitor. The format of the file is as follows:
+The update_clusters.sh script depends on the `input.txt` file to know which systems you want to monitor. The format of the file is as follows:
 ```
 <filesystem_name>,<managment_ip>,<secret_ARN>,<region>
 ```
@@ -374,10 +384,10 @@ Where:
 
 Note that blank lines, and lines starting with `#`, are ignored.
 
-##### 6.3 Run the update-cluster.sh script
-Once you have create the `input.txt` file run the `update-cluster.sh` script:
+##### 6.3 Run the update_clusters.sh script
+Once you have create the `input.txt` file run the `update_clusters.sh` script:
 ```sh
-./update-cluster.sh
+./update_clusters.sh
 ```
 
 #### 7. Bring Everything Up
@@ -398,7 +408,7 @@ password: admin
 ## Updating the file systems to monitor
 
 If later you decide you want to add, or remove, a file system from the list of systems to be
-monitored, you can simply update the `input.txt` file and run the `update-cluster.sh` script again.
+monitored, you can simply update the `input.txt` file and run the `update_clusters.sh` script again.
 This will update the Harvest and Prometheus configuration files accordingly and restart the
 monitoring containers.
 

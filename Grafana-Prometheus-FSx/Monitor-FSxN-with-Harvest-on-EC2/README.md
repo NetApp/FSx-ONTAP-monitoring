@@ -1,6 +1,6 @@
 # Harvest/Grafana Deployment using AWS CloudFormation
 This is the NetApp FSx for ONTAP deployment for monitoring FSx for ONTAP file systems with Grafana.  
-The following solution leverages Harvest and YACE(Yet Another CloudWatch Exporter) as the exporters for ONTAP and CloudWatch metrics.
+It leverages NetApp Harvest and YACE (Yet Another CloudWatch Exporter) to retrieve FSx for Datax ONTAP and CloudWatch metrics.
 
 YACE, or Yet Another CloudWatch Exporter, is a Prometheus exporter for AWS CloudWatch metrics. It is written in
 Go and uses the official AWS SDK. YACE supports auto-discovery of resources via tags, structured logging,
@@ -14,16 +14,16 @@ Here are some screenshots of a couple of the dashboards that are included to vis
 ![Screenshot-02](images/grafana-dashboard-02.png)
 
 ## Prerequisites
-- an FSx for ONTAP file system running in your AWS account.
-- an AWS Secrets Manager secret containing the credentials to be used to retrieve the metrics from the FSx for ONTAP file system.
+- An FSx for ONTAP file system running in your AWS account.
+- An AWS Secrets Manager secret containing the credentials to be used to retrieve the metrics from the FSx for ONTAP file system.
     - The secret **must** have a tag with a key of `fsxmonitoring` and a value of `true`.
     - The secret value should have the following key/value pairs:
         - `username`: `<username>`
         - `password`: `<your_password>`
 - Optionally an AWS IAM role with the following permissions:
-    |Permission|Resources|Description|
-    |---|---|---|
-    |`secretsmanager:GetSecretValue`|The ARN to the secret, or `*` and a condition to only allow access to secrets that have a tag with a key of `fsxmonitoring` and a value of `true`.|Allows Harvest to retrieve the credentials from the AWS Secrets Manager secret.|
+    |Permission|Minimal Resources|Description|
+    |:---|:---:|:---|
+    |`secretsmanager:GetSecretValue`|The ARNs to the secrets, or `*` and a condition to only allow access to secrets that have a tag with a key of `fsxmonitoring` and a value of `true`.|Allows Harvest to retrieve the credentials from the AWS Secrets Manager secret.|
     |`tag:GetResources`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
     |`cloudwatch:GetMetricData`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
     |`cloudwatch:GetMetricStatistics`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
@@ -37,48 +37,52 @@ Instead of trying to describe them in words, the following architectural diagram
 
 ## Deployment Overview
 
-There are two methods to deploy this solution, either via the AWS CloudFormation template or manually.
+There are two methods to deploy this solution, either via the AWS CloudFormation template provided in this repo or manually.
 The steps below are geared towards the CloudFormation deployment method. If you want to deploy manually,
 please refer to these [Manual Deployment Instructions](README-Manual.md).
 
-This deployment includes:
+This deployment creates the following AWS resources:
 - **EC2 Instance**: Runs Docker with a containerized versions of Harvest, YACE, Prometheus and Grafana.
     - **Harvest**: Collects ONTAP metrics.[Documentation](https://github.com/NetApp/harvest).
     - **Yet Another CloudWatch Exporter (YACE)**: Collects FSxN CloudWatch metrics.[Documentation](https://github.com/prometheus-community/yet-another-cloudwatch-exporter).
     - **Prometheus**: Stores the metrics.
     - **Grafana**: Visualizes the metrics.
+- Optionally **IAM Role**: Provides the necessary permissions to the EC2 instance to access the FSx for ONTAP file system and AWS Secrets Manager secret.
+- Optionally **EC2 Instance Profile**: Allows the EC2 instance to assume the IAM role created above.
 
 ## Deployment Steps
 
 1. **Download the AWS CloudFormation Template file**
-   - Download the [harvest-grafana-cf-template.yaml](harvest-grafana-cf-template.yaml) file from this repo.
+   - Download the [harvest-grafana-cf-template.yaml](harvest-grafana-cf-template.yaml) file from this repo. Click on the download icon in the top right corner of the file view to download it to your local machine.
 
 2. **Create the Stack**
-   - Open the AWS console and to the CloudFormation service page.
-   - Choose **Create stack** and select **With new resources**, 
-   - Select **Choose an existing template** and **Upload a template file** 
-   - Upload the `harvest-grafana-cf-template.yaml` file.
-   - Click **Next**
+   - Open the AWS console and go to the CloudFormation service page.
+   - Choose **Create stack** and select **With new resources**.
+   - Select **Choose an existing template** and **Upload a template file**.
+   - Select the `harvest-grafana-cf-template.yaml` file you downloaded in the step above.
+   - Click **Next**.
 
 3. **Specify Stack Details**
-   - **Parameters**: Review and modify the parameters as needed for your file system. The default values are:
+   - **Parameters**: Review and modify the parameters as needed for your file system:
      - **InstanceType**: Select the instance type to run the Harvest+Grafana+Prometheus stack. You should allocate at least 2 vCPUs and 1GB of RAM for every 10 FSxN file systems you plan to monitor. The default is `t3.medium`.
-     - **KeyPair**: Specify the key pair to access the EC2 instance.
-     - **SecurityGroup**: Ensure inbound TCP ports 22, 3000 and optionally 9090 are open and outbound TCP 443 to the FSxNs you plan to monitor. It will also need access to the Internet so it can download the container images.
-     - **Subnet**: Specify a subnet that will have connectivity to all the FSxN file systems you plan to monitor over TCP port 433.
+     - **KeyPair**: Specify the AWS EC2 key pair to access the EC2 instance once it has been created.
+     - **SecurityGroup**: Ensure inbound TCP ports 22, 3000 and optionally 9090 are open and outbound TCP port 443 to the FSxNs you plan to monitor is open. It will also need access to the Internet over TCP port 443 so it can download the container images.
+     - **Subnet**: Specify a subnet that will have connectivity to all the FSxN file systems you plan to monitor.
      - **SubnetType**: Choose `public` or `private`. `Public` will allocated a public IP address to the EC2 instance.
-     - **InstanceAmiId**: Specify the Amazon Linux 2 AMI ID for the EC2 instance. The default is the latest version.
-     - **RoleName**: If you want to specify your own IAM role for the EC2 instance with at least the permissions listed above, enter the name here. If you leave it blank, the stack will create a new role with the necessary permissions for you.
-     - **FSxEndPoint**: Specify the management endpoint IP address of your FSx file system.
-     - **SecretName**: Specify the AWS Secrets Manager secret name containing the password for the `fsxadmin` user.
+     - **InstanceAmiId**: Specify the Amazon Linux 2023 AMI ID for the EC2 instance. The default is the latest version.
+     - **RoleName**: If you want to specify your own IAM role for the EC2 instance with at least the permissions listed above, enter the name here. If you leave it blank, one will created with the necessary permissions for you.
+     - **FSxEndPoint**: Specify the management endpoint IP address of one of your FSx file systems. You will be able to add additional FSx file systems later.
+     - **SecretName**: Specify the AWS Secrets Manager secret name containing the credentials to use to retrieve the metrics from the FSx for ONTAP file system.
+  - Click **Next**.
 
 4. **Configure Stack Options**
-   - Click **Next** for stack options.
+   - You shouldn't have to change any options.
+   - Select the check box to acknowledge that the template might create IAM resource. If you provided an IAM role in the previous step, one will not be created.
+   - Click **Next**.
 
 5. **Review and Create**
    - Review the stack details and confirm the settings.
-   - Select the check box to acknowledge that the template might create IAM resource. If you provided an IAM role in the previous step, one will not be created.
-   - Choose **Create stack**.
+   - Click **Submit**.
 
 6. **Monitor Stack Creation**
    - Monitor the status of the stack in the AWS CloudFormation console. The status should change to `CREATE_COMPLETE` in about five minutes.
@@ -129,6 +133,7 @@ To add or remove FSxN resources, follow these steps:
 1. **Log in via SSH to the EC2 instance**
 
 2. **Move to the Harvest Directory**
+
     Navigate to the Harvest directory:
     ```bash
     cd /opt/harvest
