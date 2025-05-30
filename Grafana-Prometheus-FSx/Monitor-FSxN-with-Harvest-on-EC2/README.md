@@ -14,7 +14,20 @@ Here are some screenshots of a couple of the dashboards that are included to vis
 ![Screenshot-02](images/grafana-dashboard-02.png)
 
 ## Prerequisites
-The only prerequisite is an FSx for ONTAP file system running in your AWS account.
+- an FSx for ONTAP file system running in your AWS account.
+- an AWS Secrets Manager secret containing the credentials to be used to retrieve the metrics from the FSx for ONTAP file system.
+    - The secret **must** have a tag with a key of `fsxmonitoring` and a value of `true`.
+    - The secret value should have the following key/value pairs:
+        - `username`: `<username>`
+        - `password`: `<your_password>`
+- Optionally an AWS IAM role with the following permissions:
+    |Permission|Resources|Description|
+    |---|---|---|
+    |`secretsmanager:GetSecretValue`|The ARN to the secret, or `*` and a condition to only allow access to secrets that have a tag with a key of `fsxmonitoring` and a value of `true`.|Allows Harvest to retrieve the credentials from the AWS Secrets Manager secret.|
+    |`tag:GetResources`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
+    |`cloudwatch:GetMetricData`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
+    |`cloudwatch:GetMetricStatistics`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
+    |`cloudwatch:ListMetrics`|`*`|Allows YACE to discover and get CloudWatch metrics of the FSxNs|
 
 ## Architectural Overview
 
@@ -29,15 +42,16 @@ The steps below are geared towards the CloudFormation deployment method. If you 
 please refer to these [Manual Deployment Instructions](README-Manual.md).
 
 This deployment includes:
-- **Harvest**: Collects ONTAP metrics.[Documentation](https://github.com/NetApp/harvest).
-- **Yet Another CloudWatch Exporter (YACE)**: Collects FSxN CloudWatch metrics.[Documentation](https://github.com/prometheus-community/yet-another-cloudwatch-exporter).
-- **Prometheus**: Stores the metrics.
-- **Grafana**: Visualizes the metrics.
+- **EC2 Instance**: Runs Docker with a containerized versions of Harvest, YACE, Prometheus and Grafana.
+    - **Harvest**: Collects ONTAP metrics.[Documentation](https://github.com/NetApp/harvest).
+    - **Yet Another CloudWatch Exporter (YACE)**: Collects FSxN CloudWatch metrics.[Documentation](https://github.com/prometheus-community/yet-another-cloudwatch-exporter).
+    - **Prometheus**: Stores the metrics.
+    - **Grafana**: Visualizes the metrics.
 
 ## Deployment Steps
 
 1. **Download the AWS CloudFormation Template file**
-   - Download the `harvest-grafana-cf-template.yaml` file from this repo.
+   - Download the [harvest-grafana-cf-template.yaml](harvest-grafana-cf-template.yaml) file from this repo.
 
 2. **Create the Stack**
    - Open the AWS console and to the CloudFormation service page.
@@ -50,10 +64,11 @@ This deployment includes:
    - **Parameters**: Review and modify the parameters as needed for your file system. The default values are:
      - **InstanceType**: Select the instance type to run the Harvest+Grafana+Prometheus stack. You should allocate at least 2 vCPUs and 1GB of RAM for every 10 FSxN file systems you plan to monitor. The default is `t3.medium`.
      - **KeyPair**: Specify the key pair to access the EC2 instance.
-     - **SecurityGroup**: Ensure inbound ports 22, 3000 and 9090 are open.
-     - **SubnetType**: Choose `public` or `private`. `Public` will allocated a public IP address to the EC2 instance.
+     - **SecurityGroup**: Ensure inbound TCP ports 22, 3000 and optionally 9090 are open and outbound TCP 443 to the FSxNs you plan to monitor. It will also need access to the Internet so it can download the container images.
      - **Subnet**: Specify a subnet that will have connectivity to all the FSxN file systems you plan to monitor over TCP port 433.
+     - **SubnetType**: Choose `public` or `private`. `Public` will allocated a public IP address to the EC2 instance.
      - **InstanceAmiId**: Specify the Amazon Linux 2 AMI ID for the EC2 instance. The default is the latest version.
+     - **RoleName**: If you want to specify your own IAM role for the EC2 instance with at least the permissions listed above, enter the name here. If you leave it blank, the stack will create a new role with the necessary permissions for you.
      - **FSxEndPoint**: Specify the management endpoint IP address of your FSx file system.
      - **SecretName**: Specify the AWS Secrets Manager secret name containing the password for the `fsxadmin` user.
 
@@ -62,7 +77,7 @@ This deployment includes:
 
 5. **Review and Create**
    - Review the stack details and confirm the settings.
-   - Select the check box to acknowledge that the template creates IAM resources.
+   - Select the check box to acknowledge that the template might create IAM resource. If you provided an IAM role in the previous step, one will not be created.
    - Choose **Create stack**.
 
 6. **Monitor Stack Creation**
@@ -97,15 +112,16 @@ Some panels in these dashboards may be missing information that is not supported
 The way the monitoring system know which file systems to monitor is with a file of the name `input.txt`. This has the following format:
 
 - One line per FSx for NetApp ONTAP file system you want to monitor.
+- Blank lines and lines starting with `#` are ignored.
 - Each line should contain the following comma-separated values:
     ```
-    <filesystem_name>,<managment_ip>,<secret_name>,<region>
+    <filesystem_name>,<managment_ip>,<secret_ARN>,<region>
     ```
     Where:
 
-        <filesystem_name>: The name of the FSx for NetApp ONTAP file system. Cannot contain spaces.
+        <filesystem_name>: The name of the FSx for NetApp ONTAP file system. **Cannot contain spaces**.
         <management_ip>: The management IP address of the FSx for NetApp ONTAP file system.
-        <secret_name>: The name of the AWS Secrets Manager secret that contains the credentials to use.
+        <secret_ARN>: The ARN of the AWS Secrets Manager secret that contains the credentials to use.
         <region>: The AWS region where the FSx for NetApp ONTAP file system is located.
 
 To add or remove FSxN resources, follow these steps:
@@ -128,7 +144,7 @@ To add or remove FSxN resources, follow these steps:
     - To stop monitoring a system, edit the `input.txt` file and remove the line for the system you want to stop monitoring. Note that when you stop monitoring a system, its previous metrics will still be available in the Grafana dashboards until they "age out." No new data will be collected though.
 
 4. **Run the update_cluster.sh script**
-    - Run the `update_cluster.sh` script to update the Harvest configuration:
+    - Run the `update_cluster.sh` script to update the Harvest configuration. You will need `root` privileges to run this script, so use `sudo`:
       ```bash
       sudo ./update_cluster.sh
       ```
