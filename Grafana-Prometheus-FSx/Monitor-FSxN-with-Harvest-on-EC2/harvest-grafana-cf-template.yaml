@@ -15,11 +15,12 @@ Metadata:
           - SecurityGroup
           - SubnetType
           - Subnet
+          - RoleName
       - Label:
           default: Amazon FSx for Netapp ONTAP file system parameters
         Parameters:
           - FSxEndPoint
-          - SecretName
+          - SecretARN
     ParameterLabels:
       InstanceType:
         default: Instance Type
@@ -35,8 +36,10 @@ Metadata:
         default: Subnet ID
       FSxEndPoint:
         default: Management endpoint IP address
-      SecretName:
-        default: AWS Secrets Manager Secret Name
+      SecretARN:
+        default: AWS Secrets Manager Secret ARN
+      RoleName:
+        default: IAM Role Name
 
 Parameters:
   InstanceType:
@@ -81,13 +84,19 @@ Parameters:
     Description: File system management endpoint IP address
     Type: String
 
-  SecretName:
-    Description: 'AWS Secrets Manager Secret Name containing password for the file system "fsxadmin user". Validate secret is stored in format {"username" : "fsxadmin", "password" : "<your password>"}'
+  SecretARN:
+    Description: 'AWS Secrets Manager Secret ARN containing password for the file system "fsxadmin user". Validate secret is stored in format {"username" : "fsxadmin", "password" : "<your password>"}'
     Type: String
+
+  RoleName:
+    Description: 'Name of the IAM role to be used by the instance. If not provided, an appropriate role will be created for you.'
+    Type: String
+    Default: ''
 
 Conditions:
   CreatePublicIP: !Equals [!Ref SubnetType, public]
   CreatePrivateIP: !Equals [!Ref SubnetType, private]
+  CreateRole: !Equals [!Ref RoleName, '']
 
 Resources:
   Instance:
@@ -133,7 +142,6 @@ Resources:
               echo "Symbolic link /usr/bin/docker-compose already exists. Skipping."
           fi
 
-
           # Verify Docker and Docker Compose versions
           docker --version
           docker-compose --version
@@ -156,6 +164,8 @@ Resources:
           mkdir -p /opt/harvest
           cd /opt/harvest
 
+          echo "fsx01,${FSxEndPoint},${SecretARN},${AWS::Region}" > input.txt
+
           # Create harvest.yml
           cat <<EOF > harvest.yml
           Exporters:
@@ -166,19 +176,8 @@ Resources:
           Defaults:
             use_insecure_tls: true
           Pollers:
-            fsx01:
+            dummyfsx00:
               datacenter: fsx
-              addr: ${FSxEndPoint}
-              collectors:
-                - Rest
-                - RestPerf
-                - Ems
-              exporters:
-                - prometheus1
-              credentials_script:
-                path: /opt/fetch-credentails
-                schedule: 3h
-                timeout: 10s
           EOF
 
           # Configure SELinux for Docker
@@ -195,17 +194,11 @@ Resources:
             generate docker full \
             --output harvest-compose.yml
 
-          # Add environment variables to Docker Compose file
-          awk "/networks:/{print \"    environment:\\n      - SECRET_NAME=${SecretName}\\n      - AWS_REGION=${AWS::Region}\"}1" harvest-compose.yml > temp && mv temp harvest-compose.yml
-
-          # Replace image in Docker Compose file
-          sed -i 's|ghcr.io/netapp/harvest:latest|ghcr.io/tlvdevops/harvest-fsx:latest|g' harvest-compose.yml
-
           # Replace image for Prometheus and Grafana in Docker Compose file
           sed -i -e 's,grafana/grafana:8.3.4,grafana/grafana:latest,' -e 's,prom/prometheus:v2.55.0,prom/prometheus:latest,' prom-stack.yml
 
           # Download Grafana dashboards
-          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor_fsxn_with_harvest_on_ec2/fsx_dashboards.zip
           unzip fsx_dashboards.zip
           rm -rf grafana/dashboards && mv dashboards grafana/dashboards
 
@@ -263,11 +256,16 @@ Resources:
               - targets: ['yace:8080']
           EOF
 
-          # Start Docker Compose services
-          docker-compose -f prom-stack.yml -f harvest-compose.yml up -d --remove-orphans
+          # Download the update cluster script
+          wget wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/update_clusters.sh
+          chmod +x ./update_clusters.sh
+          ./update_clusters.sh
+
+          # Send signal to CloudFormation
+          # to indicate that the instance is ready
           /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource Instance --region ${AWS::Region}
 
-    CreationPolicy: 
+    CreationPolicy:
       ResourceSignal:
         Timeout: PT15M
 
@@ -276,10 +274,11 @@ Resources:
     Properties:
       Path: '/'
       Roles:
-        - Ref: MyIAMRole
+        - !If [CreateRole, !Ref MyIAMRole, !Ref RoleName]
 
   MyIAMRole:
     Type: 'AWS::IAM::Role'
+    Condition: CreateRole
     Properties:
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
@@ -301,8 +300,10 @@ Resources:
                   - 'secretsmanager:GetSecretValue'
                   - 'secretsmanager:DescribeSecret'
                   - 'secretsmanager:ListSecrets'
-                Resource:
-                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${SecretName}-*'
+                Resource: '*'
+                Condition:
+                  StringEquals:
+                    aws:ResourceTag/fsxmonitoring: "true"
               - Sid: 'Statement1'
                 Effect: Allow
                 Action:
