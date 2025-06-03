@@ -1,4 +1,4 @@
-# Monitoring ONTAP Services
+# FSx for ONTAP Alerting
 
 ## Introduction
 This program is used to monitor various services of an AWS FSx for NetApp ONTAP file system and alert you if anything
