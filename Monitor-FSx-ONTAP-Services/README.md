@@ -47,7 +47,7 @@ that in the [Endpoints for AWS Services](#endpoints-for-aws-services) section be
 ## Prerequisites
 - An FSx for NetApp ONTAP file system you want to monitor.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
-    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor-ontap-services/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
+    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the Lambda function over TCP port 443.
 - An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret that holds the FSx for ONTAP file system credentials. There should be two keys in the secret, one for the username and one for the password.
@@ -95,7 +95,7 @@ To install the program using the CloudFormation template, you will need to do th
 |SubnetIds|The subnet IDs that the Lambda function will be attached to. They must have connectivity to the FSxN file system management endpoint that you wish to monitor. It is recommended to select at least two.|
 |SecurityGroupIds|The security group IDs that the Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, and CloudWatch and S3 AWS service endpoints, as well as the FSxN file system you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
-|CloudWatchLogGroupName|The name of **an existing** CloudWatch Log Group that the Lambda function can send event messages to. It will create a new Log Stream within the Log Group every day that is unique to this file system so you can use the same Log Group for multiple instances of this program. If this field is left blank, alerts will not be sent to CloudWatch.|
+|CloudWatchLogGroupARN|The ARN of **an existing** CloudWatch Log Group that the Lambda function can send event messages to. It will create a new Log Stream within the Log Group every day that is unique to this file system so you can use the same Log Group for multiple instances of this program. If this field is left blank, alerts will not be sent to CloudWatch.|
 |SecretArn|The ARN of the secret within the AWS Secrets Manager that holds the FSxN file system credentials.|
 |SecretUsernameKey|The name of the key within the secret that holds the username portion of the FSxN file system credentials. The default is 'username'.|
 |SecretPasswordKey|The name of the key within the secret that holds the password portion of the FSxN file system credentials. The default is 'password'.|
@@ -104,7 +104,6 @@ To install the program using the CloudFormation template, you will need to do th
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
 |LambdaRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role](#create-an-aws-role) section below. If left blank a role will be created for you.|
-|SchedulerRoleArn|The ARN of the role that the EventBridge schedule will use to trigger the Lambda function. It just needs the permission to invoke a Lambda function. If left blank a role will be created for you.|
 |CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
 |CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
 |CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
@@ -125,16 +124,16 @@ set for the OntapAdminServer parameter.
 After the stack has been created, check the status of the Lambda function to make sure it is
 not in an error state. To find the Lambda function go to the Resources tab of the CloudFormation
 stack and click on the "Physical ID" of the Lambda function. This should bring you to the Lambda service in the AWS
-console. Once there, click on the "Monitor" tab to see if the function has been invoked. Locate the
+console. Once there, click on the "Monitor" tab to see if the function has been invoked. Note that it will take
+at least the configured iteration time before the function is invoked for the first time. Locate the
 "Error count and success rate(%)" chart, which is usually found at the top right corner of the "Monitor" dashboard.
-Within the "CheckInterval" number of minutes there should be at least one dot on that chart. Note that initially
-the chart is slow to reflect any status so you might have to be patient. Continue to press the "refresh"
-button (the icon with a circle on it) every minute or so to update the status. Once you see a dot on the chart, when you hover your mouse
-over it, you should see the "success rate" and "number of errors." The success rate should be 100% and the number
-of errors should be 0. If it is not, then scroll down to the CloudWatch Logs section and click on the most recent
-log stream. This will show you the output of the Lambda function. If there are any errors, they will be displayed
-there. If you can't figure out what is causing an error, then please create an issue in this repository and someone
-will help you.
+After  the "CheckInterval" number of minutes there should be at least one dot on that chart.
+Hover your mouse over the dot and you should see the "success rate" and "number of errors."
+The success rate should be 100% and the number of errors should be 0. If it is not, then scroll up a little bit and
+click on "View CloudWatch Logs" link. Once on this page, click on the first LogStream and review any output.
+If there are any errors, they will be displayed there. If you can't figure out what is causing an error,
+please create an issue on the [Issues](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) section
+in this repository and someone will help you.
 
 ---
 
@@ -167,7 +166,7 @@ Below is the specific list of permissions needed.
 The first use of the s3 bucket will be to store the Lambda layer zip file. This is required to include some dependencies that
 aren't included in the AWS Lambda environment. Currently the only dependency in the zip file is [cronsim](https://pypi.org/project/cronsim/).
 This is used to interpret the SnapMirror schedules to be able to report on lag issues. You can download the zip file from this repository by clicking on
-the [lambda_layer.zip](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor-ontap-services/lambda_layer.zip) link.
+the [lambda_layer.zip](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) link.
 You will refer to this file, and bucket, when you create the Lambda function.
 
 Another use of the s3 bucket is to store events that have already reported on so they can be compared against
@@ -254,7 +253,7 @@ Once you have created the function you will be able to:
     To create a Lambda layer go to the Lambda service page on the AWS console and click on the "Layers"
     tab under the "Additional resources" section. Then, click on the "Create layer" button.
     From there you'll need to provide a name for the layer, and the path to the
-    [lambda_layer.zip](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor-ontap-services/lambda_layer.zip)
+    [lambda_layer.zip](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip)
     file that you should download from this repository. If you uploaded that into the S3 bucket you created above, then
     just provide the S3 path to the file. For example, `s3://<your-bucket-name>.s3.<s3_region>.awsamzoneaws.com/lambda_layer.zip`.
     Once you have the layer created, you can add it to your Lambda function by going to the Lambda
@@ -325,7 +324,7 @@ Each rule should be an object with one, or more, of the following keys:
 |failover|Boolean|If 'true' the program will send an alert if the FSxN cluster is running on its standby node. If it is set to `false`, it will not report on failover status.|
 |networkInterfaces|Boolean|If 'true' the program will send an alert if any of the network interfaces are down.  If it is set to `false`, it will not report on any network interfaces that are down.|
 
-###### Matching condition schema for EMS Messages (ems)
+###### Matching condition schema for EMS Events (ems)
 Each rule should be an object with three keys, with an optional 4th key:
 
 |Key Name|Value Type|Notes|
@@ -509,7 +508,7 @@ websites that can validate a JSON file for you.
 
 ## Author Information
 
-This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-samples-scripts/graphs/contributors).
+This repository is maintained by the contributors listed on [GitHub](https://github.com/NetApp/FSx-ONTAP-monitoring/graphs/contributors).
 
 ## License
 

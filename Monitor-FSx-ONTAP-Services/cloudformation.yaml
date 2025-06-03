@@ -21,7 +21,9 @@ Metadata:
           - implementWatchdogAsLambda
           - watchdogRoleArn
           - LambdaRoleArn
-          - SchedulerRoleArn
+      - Label: 
+          default: "AWS Endpoint Options"
+        Parameters:
           - createSecretsManagerEndpoint
           - createSNSEndpoint
           - createCloudWatchLogsEndpoint
@@ -53,6 +55,90 @@ Metadata:
           - vserverNFSProtocolStateAlert
           - vserverCIFSProtocolStateAlert
 
+    ParameterLabels:
+      OntapAdminSever:
+        default: "FSxN Management IP or Hostname"
+      s3BucketName:
+        default: "S3 Bucket Name"
+      subNetIds:
+        default: "Subnet IDs"
+      securityGroupIds:
+        default: "Security Group IDs"
+      snsTopicArn:
+        default: "SNS Topic ARN"
+      cloudWatchLogGroupArn:
+        default: "CloudWatch Log Group ARN"
+      secretArn:
+        default: "Secrets Manager Secret ARN"
+      secretUsernameKey:
+        default: "Secret Username Key"
+      secretPasswordKey:
+        default: "Secret Password Key"
+      checkInterval:
+        default: "Check Interval (minutes)"
+      createWatchdogAlarm:
+        default: "Create Watchdog Alarm"
+      implementWatchdogAsLambda:
+        default: "Implement Watchdog as Lambda Function"
+      watchdogRoleArn:
+        default: "Watchdog Role ARN"
+      LambdaRoleArn:
+        default: "Lambda Role ARN"
+      createSecretsManagerEndpoint:
+        default: "Create Secrets Manager Endpoint"
+      createSNSEndpoint:
+        default: "Create SNS Endpoint"
+      createCloudWatchLogsEndpoint:
+        default: "Create CloudWatch Logs Endpoint"
+      createS3Endpoint:
+        default: "Create S3 Endpoint"
+      routeTableIds:
+        default: "Route Table IDs for S3 Endpoint"
+      vpcId:
+        default: "VPC ID for Endpoints"
+      endpointSecurityGroupIds:
+        default: "Endpoint Security Group IDs"
+      versionChangeAlert:
+        default: "Version Change Alert"
+      failoverAlert:
+        default: "Failover Alert"
+      emsEventsAlert:
+        default: "EMS Events Alert"
+      snapMirrorLagTimeAlert:
+        default: "SnapMirror Maximum Lag Time Alert (seconds)"
+      snapMirrorLagTimePercentAlert:
+        default: "SnapMirror Maximum Lag Time Percent Alert (%)"
+      snapMirrorStalledAlert:
+        default: "SnapMirror Stalled Transfer Alert (seconds)"
+      snapMirrorHealthAlert:
+        default: "SnapMirror Health Alert"
+      fileSystemUtilizationWarnAlert:
+        default: "File System (aggregate) Utilization Warning Alert (%)"
+      fileSystemUtilizationCriticalAlert:
+        default: "File System (aggregate) Utilization Critical Alert (%)"
+      volumeUtilizationWarnAlert:
+        default: "Volume Utilization Warning Alert (%)"
+      volumeUtilizationCriticalAlert:
+        default: "Volume Utilization Critical Alert (%)"
+      volumeFileUtilizationWarnAlert:
+        default: "Volume File (inode) Utilization Warning Alert (%)"
+      volumeFileUtilizationCriticalAlert:
+        default: "Volume File (inode) Utilization Critical Alert (%)"
+      volumeOfflineAlert:
+        default: "Volume Offline Alert"
+      softQuotaUtilizationAlert:
+        default: "Soft Quota Utilization Alert (%)"
+      hardQuotaUtilizationAlert:
+        default: "Hard Quota Utilization Alert (%)"
+      inodesQuotaUtilizationAlert:
+        default: "Inodes Quota Utilization Alert (%)"
+      vserverStateAlert:
+        default: "Vserver State Alert"
+      vserverNFSProtocolStateAlert:
+        default: "Vserver NFS Protocol State Alert"
+      vserverCIFSProtocolStateAlert:
+        default: "Vserver CIFS Protocol State Alert"
+
 Parameters:
   OntapAdminSever:
     Description: "The DNS name, or IP address, of the management endpoint of the FSxN file system to be monitored."
@@ -63,7 +149,7 @@ Parameters:
     Type: String
 
   subNetIds:
-    Description: "The subnet IDs where you want to deploy the Lambda function. Must have connectivity to the FSxN file system to be monitored."
+    Description: "The subnet IDs where you want to deploy the Lambda function. Must have connectivity to the FSxN file system to be monitored. Recommended to have at least two. Also recommended to be in a private subnet."
     Type: "List<AWS::EC2::Subnet::Id>"
 
   securityGroupIds:
@@ -101,7 +187,7 @@ Parameters:
     AllowedValues: ["true", "false"]
 
   implementWatchdogAsLambda:
-    Description: "Use a Lambda function to publish to the SNS topic so it can reside in a different region. Only needed if you are creating the CloudWatch alarm and the SNS topic is in a different region."
+    Description: "Use a Lambda function to publish to the SNS topic so the topic can reside in a different region. Only needed if you are creating the CloudWatch alarm and the SNS topic is in a different region."
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
@@ -112,25 +198,25 @@ Parameters:
     Default: ""
 
   createSecretsManagerEndpoint:
-    Description: "Create a Secrets Manager endpoint."
+    Description: "Set to 'true' if you want to create a Secrets Manager endpoint."
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
 
   createSNSEndpoint:
-    Description: "Create an SNS endpoint."
+    Description: "Set to 'true if you want to create an SNS endpoint."
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
 
   createCloudWatchLogsEndpoint:
-    Description: "Create a CloudWatch logs endpoint."
+    Description: "Set to 'true if you want to create a CloudWatch logs endpoint."
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
 
   createS3Endpoint:
-    Description: "Create an S3 endpoint."
+    Description: "Set to 'true if you want to create an S3 endpoint."
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
@@ -146,17 +232,12 @@ Parameters:
     Default: ""
 
   endpointSecurityGroupIds:
-    Description: "The security group IDs, comma separated list, to associate with the SNS, SecretsManager and/or CloudWatch Logs endpoints. Must allow traffic from from the Lambda function over TCP port 443. This parameter is only needed if you are creating the SNS, SecretsManager, or CloudWatch Logs endpoint."
+    Description: "The security group IDs, comma separated list, to associate with the SNS, SecretsManager and/or CloudWatch Logs endpoints. Must allow inbound traffic from from the Lambda function over TCP port 443. This parameter is only needed if you are creating the SNS, SecretsManager, or CloudWatch Logs endpoint."
     Type: CommaDelimitedList
     Default: ""
 
   LambdaRoleArn:
     Description: "The ARN of the role to use for the Lambda function. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
-    Type: String
-    Default: ""
-
-  SchedulerRoleArn:
-    Description: "The ARN of the role to use for the Lambda scheduler. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
     Type: String
     Default: ""
 
@@ -192,7 +273,7 @@ Parameters:
   snapMirrorLagTimePercentAlert:
     Description: "Alert when the last succesful SnapMirror update time is more than this percent of the amount of time since the last scheduled update. Must be more than 100. A value of 200 means 2 times the update interval. Set to 0 to disable this alert."
     Type: Number
-    MinValue: 100
+    MinValue: 0
     Default: 200
 
   snapMirrorStalledAlert:
@@ -295,7 +376,6 @@ Conditions:
   CreateWatchdogRole: !And [!Equals [!Ref watchdogRoleArn, ""], !Equals [!Ref implementWatchdogAsLambda, "true"]]
   CreateLambdaRoleWithCW: !And [!Equals [!Ref LambdaRoleArn, ""], !Not [!Equals [!Ref cloudWatchLogGroupArn, ""]]]
   CreateLambdaRoleWithoutCW: !And [!Equals [!Ref LambdaRoleArn, ""], !Equals [!Ref cloudWatchLogGroupArn, ""]]
-  CreateSchedulerRole: !Equals [!Ref SchedulerRoleArn, ""]
 
 Resources:
   SecretManagerEndpoint:
@@ -533,42 +613,27 @@ Resources:
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
                   - !Ref cloudWatchLogGroupArn
   #
-  # This is the role that will be assigned to the scheduler EventBridge if the user
-  # doesn't want to provide a role ARN.
-  SchedulerRole:
-    Type: "AWS::IAM::Role"
-    Condition: CreateSchedulerRole
+  # Instead of creating a EventBridge schedule, create an EventBridge rule triggered by a schedule.
+  # This way a separate role doesn't have to be created, just a Lambda permission to allow
+  # EventBridge to invoke the Lambda function.
+  LambdaEventRule:
+    Type: "AWS::Events::Rule"
     Properties:
-      RoleName: !Sub "SchedulerRole-${AWS::StackName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service: "scheduler.amazonaws.com"
-            Action: "sts:AssumeRole"
-
-      Policies:
-        - PolicyName: "SchedulerPolicy"
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: "Allow"
-                Action:
-                  - "lambda:InvokeFunction"
-                Resource: !GetAtt LambdaFunction.Arn
-
-  LambdaScheduler:
-    Type: "AWS::Scheduler::Schedule"
-    Properties:
-      Description: "Schedule the monitor-ontap-services Lambda function."
-      Name: !Sub "monitor-ontap-services-scheduler-${AWS::StackName}"
-      FlexibleTimeWindow:
-        Mode: "OFF"
+      Description: "Event rule to trigger the monitor-ontap-services Lambda function."
+      Name: !Sub "monitor-ontap-services-event-rule-${AWS::StackName}"
       ScheduleExpression: !Sub "rate(${checkInterval} minutes)"
-      Target:
-        Arn: !GetAtt LambdaFunction.Arn
-        RoleArn: !If [CreateSchedulerRole, !GetAtt SchedulerRole.Arn, !Ref SchedulerRoleArn]
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: "MonitorOntapServicesTarget"
+
+  LambdaPermissionEventRule:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt LambdaEventRule.Arn
 
   LambdaLayer:
     Type: "AWS::Lambda::LayerVersion"
@@ -648,8 +713,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v2.2
-          # Date: 2025-05-26-13:50:50
+          # Version: v2.3
+          # Date: 2025-06-03-16:05:04
           ################################################################################
           
           import json
@@ -1922,7 +1987,7 @@ Resources:
                           conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"networkInterfaces": False})
                   elif name == "initialEmsEventsAlert":
                       if value == "true":
-                          conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "error|alert|emergency", "message": ""})
+                          conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "error|alert|emergency", "message": "", "filter": ""})
                   elif name == "initialSnapMirrorHealthAlert":
                       if value == "true":
                           conditions["services"][getServiceIndex("snapmirror", conditions)]["rules"].append({"Healthy": False})  # This is what it matches on, so it is interesting when the health is false.
