@@ -58,17 +58,11 @@ INVALID_LINES=0
 UNIQUE_REGIONS=()
 
 # Expecting: cluster_name,cluster_ip,secret_arn,region
-while IFS=',' read -r cluster_name cluster_ip secret_arn region; do
+while IFS=', ' read -r cluster_name cluster_ip secret_arn region; do
     LINE_NUM=$((LINE_NUM + 1))
 
-    # Trim whitespace
-    cluster_name=$(echo "$cluster_name" | xargs)
-    cluster_ip=$(echo "$cluster_ip" | xargs)
-    secret_arn=$(echo "$secret_arn" | xargs)
-    region=$(echo "$region" | xargs)
-
-    # Skip empty lines
-    if [[ -z "$cluster_name" && -z "$cluster_ip" && -z "$secret_arn" && -z "$region" ]]; then
+    # Skip empty lines and lines that start with a '#'
+    if [[ "${cluster_name}" == \#* || ( -z "$cluster_name" && -z "$cluster_ip" && -z "$secret_arn" && -z "$region" ) ]]; then
         continue
     fi
 

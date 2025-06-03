@@ -13,8 +13,9 @@ Metadata:
           - InstanceType
           - KeyPair
           - SecurityGroup
-          - SubnetType
           - Subnet
+          - SubnetType
+          - LatestLinuxAmiId
           - RoleName
       - Label:
           default: Amazon FSx for Netapp ONTAP file system parameters
@@ -198,7 +199,7 @@ Resources:
           sed -i -e 's,grafana/grafana:8.3.4,grafana/grafana:latest,' -e 's,prom/prometheus:v2.55.0,prom/prometheus:latest,' prom-stack.yml
 
           # Download Grafana dashboards
-          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-samples-scripts/main/Monitoring/monitor_fsxn_with_harvest_on_ec2/fsx_dashboards.zip
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
           unzip fsx_dashboards.zip
           rm -rf grafana/dashboards && mv dashboards grafana/dashboards
 
@@ -257,8 +258,8 @@ Resources:
           EOF
 
           # Download the update cluster script
-          wget wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/update_clusters.sh
-          chmod +x ./update_clusters.sh
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/update_clusters.sh
+          chmod +x update_clusters.sh
           ./update_clusters.sh
 
           # Send signal to CloudFormation
@@ -298,30 +299,16 @@ Resources:
               - Effect: Allow
                 Action:
                   - 'secretsmanager:GetSecretValue'
-                  - 'secretsmanager:DescribeSecret'
-                  - 'secretsmanager:ListSecrets'
                 Resource: '*'
                 Condition:
                   StringEquals:
                     aws:ResourceTag/fsxmonitoring: "true"
-              - Sid: 'Statement1'
-                Effect: Allow
+              - Effect: Allow
                 Action:
                   - 'tag:GetResources'
                   - 'cloudwatch:GetMetricData'
                   - 'cloudwatch:GetMetricStatistics'
                   - 'cloudwatch:ListMetrics'
-                  - 'apigateway:GET'
-                  - 'aps:ListWorkspaces'
-                  - 'autoscaling:DescribeAutoScalingGroups'
-                  - 'dms:DescribeReplicationInstances'
-                  - 'dms:DescribeReplicationTasks'
-                  - 'ec2:DescribeTransitGatewayAttachments'
-                  - 'ec2:DescribeSpotFleetRequests'
-                  - 'shield:ListProtections'
-                  - 'storagegateway:ListGateways'
-                  - 'storagegateway:ListTagsForResource'
-                  - 'iam:ListAccountAliases'
                 Resource:
                   - '*'
 
