@@ -9,11 +9,11 @@ This repository contains utilities for monitoring, alerting and auditing of FSx 
 
 ## Table of Contents
 
-* [Automatically Add CloudWatch Alarms for FSx Resources](Auto-Add-CloudWatch-Alarms)
+* [Automatically Add CloudWatch Alarms for FSx Resources](FSx_Alerting/Auto-Add-CloudWatch-Alarms)
+* [Alert on FSx for ONTAP resources](FSx_Alerting/FSx_ONTAP_Alerting)
 * [CloudWatch Dashboard for FSx for ONTAP](CloudWatch-Dashboard-FSx)
 * [Grafana Dashboards for FSx for ONTAP](Grafana-Prometheus-FSx)
 * [Ingest NAS audit logs into CloudWatch](FSx-Audit-Logs-CloudWatch)
-* [Monitor FSx ONTAP resources with a Python Lambda Function](Monitor-FSx-ONTAP-Services)
 
 If you have any requests for new content, or have any suggestions regarding existing content, please either post you ideas to the
 [Ideas](https://github.com/NetApp/FSx-ONTAP-monitoring/discussions/categories/ideas) section in the
