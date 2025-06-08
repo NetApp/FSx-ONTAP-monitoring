@@ -47,8 +47,8 @@ This deployment creates the following AWS resources:
     - **Yet Another CloudWatch Exporter (YACE)**: Collects FSxN CloudWatch metrics.[Documentation](https://github.com/prometheus-community/yet-another-cloudwatch-exporter).
     - **Prometheus**: Stores the metrics.
     - **Grafana**: Visualizes the metrics.
-- Optionally **IAM Role**: Provides the necessary permissions to the EC2 instance to access the FSx for ONTAP file system and AWS Secrets Manager secret.
-- Optionally **EC2 Instance Profile**: Allows the EC2 instance to assume the IAM role created above.
+- Optionally **IAM Role**: Provides the necessary permissions to the EC2 instance to access the FSx for ONTAP file system and AWS Secrets Manager secret. If not created, one will need to be provided.
+- **EC2 Instance Profile**: Allows the EC2 instance to assume the IAM role created above or provided.
 
 ## Deployment Steps
 
@@ -94,7 +94,7 @@ This deployment creates the following AWS resources:
   - Default credentials:
     - Username: `admin`
     - Password: `admin`
-  - **Note**: You will be prompted to change your password upon the first login.
+  - **Note**: You will be prompted to change your password upon the first login, it is recommended to do so.
 
 ## Supported Dashboards
 

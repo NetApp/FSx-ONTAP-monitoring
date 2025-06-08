@@ -156,12 +156,55 @@ for cluster_name in $EXISTING_CLUSTERS; do
     fi
 done
 
-# Process harvest-compose.yml with dynamic ports
+# Load existing ports from harvest-compose.yml to preserve them
+declare -A CLUSTER_PORTS
+if [[ -f "$HARVEST_COMPOSE_FILE" ]]; then
+    # echo "DEBUG: Loading existing ports from $HARVEST_COMPOSE_FILE"
+    # Extract cluster_name and port from existing compose file
+    while IFS= read -r line; do
+        cluster=$(echo "$line" | awk '{print $1}')
+        port=$(echo "$line" | awk '{print $2}' | cut -d':' -f1)
+        if [[ -n "$cluster" && -n "$port" ]]; then
+            CLUSTER_PORTS["$cluster"]="$port"
+            # echo "DEBUG: Existing port - $cluster => $port"
+        fi
+    done < <(yq e '.services | to_entries | .[] | select(.key != "yace") | "\(.key) \(.value.ports[0])"' "$HARVEST_COMPOSE_FILE")
+fi
+
+# Find the next available port
+find_next_port() {
+    local port=$BASE_PORT
+    while :; do
+        local used=false
+        for p in "${CLUSTER_PORTS[@]}"; do
+            if [[ "$p" == "$port" ]]; then
+                used=true
+                break
+            fi
+        done
+        if [[ "$used" == false ]]; then
+            echo "$port"
+            return
+        fi
+        port=$((port + 1))
+    done
+}
+
+# Process harvest-compose.yml with dynamic ports (preserve existing ports)
 echo "Updating $HARVEST_COMPOSE_FILE..."
-current_port=$BASE_PORT
-TARGETS=()  # Array to store targets for harvest_targets.yml
+TARGETS=()
 for entry in "${INPUT_CLUSTERS[@]}"; do
     IFS='|' read -r cluster_name cluster_ip secret_arn region <<< "$entry"
+
+    # Use existing port if present, otherwise assign next available
+    if [[ -n "${CLUSTER_PORTS[$cluster_name]}" ]]; then
+        current_port="${CLUSTER_PORTS[$cluster_name]}"
+        # echo "DEBUG: Keeping existing port for $cluster_name: $current_port"
+    else
+        current_port=$(find_next_port)
+        CLUSTER_PORTS["$cluster_name"]="$current_port"
+        # echo "DEBUG: Recycling/assigning new port for $cluster_name: $current_port"
+    fi
 
     # Check if service exists
     if yq e ".services.$cluster_name" "$HARVEST_COMPOSE_FILE" | grep -q 'null'; then
@@ -193,9 +236,6 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
 
     # Add to targets array without quotes
     TARGETS+=("$cluster_name:$current_port")
-
-    # Increment the port for the next cluster
-    current_port=$((current_port + 1))
 done
 
 ## Remove blocks from harvest-compose.yml that are not in input.txt
