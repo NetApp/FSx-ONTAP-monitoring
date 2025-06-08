@@ -159,14 +159,14 @@ done
 # Load existing ports from harvest-compose.yml to preserve them
 declare -A CLUSTER_PORTS
 if [[ -f "$HARVEST_COMPOSE_FILE" ]]; then
-    echo "DEBUG: Loading existing ports from $HARVEST_COMPOSE_FILE"
+    # echo "DEBUG: Loading existing ports from $HARVEST_COMPOSE_FILE"
     # Extract cluster_name and port from existing compose file
     while IFS= read -r line; do
         cluster=$(echo "$line" | awk '{print $1}')
         port=$(echo "$line" | awk '{print $2}' | cut -d':' -f1)
         if [[ -n "$cluster" && -n "$port" ]]; then
             CLUSTER_PORTS["$cluster"]="$port"
-            echo "DEBUG: Existing port - $cluster => $port"
+            # echo "DEBUG: Existing port - $cluster => $port"
         fi
     done < <(yq e '.services | to_entries | .[] | select(.key != "yace") | "\(.key) \(.value.ports[0])"' "$HARVEST_COMPOSE_FILE")
 fi
@@ -199,11 +199,11 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
     # Use existing port if present, otherwise assign next available
     if [[ -n "${CLUSTER_PORTS[$cluster_name]}" ]]; then
         current_port="${CLUSTER_PORTS[$cluster_name]}"
-        echo "DEBUG: Keeping existing port for $cluster_name: $current_port"
+        # echo "DEBUG: Keeping existing port for $cluster_name: $current_port"
     else
         current_port=$(find_next_port)
         CLUSTER_PORTS["$cluster_name"]="$current_port"
-        echo "DEBUG: Recycling/assigning new port for $cluster_name: $current_port"
+        # echo "DEBUG: Recycling/assigning new port for $cluster_name: $current_port"
     fi
 
     # Check if service exists
