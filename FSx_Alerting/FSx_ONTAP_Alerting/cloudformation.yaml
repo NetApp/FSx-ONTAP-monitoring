@@ -21,7 +21,9 @@ Metadata:
           - implementWatchdogAsLambda
           - watchdogRoleArn
           - LambdaRoleArn
-      - Label: 
+          - lambdaLayerArn
+          - accountId
+      - Label:
           default: "AWS Endpoint Options"
         Parameters:
           - createSecretsManagerEndpoint
@@ -82,8 +84,12 @@ Metadata:
         default: "Implement Watchdog as Lambda Function"
       watchdogRoleArn:
         default: "Watchdog Role ARN"
+      lambdaLayerArn:
+        default: "Lambda Layer ARN"
       LambdaRoleArn:
         default: "Lambda Role ARN"
+      accountId:
+        default: "Account ID"
       createSecretsManagerEndpoint:
         default: "Create Secrets Manager Endpoint"
       createSNSEndpoint:
@@ -241,6 +247,16 @@ Parameters:
     Type: String
     Default: ""
 
+  lambdaLayerArn:
+    Description: "The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda_layer.zip found in your S3 bucket."
+    Type: String
+    Default: ""
+
+  accountId:
+    Description: "An account ID you want added to the FSxN file system name in alerts. This purely for documentation purposes and serves no other purpose."
+    Type: String
+    Default: ""
+
   checkInterval:
     Description: "The interval, in minutes, between checks."
     Type: Number
@@ -376,6 +392,7 @@ Conditions:
   CreateWatchdogRole: !And [!Equals [!Ref watchdogRoleArn, ""], !Equals [!Ref implementWatchdogAsLambda, "true"]]
   CreateLambdaRoleWithCW: !And [!Equals [!Ref LambdaRoleArn, ""], !Not [!Equals [!Ref cloudWatchLogGroupArn, ""]]]
   CreateLambdaRoleWithoutCW: !And [!Equals [!Ref LambdaRoleArn, ""], !Equals [!Ref cloudWatchLogGroupArn, ""]]
+  CreateLambdaLayer: !Equals [!Ref lambdaLayerArn, ""]
 
 Resources:
   SecretManagerEndpoint:
@@ -637,6 +654,7 @@ Resources:
 
   LambdaLayer:
     Type: "AWS::Lambda::LayerVersion"
+    Condition: CreateLambdaLayer
     Properties:
       LayerName: !Sub "MOS-${AWS::StackName}"
       Content:
@@ -656,7 +674,7 @@ Resources:
       PackageType: "Zip"
       Runtime: "python3.12"
       Layers:
-        - !GetAtt LambdaLayer.LayerVersionArn
+        - !If [CreateLambdaLayer, !GetAtt LambdaLayer.LayerVersionArn, !Ref lambdaLayerArn]
       Handler: "index.lambda_handler"
       Timeout: 60
       Environment:
@@ -670,6 +688,7 @@ Resources:
           snsTopicArn: !Ref snsTopicArn
           sendSnsFunctionName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
           cloudWatchLogGroupArn: !Ref cloudWatchLogGroupArn
+          awsAccountId: !Ref accountId
 
           initialVersionChangeAlert: !Ref versionChangeAlert
           initialFailoverAlert: !Ref failoverAlert
@@ -713,8 +732,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v2.3
-          # Date: 2025-06-03-16:05:04
+          # Version: v3.1
+          # Date: 2025-06-10-17:54:22
           ################################################################################
           
           import json

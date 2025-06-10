@@ -5,7 +5,7 @@
 # the template.
 #################################################################################
 
-majorVersionNum=2
+majorVersionNum=3
 file="monitor_ontap_services.py"
 
 tmpfile1=$(mktemp /tmp/tmpfile1.XXXXXX)
