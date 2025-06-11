@@ -1,0 +1,113 @@
+#!/bin/bash
+#
+# This script is used to deploy the CloudFormation stack for monitoring
+# ONTAP system.
+################################################################################
+#
+################################################################################
+# This function just prints the usage of the script and exits.
+################################################################################
+usage () {
+  cat <<EOF >&2
+Usage: $(basename $0) -o <ontapServer> -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>]
+    -o <ontapServer> The name of the ONTAP system to monitor
+    -b <bucket> The S3 bucket where the CloudFormation template is stored
+    -s <subnets> Comma-separated list of subnet IDs (not ARNs).
+    -g <securityGroup> The security group ID to use (not ARN). Just needs to allow outbound over TCP port 443.
+    -t <snsTopicArn> The ARN of the SNS topic for notifications.
+    -a <secretArn> The ARN of the Secrets Manager secret for credentials.
+    -c <matchingConnditionsFile> The matching conditions file (optional).
+    -i <accountId> The account ID that will be added to the cluster name for identification puproses.
+    -r <roleArn> The Arn of the role to use for the Monitoring Lambda function (optional).
+    -w <true|false> Create a watchdog alarm (optional, default is true).
+    -x <watchdogRoleArn> The ARN of the role to use for the watchdog Lambda function (optional).
+    -v <checkInterval> The interval in minutes to check the ONTAP system (optional, the default is 15 minutes).
+    -l <lambdaLayerArn> The ARN of the Lambda layer to use (optional).
+EOF
+  exit 1
+}
+
+################################################################################
+# Main code starts here.
+################################################################################
+#
+# Process command line arguments.
+watchdog="true"
+checkInterval=15
+while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:" opt; do
+  case $opt in
+    o) ontapServer="$OPTARG" ;;
+    b) bucket="$OPTARG" ;;
+    c) matchingConditionsFile="$OPTARG" ;;
+    s) subnets="'$OPTARG'" ;;
+    g) securityGroup="$OPTARG" ;;
+    t) snsTopicArn="$OPTARG" ;;
+    a) secretArn="$OPTARG" ;;
+    i) accountId="$OPTARG" ;;
+    r) roleArn="$OPTARG" ;;
+    w) watchdog="$(echo $OPTARG | tr '[A-Z]' '[a-z]')" ;;
+    x) watchdogRoleArn="$OPTARG" ;;
+    v) checkInterval="$OPTARG" ;;
+    l) lambdaLayerArn="$OPTARG" ;;
+    *) usage ;;
+  esac
+done
+
+if [[ -z "$ontapServer" || -z "$bucket" || -z "$subnets" || -z "$securityGroup" || -z "$snsTopicArn" || -z "$secretArn" ]]; then
+  echo "Error: Missing required arguments." >&2
+  usage
+fi
+
+if [[ $watchdog != "true" && $watchdog != "false" ]]; then
+  echo "Error: Invalid value for -w option. Use 'true' or 'false'." >&2
+  usage
+fi
+#
+# Create a CloudFormation stack name that isn't too long.
+stackName=MOS-$(echo $ontapServer | tr  -s '.' '-')
+stackName=${stackName:0:29}
+
+if [ ! -z "$matchingConditionsFile" ]; then
+  if aws s3 cp $matchingConditionsFile s3://$bucket/${ontapServer}-conditions; then
+    :
+  else
+    echo "Error, could not copy matching conditions file to S3 bucket." >&2
+    echo "Exiting..." >&2
+    exit 1
+  fi
+fi
+#
+# The script got too big now it has to be stored in a S3 bucket.
+if aws s3 cp cloudformation.yaml s3://$bucket; then
+    :
+  else
+    echo "Error, could not copy cloudformation.yaml to S3 bucket." >&2
+    echo "Exiting..." >&2
+    exit 1
+fi
+#
+# Since the only reason to provide a watchdog role ARN is to attach it to the Lambda function
+# that it will use to publish the SNS topic. Otherwise, assume the watchdog ClouedWatch
+# alarm will publish to the topic directly.
+if [ ! -z "$watchdogRoleArn" ]; then
+  implementWatchdogAsLambda="true"
+else
+  implementWatchdogAsLambda="false"
+fi
+#
+# Deploy the stack
+aws cloudformation create-stack --stack-name $stackName --template-url https://s3.amazonaws.com/${bucket}/cloudformation-acct.yaml \
+  --capabilities CAPABILITY_NAMED_IAM --parameters \
+  ParameterKey=OntapAdminSever,ParameterValue=$ontapServer \
+  ParameterKey=subNetIds,ParameterValue="$subnets" \
+  ParameterKey=securityGroupIds,ParameterValue=$securityGroup \
+  ParameterKey=snsTopicArn,ParameterValue=$snsTopicArn \
+  ParameterKey=secretArn,ParameterValue=$secretArn \
+  ParameterKey=s3BucketName,ParameterValue=$bucket \
+  ParameterKey=accountId,ParameterValue=$accountId  \
+  ParameterKey=createWatchdogAlarm,ParameterValue="$watchdog" \
+  ParameterKey=implementWatchdogAsLambda,ParameterValue="$implementWatchdogAsLambda" \
+  ParameterKey=watchdogRoleArn,ParameterValue="$watchdogRoleArn" \
+  ParameterKey=checkInterval,ParameterValue="$checkInterval" \
+  ParameterKey=lambdaLayerArn,ParameterValue="$lambdaLayerArn" \
+  ParameterKey=LambdaRoleArn,ParameterValue="$roleArn"
