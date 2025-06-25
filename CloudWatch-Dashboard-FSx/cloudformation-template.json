@@ -165,7 +165,7 @@
                 "true"
             ]
         },
-        "NeedToCreateLambdaSecretPolicy": {
+        "PasswordSecretArnProvided": {
             "Fn::Not": [
                 {
                     "Fn::Equals": [
@@ -356,7 +356,7 @@
                                 },
                                 {
                                     "Fn::If": [
-                                        "NeedToCreateLambdaSecretPolicy",
+                                        "PasswordSecretArnProvided",
                                         {
                                             "Effect": "Allow",
                                             "Action": "secretsmanager:GetSecretValue",
@@ -492,6 +492,7 @@
         },
         "MetricsScheduler": {
             "Type": "AWS::Scheduler::Schedule",
+            "Condition": "PasswordSecretArnProvided",
             "Properties": {
                 "Name": {"Fn::Join" : [ "-", [ "NetAppFsxMonitoringScheduler", "metrics", {"Ref": "AWS::StackName"}] ] },
                 "FlexibleTimeWindow": {
@@ -542,10 +543,7 @@
                                           ]},
                     "Input": {
                         "Fn::ToJsonString": {
-                            "action": "manageAlarmsCommand",
-                            "params": {
-                                "secretArn": {"Ref": "PasswordsSecretArn"}
-                            }
+                            "action": "manageAlarmsCommand"
                         }
                     }
                 }
