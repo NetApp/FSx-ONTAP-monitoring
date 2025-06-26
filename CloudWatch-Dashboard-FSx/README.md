@@ -17,8 +17,9 @@ The template creates the following resources:
 3. Schedulers - Two Amazon EventBridge schedulers that trigger the Lambda function to:
     1. Collect ONTAP metrics. Scheduled to trigger every minute.
     1. Create, update or delete CloudWatch alarms. Scheduled to trigger once an hour.
-4. Lambda Role - The IAM role that allows the Lambda function to run.
-5. Scheduler Role - The IAM role that allows the scheduler to trigger the Lambda function.
+4. A CloudWatch alarm that will alert you when the Lambda function fails. Not created if you don't provide an SNS Topic to send alerts to.
+4. Lambda Role - The IAM role that allows the Lambda function to run. This is optional if you don't provide a role ARN for the Lambda function to use.
+5. Scheduler Role - The IAM role that allows the scheduler to trigger the Lambda function. This is optinoal if you don't provide a role ARN for the scheduler to use.
 6. SecretManager endpoint - The Lambda function runs inside a VPC, which by default lacks outgoing internet connectivity. To
 enable the function to securely access the fsx credentials stored in AWS Secrets Manager, a VPC endpoint for the Secrets
 Manager service is required. This endpoint allows the Lambda function to retrieve sensitive information from Secrets Manager

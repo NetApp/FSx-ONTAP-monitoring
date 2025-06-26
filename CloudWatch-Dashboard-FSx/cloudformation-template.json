@@ -165,7 +165,7 @@
                 "true"
             ]
         },
-        "NeedToCreateLambdaSecretPolicy": {
+        "PasswordSecretArnProvided": {
             "Fn::Not": [
                 {
                     "Fn::Equals": [
@@ -199,6 +199,17 @@
                     "Ref": "SendUsage"
                 },
                 "true"
+            ]
+        },
+        "NeedToCreateWatchdogAlarm": {
+            "Fn::Not" : [{
+              "Fn::Equals": [
+                        {
+                            "Ref": "SnsTopicArn"
+                        },
+                        ""
+                    ]
+                }
             ]
         }
     },    
@@ -345,7 +356,7 @@
                                 },
                                 {
                                     "Fn::If": [
-                                        "NeedToCreateLambdaSecretPolicy",
+                                        "PasswordSecretArnProvided",
                                         {
                                             "Effect": "Allow",
                                             "Action": "secretsmanager:GetSecretValue",
@@ -392,7 +403,7 @@
                     }
                 },
                 "PackageType": "Image",
-                "Timeout": 90,
+                "Timeout": 300,
                 "Environment": {
                     "Variables": {
                         "NODE_TLS_REJECT_UNAUTHORIZED": "0",
@@ -407,6 +418,32 @@
                         "VOLUME_STORAGE_CAPACITY_UTILIZATION_ALARM_THRESHOLD": "80"
                     }
                 }
+            }
+        },
+        "watchdogCWAlarm": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Condition": "NeedToCreateWatchdogAlarm",
+            "Properties": {
+                "AlarmName": {"Fn::Sub": "CW-Dashboard-watchdog-${AWS::StackName}"},
+                "AlarmDescription": {"Fn::Sub": [
+                    "Watchdog alarm for the ${Name} Lambda function.", {
+                        "Name": { "Fn::Join": [ "-", [ "FSxNDashboard", {"Ref": "AWS::StackName"}]] }
+                    }
+                ]},
+                "Namespace": "AWS/Lambda",
+                "MetricName": "Errors",
+                "Dimensions":[{
+                        "Name": "FunctionName",
+                        "Value": {"Fn::Join" : [ "-", [ "FSxNDashboard", {"Ref": "AWS::StackName"}]]}
+                    }
+                ],
+                "Statistic": "Maximum",
+                "Period": 300,
+                "EvaluationPeriods": 1,
+                "TreatMissingData": "ignore",
+                "Threshold": 0.5,
+                "ComparisonOperator": "GreaterThanThreshold",
+                "AlarmActions": [ {"Ref": "SnsTopicArn"} ]
             }
         },
         "SchedulerRole": {
@@ -455,6 +492,7 @@
         },
         "MetricsScheduler": {
             "Type": "AWS::Scheduler::Schedule",
+            "Condition": "PasswordSecretArnProvided",
             "Properties": {
                 "Name": {"Fn::Join" : [ "-", [ "NetAppFsxMonitoringScheduler", "metrics", {"Ref": "AWS::StackName"}] ] },
                 "FlexibleTimeWindow": {

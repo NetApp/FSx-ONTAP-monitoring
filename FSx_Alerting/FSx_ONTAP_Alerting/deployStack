@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -e
 #
 # This script is used to deploy the CloudFormation stack for monitoring
 # ONTAP system.
@@ -9,8 +9,9 @@
 ################################################################################
 usage () {
   cat <<EOF >&2
-Usage: $(basename $0) -o <ontapServer> -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>]
+Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>]
     -o <ontapServer> The name of the ONTAP system to monitor
+    -R <region> The AWS region where the AWS resources are located. Optional, defaults to the region configured in the AWS CLI.
     -b <bucket> The S3 bucket where the CloudFormation template is stored
     -s <subnets> Comma-separated list of subnet IDs (not ARNs).
     -g <securityGroup> The security group ID to use (not ARN). Just needs to allow outbound over TCP port 443.
@@ -34,7 +35,8 @@ EOF
 # Process command line arguments.
 watchdog="true"
 checkInterval=15
-while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:" opt; do
+region=$(aws configure get region)
+while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:" opt; do
   case $opt in
     o) ontapServer="$OPTARG" ;;
     b) bucket="$OPTARG" ;;
@@ -49,6 +51,7 @@ while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:" opt; do
     x) watchdogRoleArn="$OPTARG" ;;
     v) checkInterval="$OPTARG" ;;
     l) lambdaLayerArn="$OPTARG" ;;
+    R) region="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -68,7 +71,7 @@ stackName=MOS-$(echo $ontapServer | tr  -s '.' '-')
 stackName=${stackName:0:29}
 
 if [ ! -z "$matchingConditionsFile" ]; then
-  if aws s3 cp $matchingConditionsFile s3://$bucket/${ontapServer}-conditions; then
+  if aws s3 --region $region cp $matchingConditionsFile s3://$bucket/${ontapServer}-conditions; then
     :
   else
     echo "Error, could not copy matching conditions file to S3 bucket." >&2
@@ -78,7 +81,7 @@ if [ ! -z "$matchingConditionsFile" ]; then
 fi
 #
 # The script got too big now it has to be stored in a S3 bucket.
-if aws s3 cp cloudformation.yaml s3://$bucket; then
+if aws s3 --region $region cp cloudformation.yaml s3://$bucket; then
     :
   else
     echo "Error, could not copy cloudformation.yaml to S3 bucket." >&2
@@ -96,7 +99,7 @@ else
 fi
 #
 # Deploy the stack
-aws cloudformation create-stack --stack-name $stackName --template-url https://s3.amazonaws.com/${bucket}/cloudformation-acct.yaml \
+aws cloudformation create-stack --region $region --stack-name $stackName --template-url https://s3.${region}.amazonaws.com/${bucket}/cloudformation.yaml \
   --capabilities CAPABILITY_NAMED_IAM --parameters \
   ParameterKey=OntapAdminSever,ParameterValue=$ontapServer \
   ParameterKey=subNetIds,ParameterValue="$subnets" \
