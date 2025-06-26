@@ -543,7 +543,10 @@
                                           ]},
                     "Input": {
                         "Fn::ToJsonString": {
-                            "action": "manageAlarmsCommand"
+                            "action": "manageAlarmsCommand",
+                            "params": {
+                                "secretArn": {"Ref": "PasswordsSecretArn"}
+                            }
                         }
                     }
                 }
