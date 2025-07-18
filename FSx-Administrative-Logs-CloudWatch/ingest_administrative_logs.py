@@ -7,9 +7,10 @@
 # It will create a log stream for each FSxN file system it finds.
 # It will attempt to process every FSxN file system within the region.
 # It leverages AWS secrets manager to get the credentials for the user account
-# used on each FSxN file systems. It will skip any FSxN file system that it
-# doesn't have credentials for. It will store the last read file for each FSxN
-# in the specified S3 bucket so that it will not duplicate events.
+# to use for each FSxN file systems.
+# It will skip any FSxN file system that it doesn't have credentials for.
+# It will maintain a file in the specified S3 bucket that has the last
+# processed event for each FSxN so that it will not duplicate events.
 #
 ################################################################################
 #
@@ -24,14 +25,18 @@ import botocore
 
 ################################################################################
 # You can configure this script by either setting the following variables in
-# code below, or by setting environment variables with the same name.
+# code below, or by setting environment variables with the same name, with
+# the exception of the secretARNs variable. It only can only be set in the code
+# below or you can provide a file that contains the information to
+# populate it with.
 ################################################################################
 #
 # Variable: secretARNs
 #
-# The secretARNs contains the secretARNs for all the FSxNs you want to process.
-# Unlike the rest of the variables, this one cannot be set via an environment
-# variable. There are three options to populate the secretsARN dictionary:
+# The secretARNs variable contains the secretARNs for all the FSxNs you want
+# to process. Unlike the rest of the variables, this one cannot be set via an
+# environment variable. There are three options to populate the secretsARN
+# dictionary:
 #
 # 1. Create a 'secretARNs' variable by un-commenting out the code segment
 #    below that defines dictionary with the following structure:
@@ -42,7 +47,7 @@ import botocore
 #     "<fsId-3>": "<secretARN>"
 #   }
 #
-# 2. Set the fsxnSecretARNsFile variable to the name of a file in the s3
+# 2. Set the fsxnSecretARNsFile variable to the name of a file in the S3
 #    bucket that contains the secretARNs.
 #
 # fsxnSecretARNsFile=
@@ -74,27 +79,40 @@ import botocore
 # *NOTE*: Each secret should have two keys: 'username' and 'password' set to the
 # appropriate values.
 #
+################################################################################
+#
 # Variables: s3BucketRegion & s3BucketName
 #
-# Specify what s3 bucket to use to store the last read file and potentially
-# the audit log files and the secretsARNs file.
+# Specify what S3 bucket to use to store the last stored event and potentially
+# the secretsARNs file.
+#
 # s3BucketRegion = "us-west-2"
 # s3BucketName = ""
 #
+################################################################################
+#
 # Variable: statsName
 #
-# The name of the "last read" file.
+# The name of the "last processed event" file.
 # statsName = "lastFileRead"
+#
+################################################################################
 #
 # Variable: fsxRegion
 #
 # The region to process the FSxNs in.
 # fsxRegion = "us-west-2"
 #
+################################################################################
+#
 # Variable: logGroupName
 #
-# The CloudWatch log group to store the audit logs in. It must already exist.
+# The CloudWatch log group to store the administrative events into. It must
+# already exist.
+#
 # logGroupName = "/fsx/audit_logs"
+#
+################################################################################
 #
 # Variable: inputFilter
 #
@@ -102,23 +120,30 @@ import botocore
 # the audit log events based on the 'input' field of the event. If the
 # inputFilter is set, then the event will be skipped if the 'input' field
 # matches the inputFilter. If the inputFilter is not set, then all events
-# will be recorded.
+# will be stored.
+#
 # inputFilter=""
+#
+################################################################################
 #
 # Variable: inputMatch
 #
 # The inputMatch is a regular expression that is used to match the 'input'
-# field of the event. If the inputMatch is set, then ONLY events that match
-# the 'input' field matches the inputMatch will be recorded. If the inputMatch
+# field of the event. If the inputMatch is set, then ONLY the events that
+# the 'input' field matches the inputMatch will be stored. If the inputMatch
 # is not set, then all events will be recorded.
+#
 # inputMatch=""
+#
+################################################################################
 #
 # Variables: applicationMatch, userMatch, stateMatch
 #
 # These are regular expressions that are used to match the 'application',
 # 'user', and 'state' fields of the event. If these are set, then ONLY events
-# that match the 'application', 'user', and 'state' fields will be recorded.
+# that match the 'application', 'user', and 'state' fields will be stored.
 # If these are not set, then all events will be recorded.
+#
 # applicationMatch=""
 # userMatch=""
 # stateMatch=""
@@ -128,8 +153,8 @@ import botocore
 ################################################################################
 
 ################################################################################
-# This function returns the millisecond epoch time from a date string. The
-# format of the string is expected to be:
+# This function returns the millisecond since January 1st 1970 (epoch time)
+# from a date string. The format of the string is expected to be:
 #     2025-07-14T08:08:48-06:00
 #     YYYY-MM-DDTHH:MM:SS±HH:MM
 #
@@ -182,7 +207,8 @@ def putEventInCloudWatch(cwEvents, logStreamName):
 ################################################################################
 def checkConfig():
     global config, s3Client, secretARNs
-
+    #
+    # When defining the dictionary, initialize them to any variables that are set at the top of the program.
     config = {
         'logGroupName': logGroupName if 'logGroupName' in globals() else None,                    # pylint: disable=E0602
         'fsxRegion': fsxRegion if 'fsxRegion' in globals() else None,                             # pylint: disable=E0602
@@ -211,11 +237,19 @@ def checkConfig():
                       'fileSystem1ID', 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
                       'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN',
                       'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
-
+    #
+    # Check to see if any variables are set via environment variables.
     for item in config:
-        if config[item] == None:
+        if config[item] is None:
             config[item] = os.environ.get(item)
-        if item not in optionalConfig and config[item] == None:
+            #
+            # Since CloudFormation will create environment variables for everything, but set them to an
+            # empty string if the variable wasn't set, set the configuration variable back to None.
+            if config[item] == "":
+                config[item] = None
+        #
+        # If any required variables are not set at this point, raise an exception.
+        if item not in optionalConfig and config[item] is None:
             raise Exception(f"{item} is not set.")
     #
     # Create a S3 client.
@@ -224,39 +258,39 @@ def checkConfig():
     # Define the secretsARNs dictionary if it hasn't already been defined.
     if 'secretARNs' not in globals():
         secretARNs = {}
-    #
-    # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
-    if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
-        try:
-            response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
-        except botocore.exceptions.ClientError as err:
-            raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
+        #
+        # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
+        if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
+            try:
+                response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
+            except botocore.exceptions.ClientError as err:
+                raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
+            else:
+                for line in response['Body'].iter_lines():
+                    line = line.decode('utf-8')
+                    line = line.strip()
+                    if line.startswith('#'):
+                        continue
+                    if line == '':
+                        continue
+                    fsId, secretArn = line.split('=')
+                    secretARNs[fsId.strip()] = secretArn.strip()
         else:
-            for line in response['Body'].iter_lines():
-                line = line.decode('utf-8')
-                line = line.strip()
-                if line.startswith('#'):
-                    continue
-                if line == '':
-                    continue
-                fsId, secretArn = line.split('=')
-                secretARNs[fsId.strip()] = secretArn.strip()
-    else:
-        if config['fileSystem1ID'] is not None and config['fileSystem1SecretARN'] is not None:
-            secretARNs[config['fileSystem1ID']] = config['fileSystem1SecretARN']
-        if config['fileSystem2ID'] is not None and config['fileSystem2SecretARN'] is not None:
-            secretARNs[config['fileSystem2ID']] = config['fileSystem2SecretARN']
-        if config['fileSystem3ID'] is not None and config['fileSystem3SecretARN'] is not None:
-            secretARNs[config['fileSystem3ID']] = config['fileSystem3SecretARN']
-        if config['fileSystem4ID'] is not None and config['fileSystem4SecretARN'] is not None:
-            secretARNs[config['fileSystem4ID']] = config['fileSystem4SecretARN']
-        if config['fileSystem5ID'] is not None and config['fileSystem5SecretARN'] is not None:
-            secretARNs[config['fileSystem5ID']] = config['fileSystem5SecretARN']
+            if config['fileSystem1ID'] is not None and config['fileSystem1SecretARN'] is not None:
+                secretARNs[config['fileSystem1ID']] = config['fileSystem1SecretARN']
+            if config['fileSystem2ID'] is not None and config['fileSystem2SecretARN'] is not None:
+                secretARNs[config['fileSystem2ID']] = config['fileSystem2SecretARN']
+            if config['fileSystem3ID'] is not None and config['fileSystem3SecretARN'] is not None:
+                secretARNs[config['fileSystem3ID']] = config['fileSystem3SecretARN']
+            if config['fileSystem4ID'] is not None and config['fileSystem4SecretARN'] is not None:
+                secretARNs[config['fileSystem4ID']] = config['fileSystem4SecretARN']
+            if config['fileSystem5ID'] is not None and config['fileSystem5SecretARN'] is not None:
+                secretARNs[config['fileSystem5ID']] = config['fileSystem5SecretARN']
 
-    if len(secretARNs) == 0:
-        raise Exception("No secretARNs were found. Please set the secretARNs variable or the fsxnSecretARNsFile variable.")
+    if len(secretARNs) == 0 and config['defaultSecretARN'] is None:
+        raise Exception("No secretARNs were speified.")
     #
-    # Since the regular expression doesn't like None, we need to set them to empty strings.
+    # Since regular expressions can't be None, we need to set them to empty strings.
     for matchVar in 'inputFilter', 'inputMatch', 'applicationMatch', 'userMatch', 'stateMatch':
         if config[matchVar] is None:
             config[matchVar] = ""
@@ -274,9 +308,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     # Create a Secrets Manager client.
     session = boto3.session.Session()
     #
-    # Create a S3 client.
-    # Created in the checkConfig function.
-    # s3Client = boto3.client('s3', config['s3BucketRegion'])
+    # NOTE: The s3 client is created in the checkConfig function.
     #
     # Create a FSx client.
     fsxClient = boto3.client('fsx', config['fsxRegion'])
@@ -295,13 +327,13 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     for fsx in fsxResponse['FileSystems']:
         fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
     #
-    # Make sure to get them all since the response is paginated.
+    # Make sure to get all of them since the response is paginated.
     while fsxResponse.get('NextToken') is not None:
         fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
         for fsx in fsxResponse['FileSystems']:
             fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
     #
-    # Get the last processed stats file.
+    # Get the last processed events stats file.
     try:
         response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['statsName'])
     except botocore.exceptions.ClientError as err:
@@ -364,7 +396,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
             response = http.request('GET', endpoint, headers=headersQuery, timeout=15.0)
             if response.status == 200:
                 data = json.loads(response.data.decode('utf-8'))
-                print(f'Received {len(data["records"])} records from {fsxn}')
+                print(f'DEBUG: Received {len(data["records"])} records from {fsxn}.')
                 for record in data['records']:
                     timestamp = getMsEpoch(record['timestamp'])
                     #
