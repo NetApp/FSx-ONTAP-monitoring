@@ -170,7 +170,6 @@ def getMsEpoch(dateStr):
     hour = int(timeStr.split(':')[0])
     minute = int(timeStr.split(':')[1])
     second = int(timeStr.split(':')[2])
-    second = int(timeStr.split(':')[2])
 
     msEpoch = int(datetime.datetime(year, month, day, hour, minute, second, 0, datetime.timezone.utc).timestamp()*1000)
 
@@ -218,8 +217,8 @@ def checkConfig():
         'inputFilter': inputFilter if 'inputFilter' in globals() else None,                       # pylint: disable=E0602
         'inputMatch': inputMatch if 'inputMatch' in globals() else None,                          # pylint: disable=E0602
         'applicationMatch': applicationMatch if 'applicationMatch' in globals() else None,        # pylint: disable=E0602
-        'userMatch': applicationMatch if 'applicationMatch' in globals() else None,               # pylint: disable=E0602
-        'stateMatch': applicationMatch if 'applicationMatch' in globals() else None,              # pylint: disable=E0602
+        'userMatch': userMatch if 'userMatch' in globals() else None,                             # pylint: disable=E0602
+        'stateMatch': stateMatch if 'stateMatch' in globals() else None,                          # pylint: disable=E0602
         'fsxnSecretARNsFile': fsxnSecretARNsFile if 'fsxnSecretARNsFile' in globals() else None,  # pylint: disable=E0602
         'defaultSecretARN': defaultSecretARN if 'defaultSecretARN' in globals() else None,        # pylint: disable=E0602
         'fileSystem1ID': fileSystem1ID if 'fileSystem1ID' in globals() else None,                 # pylint: disable=E0602
@@ -288,7 +287,7 @@ def checkConfig():
                 secretARNs[config['fileSystem5ID']] = config['fileSystem5SecretARN']
 
     if len(secretARNs) == 0 and config['defaultSecretARN'] is None:
-        raise Exception("No secretARNs were speified.")
+        raise Exception("No secretARNs were specified.")
     #
     # Since regular expressions can't be None, we need to set them to empty strings.
     for matchVar in 'inputFilter', 'inputMatch', 'applicationMatch', 'userMatch', 'stateMatch':
@@ -404,7 +403,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                     # While unlikely, the index could "roll over", so we need to check both the index and the timestamp.
                     if record['index'] > lastProcessed['index'] or timestamp > lastProcessed['timestamp']:
                         inputFilter = config["inputFilter"]
-                        if inputFilter == None or inputFilter == "":
+                        if inputFilter is None or inputFilter == "":
                             inputFilter = "ThisShouldn'tMatchAnything"
                         #
                         # Check that it is an event we want to record.
