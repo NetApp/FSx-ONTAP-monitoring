@@ -389,10 +389,10 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                     }
         #
         # Get the audit records.
-        endpoint = f"https://{fsxn}/api/security/audit/messages?timestamp=>{lastProcessed['ascTimestamp']}&max_records=5000"
+        endpoint = f"/api/security/audit/messages?timestamp=>{lastProcessed['ascTimestamp']}&max_records=1000"
         while endpoint is not None:
             auditEvents = []
-            response = http.request('GET', endpoint, headers=headersQuery, timeout=15.0)
+            response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=15.0)
             if response.status == 200:
                 data = json.loads(response.data.decode('utf-8'))
                 print(f'DEBUG: Received {len(data["records"])} records from {fsxn}.')
@@ -431,7 +431,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 # Check to see if there are any more.
                 endpoint = data['_links']['next']['href'] if 'next' in data['_links'] else None
             else:
-                print(f"Warning: API call to {endpoint} failed. HTTP status code: {response.status}.")
+                print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
                 break # Break out "while endpoint is not None" loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
