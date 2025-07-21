@@ -25,10 +25,28 @@ import botocore
 
 ################################################################################
 # You can configure this script by either setting the following variables in
-# code below, or by setting environment variables with the same name, with
-# the exception of the secretARNs variable. It only can only be set in the code
-# below or you can provide a file that contains the information to
-# populate it with.
+# code below, by uncommenting them, or by setting environment variables with
+# the same name. One exception to this is with the secretARNs variable. It only
+# can only be set in the code below.
+################################################################################
+#
+# There are 4 ways to specify secrets for your FSxNs:
+# 1. Set the secretARNs variable to a dictionary that contains the
+#    secret ARNs for the FSxNs you want to process.
+# 2. Set the fsxnSecretARNsFile variable to the name of a file in the S3
+#    bucket that contains the secret ARNs for the FSxN file systems.
+# 3. Set the fileSystem1ID, fileSystem2ID, fileSystem3ID, fileSystem4ID,
+#    and fileSystem5ID variables to the fsId of the FSxN file systems. Then set
+#    the fileSystem1SecretARN, fileSystem2SecretARN, fileSystem3SecretARN,
+#    fileSystem4SecretARN, and fileSystem5SecretARN variables to the
+#    secretARNs for the FSxN file systems.
+# 4. Set the defaultSecretARN variable to the secret ARN of the secret that
+#    This will be used if FSxN file system does not have a specific
+#    secret ARN specified.
+#
+# *NOTE*: Each secret should have two keys: 'username' and 'password' set to
+# the appropriate values.
+#
 ################################################################################
 #
 # Variable: secretARNs
@@ -38,8 +56,8 @@ import botocore
 # environment variable. There are three options to populate the secretsARN
 # dictionary:
 #
-# 1. Create a 'secretARNs' variable by un-commenting out the code segment
-#    below that defines dictionary with the following structure:
+# Create the 'secretARNs' variable by un-commenting out the code segment
+# below that defines dictionary with the following structure:
 #
 # secretARNs =  {
 #     "<fsId-1>": "<secretARN>",
@@ -47,23 +65,33 @@ import botocore
 #     "<fsId-3>": "<secretARN>"
 #   }
 #
-# 2. Set the fsxnSecretARNsFile variable to the name of a file in the S3
-#    bucket that contains the secretARNs.
+################################################################################
+#
+# Variable: fsxnSecretARNsFile
+#
+# Set the fsxnSecretARNsFile variable to the name of a file in the S3
+# bucket that contains the secretARNs.
 #
 # fsxnSecretARNsFile=
 #
-#  The format of that file should be:
+# The format of that file should be:
 #
 # <fsId-1>=<secretARN>
 # <fsId-2>=<secretARN>
 #
-# 3. Set the fileSystem1ID, fileSystem2ID, fileSystem3ID, fileSystem4ID, and
-#    fileSystem5ID variables to the fsId of the FSxN file systems. Then set
-#    the fileSystem1SecretARN, fileSystem2SecretARN, fileSystem3SecretARN,
-#    fileSystem4SecretARN, and fileSystem5SecretARN variables to the
-#    secretARNs for the FSxN file systems. Empty, or variables not defined
-#    will be ignored. Note that if fsxnSecretARNsFile is set, then these
-#    variables will be ignored.
+################################################################################
+#
+# Variables: fileSystem1ID, fileSystem2ID, fileSystem3ID, fileSystem4ID,
+# fileSystem5ID, fileSystem1SecretARN, fileSystem2SecretARN,
+# fileSystem3SecretARN, fileSystem4SecretARN
+#
+# Set the fileSystem1ID, fileSystem2ID, fileSystem3ID, fileSystem4ID, and
+# fileSystem5ID variables to the fsIds of the FSxN file systems. Then set
+# the fileSystem1SecretARN, fileSystem2SecretARN, fileSystem3SecretARN,
+# fileSystem4SecretARN, and fileSystem5SecretARN variables to the
+# secretARNs for the FSxN file systems. Empty, or variables not defined
+# will be ignored. Note that if fsxnSecretARNsFile is set, then these
+# variables will be ignored.
 #
 # fileSystem1ID = 
 # fileSystem1SecretARN =
@@ -76,8 +104,19 @@ import botocore
 # fileSystem5ID = 
 # fileSystem5SecretARN =
 #
-# *NOTE*: Each secret should have two keys: 'username' and 'password' set to the
-# appropriate values.
+################################################################################
+#
+# Variable: defaultSecretARN
+#
+# The defaultSecretARN variable contains the secretARN of the secret that
+# contains the credentials for the FSxN file systems. This will be used
+# if a specific FSxN file system does not have a secretARN specified.
+# Use with caution, since it will cause the prograrm to try the credentials
+# in the default secret for all FSxN where there isn't a secret specified
+# which could cause an account to be locked out if the credentials are
+# incorrect for that FSxN.
+#
+# defaultSecretARN =
 #
 ################################################################################
 #
