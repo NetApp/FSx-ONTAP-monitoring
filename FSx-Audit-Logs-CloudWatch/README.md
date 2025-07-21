@@ -11,7 +11,7 @@ SVM to try to ensure it doesn't process an audit file more than once.
 You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function.
 
 **NOTE**: There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found this this repo,
-or by following the manual instructions found in the [README-MANUEL.md](README-MANUAL.md) file.
+or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
 
 ## Prerequisites
 - An FSx for Data ONTAP file system.
@@ -34,7 +34,7 @@ systems that you want to ingest the audit logs from.
         "password": "superSecretPassword"
       }
     ```
-    You can use the same secret for multiple file systems if the credentials are the same.
+    - If you use want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a default secret ARN with the `defaultSecretARN` parameter.
 - You have applied the necessary SACLs to the files you want to audit. The knowledge base article linked above provides guidance on how to do this.
 
 **You can either create the following items before running the CloudFormation script, or allow it to create the items for you.**
@@ -104,6 +104,7 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |createWatchdogAlarm|No|If set to `true` it will create a CloudWatch alarm that will alert you if the Lambda function throws in error.|
     |snsTopicArn|No|The ARN of the SNS topic to send the alarm to. This is required if `createWatchdogAlarm` is set to `true`.|
     |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each for the FSxN file systems. The format of the file should have one line for each file system where it specifies the file system id, an equal sign, and then the Secret ARN to use. For example: `fs-0e8d9172fa5411111=arn:aws:secretsmanager:us-east-1:123456789012:secret:fsxadmin-abc123`|
+    |defaultSecretARN|No|The ARN of an AWS Secrets Manager Secret to be used if a particular FSxN file system doesn't have a specific secret associated with it.  Use with caution, since it will cause the prograrm to try the credentials in the default secret for all FSxN where there isn't a secret specified for it which could cause an account to be locked out if the credentials are incorrect for that FSxN.|
     |fileSystem1ID|No|The ID of the first FSxN file system to ingest the audit logs from.|
     |fileSystem1SecretARN|No|The ARN of the secret that contains the credentials for the first FSx for Data ONTAP file system.|
     |fileSystem2ID|No|The ID of the second FSx for Data ONTAP file system to ingest the audit logs from.|
