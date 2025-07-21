@@ -79,7 +79,7 @@ import botocore
 # 4. Set the defaultSecretARN variable contains the secretARN of the secret
 #    that contains the credentials for the FSxN file systems. This will be
 #    used if a specific FSxN file system does not have a secretARN specified.
-#    Use with caution, since it will cause the prograrm to try the credentials
+#    Use with caution, since it will cause the program to try the credentials
 #    in the default secret for all FSxN where there isn't a secret specified
 #    which could cause an account to be locked out if the credentials are
 #    incorrect for that FSxN.
@@ -543,7 +543,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                 records.extend(data['records'])
                                 endpoint = data['_links'].get('next', {}).get('href', None)
                         else:
-                            print(f"Warning: API call to https://{fsx}{endpoint} failed. HTTP status code: {response.status}.")
+                            print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
                             endpoint = None # To break out of the get all files loop.
 
                     for file in records:
@@ -564,7 +564,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 # Check to see if there are more SVMs to process.
                 endpoint = svmsData['_links'].get('next', {}).get('href', None)
             else:
-                print(f"Warning: API call to https://{fsx}{endpoint} failed. HTTP status code: {response.status}.")
+                print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
                 endpoint = None # To break out of the get all SVMs loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
