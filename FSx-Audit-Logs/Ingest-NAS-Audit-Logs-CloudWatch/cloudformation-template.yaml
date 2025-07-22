@@ -22,6 +22,7 @@ Metadata:
           default: "Secrets Manager specifications"
         Parameters:
           - fsxnSecretARNsFile
+          - defaultSecretARN
           - fileSystem1ID
           - fileSystem1SecretARN
           - fileSystem2ID
@@ -73,6 +74,8 @@ Metadata:
         default: "SNS Topic ARN"
       fsxnSecretARNsFile:
         default: "File with the list of FSxN file systems and their secret ARNs"
+      defaultSecretARN:
+        default: "A default secret ARN to use if a specific one is not provided"
       fileSystem1ID:
         default: "File System 1 ID"
       fileSystem1SecretARN:
@@ -154,8 +157,13 @@ Parameters:
     Type: String
     Default: ""
 
+  defaultSecretARN:
+    Description: "A default secret ARN to use if a specific one is not provided for a file system. Use with caution since repeated failed APIs with bad credentials can cause an account to be locked out."
+    Type: String
+    Default: ""
+
   fileSystem1ID:
-    Description: "The ID of the an FSxN file system you want to process."
+    Description: "The ID of an FSxN file system you want to process."
     Type: String
     Default: ""
 
@@ -165,7 +173,7 @@ Parameters:
     Default: ""
 
   fileSystem2ID:
-    Description: "The ID of the an FSxN file system you want to process."
+    Description: "The ID of an FSxN file system you want to process."
     Type: String
     Default: ""
 
@@ -175,7 +183,7 @@ Parameters:
     Default: ""
 
   fileSystem3ID:
-    Description: "The ID of the an FSxN file system you want to process."
+    Description: "The ID of an FSxN file system you want to process."
     Type: String
     Default: ""
 
@@ -185,7 +193,7 @@ Parameters:
     Default: ""
 
   fileSystem4ID:
-    Description: "The ID of the an FSxN file system you want to process."
+    Description: "The ID of an FSxN file system you want to process."
     Type: String
     Default: ""
 
@@ -195,7 +203,7 @@ Parameters:
     Default: ""
 
   fileSystem5ID:
-    Description: "The ID of the an FSxN file system you want to process."
+    Description: "The ID of an FSxN file system you want to process."
     Type: String
     Default: ""
 
@@ -452,6 +460,7 @@ Resources:
           statsName: "lastFileRead"
           volumeName: !Ref volumeName
           fsxnSecretARNsFile: !Ref fsxnSecretARNsFile
+          defaultSecretARN: !Ref defaultSecretARN
           fileSystem1ID: !Ref fileSystem1ID
           fileSystem1SecretARN: !Ref fileSystem1SecretARN
           fileSystem2ID: !Ref fileSystem2ID
@@ -541,6 +550,17 @@ Resources:
           # fileSystem4SecretARN =
           # fileSystem5ID = 
           # fileSystem5SecretARN =
+          #
+          # 4. Set the defaultSecretARN variable contains the secretARN of the secret
+          #    that contains the credentials for the FSxN file systems. This will be
+          #    used if a specific FSxN file system does not have a secretARN specified.
+          #    Use with caution, since it will cause the prograrm to try the credentials
+          #    in the default secret for all FSxN where there isn't a secret specified
+          #    which could cause an account to be locked out if the credentials are
+          #    incorrect for that FSxN.
+          #
+          # defaultSecretARN =
+          #
           #
           # *NOTE*: Each secret should have two keys: 'username' and 'password' set to the
           # appropriate values.
@@ -799,6 +819,7 @@ Resources:
                   'statsName': statsName if 'statsName' in globals() else None,                  # pylint: disable=E0602
                   'copyToS3': copyToS3 if 'copyToS3' in globals() else None,                     # pylint: disable=E0602
                   'fsxnSecretARNsFile': fsxnSecretARNsFile if 'fsxnSecretARNsFile' in globals() else None,  # pylint: disable=E0602
+                  'defaultSecretARN': defaultSecretARN if 'defaultSecretARN' in globals() else None,        # pylint: disable=E0602
                   'fileSystem1ID': fileSystem1ID if 'fileSystem1ID' in globals() else None,      # pylint: disable=E0602
                   'fileSystem2ID': fileSystem2ID if 'fileSystem2ID' in globals() else None,      # pylint: disable=E0602
                   'fileSystem3ID': fileSystem3ID if 'fileSystem3ID' in globals() else None,      # pylint: disable=E0602
@@ -812,7 +833,7 @@ Resources:
               }
               optionalConfig = ['copyToS3', 'fsxnSecretARNsFile', 'fileSystem1ID',
                                 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
-                                'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN',
+                                'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN',
                                 'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
           
               for item in config:
@@ -863,6 +884,10 @@ Resources:
                       secretARNs[config['fileSystem4ID']] = config['fileSystem4SecretARN']
                   if config['fileSystem5ID'] is not None and config['fileSystem5SecretARN'] is not None:
                       secretARNs[config['fileSystem5ID']] = config['fileSystem5SecretARN']
+              #
+              # If there aren't any credentials, there is no point of continuing.
+              if len(secretARNs) == 0 and config['defaultSecretARN'] is None:
+                  raise Exception("No secretARNs were specified.")
           
           ################################################################################
           # This is the main function that checks that everything is configured correctly
@@ -928,6 +953,9 @@ Resources:
                           lastFileRead[fsxn] = {config['vserverName']: lastFileRead[fsxn]}   # New format
                   #
                   # Get the credentials.
+                  if secretARNs.get(fsId) is None and config['defaultSecretARN'] is not None:
+                      secretARNs[fsId] = config['defaultSecretARN']
+          
                   if secretARNs.get(fsId) is not None:
                       #
                       # Get the username and password of the ONTAP/FSxN system.
@@ -937,31 +965,28 @@ Resources:
                           secret = json.loads(secretsInfo['SecretString'])
                           if secret.get('username') is None or secret.get('password') is None:
                               print(f"Warning: The 'username' or 'password' keys were not found in the secret for '{fsId}' in the secretARN '{secretARNs[fsId]}'.")
-                              continue
+                              continue # To the next FSxN
                           username = secret['username']
                           password = secret['password']
-                          secretsClient.close()
+                          secretsClient.close()  # Since the next secret could be in a different region.
                       except botocore.exceptions.ClientError as err:
                           print(f"Warning: Unable to retrieve the credentials for '{fsId}' using the secretARN '{secretARNs[fsId]}'. {err}")
-                          continue
+                          continue # To the next FSxN
                   else:
                       print(f'Warning: No secret ARN was found for {fsId}.')
-                      continue
+                      continue # To the next FSxN
                   #
                   # Create a header with the basic authentication.
                   auth = urllib3.make_headers(basic_auth=f'{username}:{password}')
                   headersDownload = { **auth, 'Accept': 'multipart/form-data' }
                   headersQuery = { **auth }
                   #
-                  # Get the list of SVMs on the FSxN.
-                  endpoint = f"https://{fsxn}/api/svm/svms?return_timeout=4"
-                  response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
-                  if response.status == 200:
-                      svmsData = json.loads(response.data.decode('utf-8'))
-                      numSvms = svmsData['num_records']
-                      #
-                      # Loop over all the SVMs.
-                      while numSvms > 0:
+                  # Loop through all of SVMs on the FSxN.
+                  endpoint = f"/api/svm/svms?return_timeout=4"
+                  while endpoint is not None:
+                      response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=5.0)
+                      if response.status == 200:
+                          svmsData = json.loads(response.data.decode('utf-8'))
                           for record in svmsData['records']:
                               vserverName = record['name']
                               #
@@ -976,17 +1001,27 @@ Resources:
           
                               if volumeUUID == None:
                                   print(f"Warning: Volume {config['volumeName']} not found for {fsId} under SVM: {vserverName}.")
-                                  continue
+                                  continue # To the next SVM.
                               #
                               # Get all the files in the volume that match the audit file pattern.
-                              endpoint = f"https://{fsxn}/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
-                              response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
-                              data = json.loads(response.data.decode('utf-8'))
-                              if data.get('num_records') == 0:
-                                  print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
-                                  continue
+                              endpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
+                              records = []
+                              while endpoint is not None:
+                                  response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=16.0)
+                                  if response.status == 200:
+                                      data = json.loads(response.data.decode('utf-8'))
+                                      if data.get('num_records') == 0:
+                                          if len(records) == 0:
+                                              print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
+                                          endpoint = None  # To break out of the get all files loop.
+                                      else:
+                                          records.extend(data['records'])
+                                          endpoint = data['_links'].get('next', {}).get('href', None)
+                                  else:
+                                      print(f"Warning: API call to https://{fsx}{endpoint} failed. HTTP status code: {response.status}.")
+                                      endpoint = None # To break out of the get all files loop.
           
-                              for file in data['records']:
+                              for file in records:
                                   filePath = file['name']
                                   if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
                                       localFileName = readFile(fsxn, headersDownload, volumeUUID, filePath)
@@ -1001,21 +1036,11 @@ Resources:
                                           s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastFileRead).encode('UTF-8'))
                                           os.remove(localFileName)
                           #
-                          # Get the next set of SVMs.
-                          if svmsData['_links'].get('next') != None:
-                              endpoint = f"https://{fsxn}{svmsData['_links']['next']['href']}"
-                              response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
-                              if response.status == 200:
-                                  svmsData = json.loads(response.data.decode('utf-8'))
-                                  numSvms = svmsData['num_records']
-                              else:
-                                  print(f"Warning: API call to {endpoint} failed. HTTP status code: {response.status}.")
-                                  break # Break out of the for all SVMs loop. Maybe the call to the next FSxN will work.
-                          else:
-                              numSvms = 0
-                  else:
-                      print(f"Warning: API call to {endpoint} failed. HTTP status code: {response.status}.")
-                      break # Break out of the for all FSxNs loop.
+                          # Check to see if there are more SVMs to process.
+                          endpoint = svmsData['_links'].get('next', {}).get('href', None)
+                      else:
+                          print(f"Warning: API call to https://{fsx}{endpoint} failed. HTTP status code: {response.status}.")
+                          endpoint = None # To break out of the get all SVMs loop.
           #
           # If this script is not running as a Lambda function, then call the lambda_handler function.
           if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:

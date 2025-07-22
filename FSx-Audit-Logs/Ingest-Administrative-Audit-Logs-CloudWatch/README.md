@@ -1,41 +1,31 @@
-# Ingest FSx for ONTAP NAS audit logs into CloudWatch
+# Ingest FSx for ONTAP administrative audit logs into CloudWatch
 
 ## Overview
-This sample demonstrates a way to ingest the NAS audit logs from an FSx for Data ONTAP file system into a CloudWatch log group
-without having to NFS or CIFS mount a volume to access them.
-It will attempt to gather the audit logs from all the SVMs within all the FSx for Data ONTAP file systems that are within a specified region.
-It will skip any file systems where the credentials aren't provided in the supplied AWS SecretManager's secret, or that do not have
-the appropriate NAS auditing configuration enabled.
-It will maintain a "stats" file in an S3 bucket that will keep track of the last time it successfully ingested audit logs from each
-SVM to try to ensure it doesn't process an audit file more than once.
+This sample demonstrates a way to ingest the administrative audit logs from an FSx for Data ONTAP file system into a CloudWatch log group.
+It will attempt to gather the administrative logs from all the FSx for Data ONTAP file systems that are within a specified region.
+It will skip any file systems where the credentials aren't provided.
+It will maintain a "stats" file in an S3 bucket that will keep track of the last time it successfully ingested the administrative logs from each
+FSx for ONTAP file system to ensure it doesn't add duplicate entries to the CloudWatch log group.
 You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function.
 
 **NOTE**: There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found this this repo,
-or by following the manual instructions found in the [README-MANUEL.md](README-MANUAL.md) file.
+or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
 
 ## Prerequisites
 - An FSx for Data ONTAP file system.
-- An S3 bucket to store the "stats" file and optionally a copy of all the raw NAS audit log files. It will also
-hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFormation script.
-    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx-Audit-Logs-CloudWatch/lambda_layer.zip)
-     from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
-    - The "stats" file is maintained by the program. It is used to keep track of the last time the Lambda function successfully
-    ingested audit logs from each SVM. Its size will be small (i.e. less than a few megabytes).
-- A CloudWatch log group to ingest the audit logs into. Each audit log file will get its own log stream within the log group.
-- Have NAS auditing configured and enabled on the SVM within a FSx for Data ONTAP file system. **Ensure you have selected the XML format for the audit logs.** Also,
-ensure you have set up a rotation schedule. The program will only act on audit log files that have been finalized, and not the "active" one. You can read this
-[knowledge based article](https://kb.netapp.com/on-prem/ontap/da/NAS/NAS-KBs/How_to_set_up_NAS_auditing_in_ONTAP_9) for instructions on how to setup NAS auditing.
-- Have the NAS auditing configured to store the audit logs in a volume with the same name in all SVMs on all the FSx for Data ONTAP file
-systems that you want to ingest the audit logs from.
-- An AWS Secrets Manager secret for each of the FSxN file systems you wish to ingest the audit logs from. The secret should have two keys `username` and `password`. For example:
+- An S3 bucket.
+    - A "stats" file that is maintained by the program will be stored in this bucket. It is used to keep track of the last time the Lambda function successfully
+    ingested administrative logs from each of the FSx for ONTAP file systems. Its size will be small (i.e. less than a few megabytes).
+    - Optionally, a file that contains the ARNs of the Secrets Manager secrets that contain the credentials for the FSx for ONTAP file systems you want to ingest the administrative logs from.
+- A CloudWatch log group to ingest the administrative logs into. Each file system will get a different log stream within the log group everyday.
+- An AWS Secrets Manager secret for each of the FSx for ONTAP file systems you wish to ingest the administrative logs from. The secret should have two keys `username` and `password`. For example:
     ```json
       {
         "username": "fsxadmin",
         "password": "superSecretPassword"
       }
     ```
-    You can use the same secret for multiple file systems if the credentials are the same.
-- You have applied the necessary SACLs to the files you want to audit. The knowledge base article linked above provides guidance on how to do this.
+    - If you use want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a default secret ARN with the `defaultSecretARN` parameter.
 
 **You can either create the following items before running the CloudFormation script, or allow it to create the items for you.**
 
@@ -85,7 +75,9 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
 
 ## Deployment
 1. Download the [cloudformation-template.yaml](cloudformation-template.yaml) file from this repository.
-1. Go to the CloudFormation page within the AWS console and click on the `Create stack -> With new resources` button.
+1. Make sure you are in the region where you want to capture the administrative logs from.
+1. Go to the CloudFormation page within the AWS console. Make sure you are in the region where you want to capture the administrative logs from.
+1. Click on the `Create stack -> With new resources` button.
 1. Select the `Upload a template file` radio button and click on the `Choose file` button. Select the `cloudformation-template.yaml` that you downloaded in step 1.
 1. Click on the `Next` button.
 1. The next page will provide all the configuration parameters you can provide:
@@ -93,17 +85,21 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |Parameter|Required|Description|
     |---|---|--|
     |Stack Name|Yes|The name of the CloudFormation stack. This can be anything, but since it is used as a suffix for some of the resources it creates, keep it under 40 characters.|
-    |volumeName|Yes|This is the name of the volume that will contain the audit logs. This should be the same on all SVMs on all the FSx for ONTAP file systems you want to ingest the NAS audit logs from.|
-    |checkInterval|Yes|The interval in minutes that the Lambda function will check for new audit logs. You should set this to match the rotate frequency you have set for your audit logs.|
+    |checkInterval|Yes|The interval in minutes that the Lambda function will check for new audit logs. Default is 5 minutes |
     |logGroupName|Yes|The name of the CloudWatch log group to ingest the audit logs into. This should have already been created based on your business requirements.|
     |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to all the FSxN file system management endpoints that you want to gather audit logs from.|
     |lambdaSecruityGroupsIds|Yes|Select the security groups that you want the Lambda function associated with. The security group must allow outbound traffic on TCP port 443. Inbound rules don't matter since the Lambda function is not accessible from a network.|
     |s3BucketName|Yes|The name of the S3 bucket where the stats file is stored. This bucket must already exist.|
     |s3BucketRegion|Yes|The region of the S3 bucket resides.|
-    |copyToS3|No|If set to `true` it will copy the audit logs to the S3 bucket specified in `s3BucketName`.|
     |createWatchdogAlarm|No|If set to `true` it will create a CloudWatch alarm that will alert you if the Lambda function throws in error.|
     |snsTopicArn|No|The ARN of the SNS topic to send the alarm to. This is required if `createWatchdogAlarm` is set to `true`.|
+    |inputFilter|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. Any event that matches will not stored into the CloudWatch LogStream. If not provided, all events will be stored.|
+    |inputMatch|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
+    |applicationMatch|No|If provided, this will be treated as a regular expression and matched against the `application` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
+    |userMatch|No|If provided, this will be treated as a regular expression and matched against the `user` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
+    |stateMatch|No|If provided, this will be treated as a regular expression and matched against the `state` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each for the FSxN file systems. The format of the file should have one line for each file system where it specifies the file system id, an equal sign, and then the Secret ARN to use. For example: `fs-0e8d9172fa5411111=arn:aws:secretsmanager:us-east-1:123456789012:secret:fsxadmin-abc123`|
+    |defaultSecretARN|No|The ARN of a Secrets Manager secret that contains the credentials for an FSx for ONTAP account. Not recommended to use the 'fsxadmin' user. This secrect will be used if a specific ARN is not provided for a file system. **CAUTION** Repeated failed API calls duet to bad credentials could lock out an account.|
     |fileSystem1ID|No|The ID of the first FSxN file system to ingest the audit logs from.|
     |fileSystem1SecretARN|No|The ARN of the secret that contains the credentials for the first FSx for Data ONTAP file system.|
     |fileSystem2ID|No|The ID of the second FSx for Data ONTAP file system to ingest the audit logs from.|
@@ -124,7 +120,7 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |vpcId|No|This is the VPC that the endpoint(s) will be created in. Only needed if you are creating an endpoint.|
     |endpointSecurityGroupIds|No|The security group that the endpoint(s) will be associated with. Must allow incoming TCP traffic over port 443. Only needed if you are creating an endpoint.|
 
-    **Note**: You must either provide the fsxnSecretARNsFile or the fileSystem1ID, fileSystem1SecretARN, fileSystem2ID, fileSystem2SecretARN, etc. parameters.
+    **Note**: You must either provide the fsxnSecretARNsFile, defaultSecretARN or the fileSystem1ID, fileSystem1SecretARN, fileSystem2ID, fileSystem2SecretARN, etc. parameters.
 
 6. Click on the `Next` button.
 7. The next page will provide for some additional configuration options. You can leave these as the default values.
@@ -136,7 +132,7 @@ CloudFormation script will not create any roles.
 10. Click on the `Create stack` button.
 
 ## After deployment tasks
-### Confirm that the Lambda function is ingesting audit logs.
+### Confirm that the Lambda function is ingesting administrative logs.
 After the CloudFormation deployment has completed, go to the "resource" tab of the CloudFormation stack and click on the Lambda function hyperlink.
 This will take you to the Lambda function's page.
 Click on the Monitoring sub tab and then click on "View CloudWatch logs". This will take you to the CloudWatch log group where the Lambda function
@@ -147,9 +143,8 @@ need to investigate and correct the issue. If you can't figure it out, please op
 
 ### Add more FSx for ONTAP file systems.
 The way the program is written, it will automatically discover all FSxN file systems within a region,
-and then all the vservers under that FSxN. So, if you add another FSxN it will automatically attempt
-to ingest the audit files from all the vservers under it. Unfortunately, it won't be able to, until
-you provide a Secret ARN for that file system.
+So, if you add another FSxN it will automatically attempt to ingest the administrative logs from it.
+Unfortunately, it won't be able to, until you provide a Secret ARN for that file system.
 
 The best way to add a secret ARN, is to either update the secretARNs file you
 initially passed to the CloudFormation script, that should be in the S3 bucket you specified in
@@ -158,8 +153,8 @@ you want to ingest the audit logs from and then store it in the S3 bucket. See t
 of the `fsxnSecretARNsFile` parameter above for the format of the file.
 
 If you are creating the file for the first time, you'll also need to set the `fsxSecretARNsFile` environment variable
-to point to the file. You can leave all the other parameters as they are, including the `fileSystem1ID`, `fileSystem1SecretARN`, etc. ones.
-The program will ignore those parameters if the `fsxnSecretARNsFile` environment variable is set. To set
+to point to the file. You can leave all the other parameters as they are, including the `fileSystem1ID`, `fileSystem1SecretARN`, etc. ones as
+the program will ignore those parameters if the `fsxnSecretARNsFile` environment variable is set. To set
 the environment variable, go to the Lambda function's configuration page and click on the "Configuration" tab. Then
 click on the "Environment variables" sub tab. Click on the "Edit" button. The `fsxnSecretARNsFile`
 environment variable should already be there, but the value should be blank. If the variable isn't there click on the
