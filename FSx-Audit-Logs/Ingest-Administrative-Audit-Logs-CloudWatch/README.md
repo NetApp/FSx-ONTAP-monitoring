@@ -26,7 +26,7 @@ To install it as a Lambda function, you can use the provided CloudFormation scri
       }
     ```
     - If you want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a default secret ARN with the `defaultSecretARN` parameter.
-- **OPTIONAL** If you plan to have this program scan for FSx for ONTAP in other accounts, you'll need to create a role in each account that has just one permission in it
+- OPTIONAL: If you plan to have this program scan for FSx for ONTAP in other accounts, you'll need to create a role in each account that has just one permission in it
 `fsx:DescribeFileSystems` with resource = `*`. It must also allow the Lambda function in this account to assume it.
 
 ## **OPTIONAL** You can either create the following items before running the CloudFormation script, or you can allow CloudFormation to create them for you.
@@ -61,8 +61,8 @@ Create a role with the necessary permissions to allow the Lambda function to do 
 <tr>                       <td>GetObject</td><td rowspan="2">arn:aws:s3:&lt;region>:&lt;accountID&gt;:&#42;/&#42;</td></tr>
 <tr>                       <td>PutObject</td></tr>
 <tr><td>Secrets Manager</td><td>GetSecretValue</td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretName&gt&#42;</td></tr>
-<tr><td rowspan="2">sts</td><td>AssumeRole</td><td rowspand="2">arn:aws:iam::&lt;accountID&gt;:role/&lt;roleName&gt;</td></tr>
-<tr>                        <td>GetSessionToken</td><td></td></tr>
+<tr><td rowspan="2">sts</td><td>AssumeRole</td><td rowspan="2">arn:aws:iam::&lt;accountID&gt;:role/&lt;roleName&gt;</td></tr>
+<tr>                        <td>GetSessionToken</td></tr>
 </table>
 Where:
 
@@ -84,12 +84,12 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
 Create a role with the necessary permissions to allow the EventBridge Scheduler to invoke the Lambda function.
 |Service|Action|Resources|
 |----|---|---|
-|lambda|InvokeFunction|arn:aws:lambda:&lt;region&gt;:&lt;accountID&gt;:function:&lt;functionName&gt;|
+|lambda|InvokeFunction|`arn:aws:lambda:<region>:<accountID>:function:<functionName>`|
 
 Where:
-- &lt;accountID&gt; -  is your AWS account ID.
-- &lt;region&gt; - is the region where the Lambda function is located.
-- &lt;functionName&gt; - is the name of the Lambda function that will be invoked by the EventBridge Scheduler.
+- `<accountID>` -  is your AWS account ID.
+- `<region>` - is the region where the Lambda function is located.
+- `<functionName>` - is the name of the Lambda function that will be invoked by the EventBridge Scheduler.
 
 
 ## Deployment
