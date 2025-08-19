@@ -2,11 +2,13 @@
 
 ## Overview
 This sample demonstrates a way to ingest the administrative audit logs from an FSx for Data ONTAP file system into a CloudWatch log group.
-It will attempt to gather the administrative logs from all the FSx for Data ONTAP file systems that are within a specified regions. It can even support cross account discovery.
+It will attempt to gather the administrative logs from all the FSx for Data ONTAP file systems that are within the specified regions.
+It can even discovery FSxNs in different AWS accounts if the appropriate permissions are provided.
 It will skip any file systems where the credentials aren't provided. This is how you can control which file systems you want to process.
 It will maintain a "stats" file in an S3 bucket that will keep track of the last time it successfully ingested the administrative logs from each
 FSx for ONTAP file system to ensure it doesn't add duplicate entries to the CloudWatch log group.
-You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function. To install it as a Lambda function, you can use the provided CloudFormation script.
+You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function.
+To install it as a Lambda function, you can use the provided CloudFormation script.
 
 
 ## Prerequisites
@@ -23,12 +25,15 @@ You can run this script as a standalone program or as a Lambda function. These d
         "password": "superSecretPassword"
       }
     ```
-    - If you use want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a default secret ARN with the `defaultSecretARN` parameter.
+    - If you want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a default secret ARN with the `defaultSecretARN` parameter.
+- **OPTIONAL** If you plan to have this program scan for FSx for ONTAP in other accounts, you'll need to create a role in each account that has just one permission in it
+`fsx:DescribeFileSystems` with resource = `*`. It must also allow the Lambda function in this account to assume it.
 
-**You can either create the following items before running the CloudFormation script, or allow it to create the items for you.**
+## **OPTIONAL** You can either create the following items before running the CloudFormation script, or you can allow CloudFormation to create them for you.
 
-- AWS Endpoints. Since the Lambda function runs within your VPC it will have restrictions as to how it can access the Internet.
-It will not be able to access the Internet from a "Public" subnet (i.e. one that has a Internet gateway attached it it.) It will, however,
+### AWS Endpoints
+Since the Lambda function most run within your VPC it will have restrictions as to how it can access the Internet.
+It will not be able to access the Internet from a "Public" subnet (i.e. one that has a Internet gateway attached it.) It will, however,
 be able to access the Internet through a Transit or a NAT gateway. So, if the subnets you plan to run this Lambda function from
 don't have a Transit or NAT gateway then there needs to be an VPC AWS service endpoint for all the AWS services that this Lambda function uses.
 Specifically, the Lambda function needs to be able to access the following AWS services:
@@ -39,7 +44,8 @@ Specifically, the Lambda function needs to be able to access the following AWS s
 
    **NOTE**: That if you specify to have the CloudFormation template create an endpoint and one already exist, it will cause the CloudFormation script to fail.
 
-- Role for the Lambda function. Create a role with the necessary permissions to allow the Lambda function to do the following:
+### Role for the Lambda function
+Create a role with the necessary permissions to allow the Lambda function to do the following:
 
 <!--- Using HTML to create a table that has rowspan attributes since the markdown table syntax does not support that. --->
 <table>
@@ -56,13 +62,13 @@ Specifically, the Lambda function needs to be able to access the following AWS s
 <tr>                       <td>PutObject</td></tr>
 <tr><td>Secrets Manager</td><td>GetSecretValue</td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretName&gt&#42;</td></tr>
 <tr><td rowspan="2">sts</td><td>AssumeRole</td><td rowspand="2">arn:aws:iam::&lt;accountID&gt;:role/&lt;roleName&gt;</td></tr>
-<tr>                        <td>GetSessionToken</td></tr>
+<tr>                        <td>GetSessionToken</td><td></td></tr>
 </table>
 Where:
 
 - &lt;accountID&gt; -  is your AWS account ID.
 - &lt;region&gt; - is the region where the FSx for ONTAP file systems are located.
-- &lt;secretName&gt; - is the name of the secret that contains the credentials for the fsxadmin accounts. **Note** that this
+- &lt;secretName&gt; - is the name of the secret that contains the credentials for the fsxadmin accounts. **Note:** this
 resource string, through the use of wild card characters, must include all the secrets that the Lambda function will access.
 Or you must list each secret ARN individually.
 
@@ -73,6 +79,18 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
 - It needs to be able to create a log groups so it can create a log group for the diagnostic output from the Lambda function.
 - Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the `*` at the end, or provide the full ARN of the secret.
 - The sts permission is only needed if you are going to specify roles you want the function to assume to access information about FSxNs in other accounts.
+
+### Role for the EventBridge Scheduler
+Create a role with the necessary permissions to allow the EventBridge Scheduler to invoke the Lambda function.
+|Service|Action|Resources|
+|----|---|---|
+|lambda|InvokeFunction|arn:aws:lambda:&lt;region&gt;:&lt;accountID&gt;:function:&lt;functionName&gt;|
+
+Where:
+- &lt;accountID&gt; -  is your AWS account ID.
+- &lt;region&gt; - is the region where the Lambda function is located.
+- &lt;functionName&gt; - is the name of the Lambda function that will be invoked by the EventBridge Scheduler.
+
 
 ## Deployment
 1. Download the [cloudformation-template.yaml](cloudformation-template.yaml) file from this repository.
@@ -91,19 +109,19 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to the management endpoint over TCP port 443 of all the FSxN file systems that you want to gather adminstrative logs from.|
     |lambdaSecruityGroupsIds|Yes|Select the security groups that you want the Lambda function associated with. The security group must allow outbound traffic on TCP port 443. Inbound rules don't matter since the Lambda function is not accessible from a network.|
     |s3BucketName|Yes|The name of the S3 bucket where the stats file is stored. This bucket must already exist.|
-    |s3BucketRegion|Yes|The region of the S3 bucket resides.|
+    |s3BucketRegion|Yes|The region where the S3 bucket resides.|
     |createWatchdogAlarm|No|If set to `true` it will create a CloudWatch alarm that will alert you if the Lambda function throws in error.|
     |snsTopicArn|No|The ARN of the SNS topic to send the alarm to. This is required if `createWatchdogAlarm` is set to `true`.|
     |regions|No|A comma separated list of AWS regions where the Lambda function will attempt to discover FSx for ONTAP file systems. If not provided, it will scan all regions|
-    |accountRoles|No|A comma separated list of IAM roles that the Lambda function will assume to access FSx for ONTAP file systems in other accounts. If not provided, it will only access FSx for ONTAP file systems in the same account.|
+    |accountRoles|No|A comma separated list of IAM roles ARNs that the Lambda function will assume to access FSx for ONTAP file systems in other accounts. If not provided, it will only access FSx for ONTAP file systems in the same account.|
     |scanCurrentAccount|No|If set to `true`, the Lambda function will scan the current account for FSx for ONTAP file systems. If set to `false`, it will not scan the current account. Default is `true`.|
-    |inputFilter|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. Any event that matches will not stored into the CloudWatch LogStream. If not provided, all events will be stored.|
+    |inputFilter|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. Any event that matches will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |inputMatch|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |applicationMatch|No|If provided, this will be treated as a regular expression and matched against the `application` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |userMatch|No|If provided, this will be treated as a regular expression and matched against the `user` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |stateMatch|No|If provided, this will be treated as a regular expression and matched against the `state` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each for the FSxN file systems. The format of the file should have one line for each file system where it specifies the file system id, an equal sign, and then the Secret ARN to use. For example: `fs-0e8d9172fa5411111=arn:aws:secretsmanager:us-east-1:123456789012:secret:fsxadmin-abc123`|
-    |defaultSecretARN|No|The ARN of a Secrets Manager secret that contains the credentials for an FSx for ONTAP account. Not recommended to use the 'fsxadmin' user. This secrect will be used if a specific ARN is not provided for a file system. **CAUTION** Repeated failed API calls duet to bad credentials could lock out an account.|
+    |defaultSecretARN|No|The ARN of a Secrets Manager secret that contains the credentials for an FSx for ONTAP account. Not recommended to use the 'fsxadmin' user. This secrect will be used if a specific ARN is not provided for a file system. **CAUTION** Repeated failed API calls due to bad credentials could lock out an account.|
     |fileSystem1ID|No|The ID of the first FSxN file system to ingest the audit logs from.|
     |fileSystem1SecretARN|No|The ARN of the secret that contains the credentials for the first FSx for Data ONTAP file system.|
     |fileSystem2ID|No|The ID of the second FSx for Data ONTAP file system to ingest the audit logs from.|
@@ -116,10 +134,10 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |fileSystem5SecretARN|No|The ARN of the secret that contains the credentials for the fifth FSx for Data ONTAP file system.|
     |lambdaRoleArn|No|The ARN of the role that the Lambda function will use. If not provided, the CloudFormation script will create a role for you.|
     |schedulerRoleArn|No|The ARN of the role that the EventBridge scheduler will run as. If not provided, the CloudFormation script will create a role for you.|
-    |createFsxEndpoint|No|If set to `true` it will create the VPC endpoints for the FSx service|
-    |createCloudWatchLogsEndpoint|No|If set to `true` it will create the VPC endpoints for the CloudWatch Logs service|
-    |createSecretsManagerEndpoint|No|If set to `true` it will create the VPC endpoints for the Secrets Manager service|
-    |createS3Endpoint|No|If set to `true` it will create the VPC endpoints for the S3 service|
+    |createFsxEndpoint|No|If set to `true` it will create the VPC endpoint for the FSx service|
+    |createCloudWatchLogsEndpoint|No|If set to `true` it will create the VPC endpoint for the CloudWatch Logs service|
+    |createSecretsManagerEndpoint|No|If set to `true` it will create the VPC endpoint for the Secrets Manager service|
+    |createS3Endpoint|No|If set to `true` it will create the VPC endpoint for the S3 service|
     |routeTableIds|No|If creating an S3 gateway endpoint, these are the routing tables you want updated to use the endpoint.|
     |vpcId|No|This is the VPC that the endpoint(s) will be created in. Only needed if you are creating an endpoint.|
     |endpointSecurityGroupIds|No|The security group that the endpoint(s) will be associated with. Must allow incoming TCP traffic over port 443. Only needed if you are creating an endpoint.|
