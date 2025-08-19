@@ -2,17 +2,15 @@
 
 ## Overview
 This sample demonstrates a way to ingest the administrative audit logs from an FSx for Data ONTAP file system into a CloudWatch log group.
-It will attempt to gather the administrative logs from all the FSx for Data ONTAP file systems that are within a specified region.
-It will skip any file systems where the credentials aren't provided.
+It will attempt to gather the administrative logs from all the FSx for Data ONTAP file systems that are within a specified regions. It can even support cross account discovery.
+It will skip any file systems where the credentials aren't provided. This is how you can control which file systems you want to process.
 It will maintain a "stats" file in an S3 bucket that will keep track of the last time it successfully ingested the administrative logs from each
 FSx for ONTAP file system to ensure it doesn't add duplicate entries to the CloudWatch log group.
-You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function.
+You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function. To install it as a Lambda function, you can use the provided CloudFormation script.
 
-**NOTE**: There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found this this repo,
-or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
 
 ## Prerequisites
-- An FSx for Data ONTAP file system.
+- At least one FSx for Data ONTAP file system.
 - An S3 bucket.
     - A "stats" file that is maintained by the program will be stored in this bucket. It is used to keep track of the last time the Lambda function successfully
     ingested administrative logs from each of the FSx for ONTAP file systems. Its size will be small (i.e. less than a few megabytes).
@@ -48,15 +46,17 @@ Specifically, the Lambda function needs to be able to access the following AWS s
 <tr><th>Service</td><th>Actions</td><th>Resources</th></tr>
 <tr><td>Fsx</td><td>fsx:DescribeFileSystems</td><td>&#42;</td></tr>
 <tr><td rowspan="3">ec2</td><td>DescribeNetworkInterfaces</td><td>&#42;</td></tr>
-<tr><td>CreateNetworkInterface</td><td rowspan="2">arn:aws:ec2:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
-<tr><td>DeleteNetworkInterface</td></tr>
+<tr>                        <td>CreateNetworkInterface</td><td rowspan="2">arn:aws:ec2:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
+<tr>                        <td>DeleteNetworkInterface</td></tr>
 <tr><td rowspan="3">CloudWatch Logs</td><td>CreateLogGroup</td><td rowspan="3">arn:aws:logs:&lt;region&gt;:&lt;accountID&gt;:log-group:&#42;</td></tr>
-<tr><td>CreateLogStream</td></tr>
-<tr><td>PutLogEvents</td></tr>
-<tr><td rowspan="3">s3</td><td> ListBucket</td><td> arn:aws:s3:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
-<tr><td>GetObject</td><td rowspan="2">arn:aws:s3:&lt;region>:&lt;accountID&gt;:&#42;/&#42;</td></tr>
-<tr><td>PutObject</td></tr>
-<tr><td>Secrets Manager</td><td> GetSecretValue </td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretName&gt&#42;</td></tr>
+<tr>                                    <td>CreateLogStream</td></tr>
+<tr>                                    <td>PutLogEvents</td></tr>
+<tr><td rowspan="3">s3</td><td>ListBucket</td><td> arn:aws:s3:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
+<tr>                       <td>GetObject</td><td rowspan="2">arn:aws:s3:&lt;region>:&lt;accountID&gt;:&#42;/&#42;</td></tr>
+<tr>                       <td>PutObject</td></tr>
+<tr><td>Secrets Manager</td><td>GetSecretValue</td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretName&gt&#42;</td></tr>
+<tr><td rowspan="2">sts</td><td>AssumeRole</td><td rowspand="2">arn:aws:iam::&lt;accountID&gt;:role/&lt;roleName&gt;</td></tr>
+<tr>                        <td>GetSessionToken</td></tr>
 </table>
 Where:
 
@@ -72,11 +72,11 @@ Notes:
 and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:<region>:<accountID>:*`.
 - It needs to be able to create a log groups so it can create a log group for the diagnostic output from the Lambda function.
 - Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the `*` at the end, or provide the full ARN of the secret.
+- The sts permission is only needed if you are going to specify roles you want the function to assume to access information about FSxNs in other accounts.
 
 ## Deployment
 1. Download the [cloudformation-template.yaml](cloudformation-template.yaml) file from this repository.
-1. Make sure you are in the region where you want to capture the administrative logs from.
-1. Go to the CloudFormation page within the AWS console. Make sure you are in the region where you want to capture the administrative logs from.
+1. Go to the CloudFormation page within the AWS console. Make sure you are in the region where you want to deploy the Lambda function.
 1. Click on the `Create stack -> With new resources` button.
 1. Select the `Upload a template file` radio button and click on the `Choose file` button. Select the `cloudformation-template.yaml` that you downloaded in step 1.
 1. Click on the `Next` button.
@@ -87,12 +87,16 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |Stack Name|Yes|The name of the CloudFormation stack. This can be anything, but since it is used as a suffix for some of the resources it creates, keep it under 40 characters.|
     |checkInterval|Yes|The interval in minutes that the Lambda function will check for new audit logs. Default is 5 minutes |
     |logGroupName|Yes|The name of the CloudWatch log group to ingest the audit logs into. This should have already been created based on your business requirements.|
-    |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to all the FSxN file system management endpoints that you want to gather audit logs from.|
+    |logGroupRegion|Yes|The AWS region where the CloudWatch log group resides.|
+    |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to the management endpoint over TCP port 443 of all the FSxN file systems that you want to gather adminstrative logs from.|
     |lambdaSecruityGroupsIds|Yes|Select the security groups that you want the Lambda function associated with. The security group must allow outbound traffic on TCP port 443. Inbound rules don't matter since the Lambda function is not accessible from a network.|
     |s3BucketName|Yes|The name of the S3 bucket where the stats file is stored. This bucket must already exist.|
     |s3BucketRegion|Yes|The region of the S3 bucket resides.|
     |createWatchdogAlarm|No|If set to `true` it will create a CloudWatch alarm that will alert you if the Lambda function throws in error.|
     |snsTopicArn|No|The ARN of the SNS topic to send the alarm to. This is required if `createWatchdogAlarm` is set to `true`.|
+    |regions|No|A comma separated list of AWS regions where the Lambda function will attempt to discover FSx for ONTAP file systems. If not provided, it will scan all regions|
+    |accountRoles|No|A comma separated list of IAM roles that the Lambda function will assume to access FSx for ONTAP file systems in other accounts. If not provided, it will only access FSx for ONTAP file systems in the same account.|
+    |scanCurrentAccount|No|If set to `true`, the Lambda function will scan the current account for FSx for ONTAP file systems. If set to `false`, it will not scan the current account. Default is `true`.|
     |inputFilter|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. Any event that matches will not stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |inputMatch|No|If provided, this will be treated as a regular expression and matched against the `input` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
     |applicationMatch|No|If provided, this will be treated as a regular expression and matched against the `application` field of a log event. If an event that matches it will be stored into the CloudWatch LogStream. If it doesn't match, the event will not be stored into the CloudWatch LogStream. If not provided, all events will be stored.|
@@ -120,7 +124,9 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |vpcId|No|This is the VPC that the endpoint(s) will be created in. Only needed if you are creating an endpoint.|
     |endpointSecurityGroupIds|No|The security group that the endpoint(s) will be associated with. Must allow incoming TCP traffic over port 443. Only needed if you are creating an endpoint.|
 
-    **Note**: You must either provide the fsxnSecretARNsFile, defaultSecretARN or the fileSystem1ID, fileSystem1SecretARN, fileSystem2ID, fileSystem2SecretARN, etc. parameters.
+    **Notes**:
+    - You must either provide the fsxnSecretARNsFile, defaultSecretARN or the fileSystem1ID, fileSystem1SecretARN, fileSystem2ID, fileSystem2SecretARN, etc. parameters.
+    - If you provide the fsxnSecretARNsFile parameter, then the fileSystem1ID, fileSystem1SecretARN, fileSystem2ID, fileSystem2SecretARN, etc. parameters will be ignored.
 
 6. Click on the `Next` button.
 7. The next page will provide for some additional configuration options. You can leave these as the default values.
@@ -142,9 +148,9 @@ output from the Lambda function. You should see log messages indicating that it 
 need to investigate and correct the issue. If you can't figure it out, please open an [issue](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) in this repository.
 
 ### Add more FSx for ONTAP file systems.
-The way the program is written, it will automatically discover all FSxN file systems within a region,
-So, if you add another FSxN it will automatically attempt to ingest the administrative logs from it.
-Unfortunately, it won't be able to, until you provide a Secret ARN for that file system.
+The way the program is written, it will automatically discover all FSxN file systems within all the specified regions and accounts.
+If you add another FSxN it will automatically attempt to ingest the administrative logs from it.
+However, it won't be able to until you provide a Secret ARN for that file system. Or, if you have provided a default secret ARN those credentials will be used.
 
 The best way to add a secret ARN, is to either update the secretARNs file you
 initially passed to the CloudFormation script, that should be in the S3 bucket you specified in
