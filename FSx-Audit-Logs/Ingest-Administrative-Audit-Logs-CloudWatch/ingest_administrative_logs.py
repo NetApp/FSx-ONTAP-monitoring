@@ -330,17 +330,17 @@ def checkConfig():
                       'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
     #
     # Check to see if any variables are set via environment variables.
-    for item in config:
+    for item in config.copy():
         if item == "accountRoles":
-            if len(config['accountRoles']) == 0 and os.environ.get('accountRoles') is not None and os.environ['accountRoles'] != '':
-                config['accountRoles'] = os.environ['accountRoles'].split(',')
-                for i in range(len(config['accountRoles'])):
-                    config['accountRoles'][i] = config['accountRoles'][i].strip()
+            if len(config[item]) == 0 and os.environ.get(item) is not None and os.environ[item] != '':
+                config[item] = os.environ[item].split(',')
+                for i in range(len(config[item])):
+                    config[item][i] = config[item][i].strip()
         elif item == "regions":
-            if len(config['regions']) == 0 and os.environ.get('regions') is not None and os.environ['regions'] != '':
-                config['regions'] = os.environ['regions'].split(',')
-                for i in range(len(config['regions'])):
-                    config['regions'][i] = config['regions'][i].strip()
+            if len(config[item]) == 0 and os.environ.get(item) is not None and os.environ[item] != '':
+                config[item] = os.environ[item].split(',')
+                for i in range(len(config[item])):
+                    config[item][i] = config[item][i].strip()
         else:
             if config[item] is None:
                 config[item] = os.environ.get(item)
@@ -464,7 +464,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     #
     # Discovery all the FSxNs. Including the ones in other accounts.
     if config['scanCurrentAccount'] != "no":
-        print(f"DEBUG: Scanning regions for FSxNs for the current account.")
+        print("DEBUG: Scanning regions for FSxNs for the current account.")
         for region in config['regions']:
             if region in fsxRegions:
                 print(f"DEBUG:    {region}")
@@ -493,7 +493,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
 
     print(f"DEBUG: Found {len(fsxNs)} FSxNs")
     if len(fsxNs) == 0:
-        print(f"Error: No FSxNs found.")
+        print("Error: No FSxNs found. Exiting.")
         return
     #
     # Get the last processed events stats file.
@@ -542,7 +542,6 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         #
         # Create a header with the basic authentication.
         auth = urllib3.make_headers(basic_auth=f'{username}:{password}')
-        headersDownload = { **auth, 'Accept': 'multipart/form-data' }
         headersQuery = { **auth }
         #
         # Get the last process event index for this FSxN.
@@ -581,15 +580,14 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                         #
                         # Check that it is an event we want to record.
                         if (not re.search(inputFilter, record.get("input", "")) and
-                            re.search(config['inputMatch'], record.get("input", "")) and
-                            re.search(config['applicationMatch'], record.get("application", "")) and
-                            re.search(config['userMatch'], record.get("user", "")) and
-                            re.search(config['stateMatch'], record.get("state", ""))):
-                                lastAscTimestamp = record['timestamp']
-                                lastIndex = record['index']
-                                message = f'{record["timestamp"]} Node:{record["node"]["name"]} location:{record.get("location", "N/A")} application:{record.get("application", "N/A")} user:{record.get("user", "N/A")} state:{record.get("state", "N/A")} scope:{record.get("scope", "N/A")} input:{record.get("input", "N/A")}'
-                                # print(f"DEBUG: Adding event for {fsId} with index {lastIndex} and timestamp {lastAscTimestamp}: {message}")
-                                auditEvents.append({'timestamp': timestamp, 'message': message})
+                          re.search(config['inputMatch'], record.get("input", "")) and
+                          re.search(config['applicationMatch'], record.get("application", "")) and
+                          re.search(config['userMatch'], record.get("user", "")) and
+                          re.search(config['stateMatch'], record.get("state", ""))):
+                            lastAscTimestamp = record['timestamp']
+                            lastIndex = record['index']
+                            message = f'{record["timestamp"]} Node:{record["node"]["name"]} location:{record.get("location", "N/A")} application:{record.get("application", "N/A")} user:{record.get("user", "N/A")} state:{record.get("state", "N/A")} scope:{record.get("scope", "N/A")} input:{record.get("input", "N/A")}'
+                            auditEvents.append({'timestamp': timestamp, 'message': message})
                 #
                 # If we have any events, then put them in CloudWatch.
                 if len(auditEvents) > 0:
