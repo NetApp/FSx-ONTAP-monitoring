@@ -354,7 +354,7 @@ def checkConfig():
     # and logGroupRegion and/or regions is not set, then set them to the fsxRegion.
     if os.environ.get('fsxRegion') is not None and os.environ['fsxRegion'] != '':
         if config['logGroupRegion'] is None:
-            config['cwLogsRegion'] = os.environ['fsxRegion']
+            config['logGroupRegion'] = os.environ['fsxRegion']
         if len(config['regions']) == 0:
             config['regions'] = [os.environ['fsxRegion']]
     #
