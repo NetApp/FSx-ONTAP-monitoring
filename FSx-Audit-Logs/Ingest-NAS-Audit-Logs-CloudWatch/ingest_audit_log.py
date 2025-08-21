@@ -577,7 +577,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                     print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
                     endpoint = None # To break out of the get all SVMs loop.
             except urllib3.exceptions.MaxRetryError as err:
-                print(f"Warning: Timeed out while trying to connect to, or read from, {fsxn}. {err}")
+                print(f"Warning: Timed out while trying to connect to, or read from, {fsxn}. {err}")
                 endpoint = None # To break out of the get all SVMs loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
