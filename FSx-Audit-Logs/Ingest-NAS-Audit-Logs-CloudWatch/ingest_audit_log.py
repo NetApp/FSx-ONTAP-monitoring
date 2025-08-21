@@ -156,29 +156,35 @@ def readFile(ontapAdminServer, headers, volumeUUID, filePath):
     bytesRead = 0
     requestSize = 1   # Set to > 0 to start the loop.
     while requestSize > 0:
-        endpoint = f'https://{ontapAdminServer}/api/storage/volumes/{volumeUUID}/files/{filePath}?length={blockSize}&byte_offset={bytesRead}'
-        response = http.request('GET', endpoint, headers=headers, timeout=5.0)
-        if response.status == 200:
-            bytesRead += blockSize
-            data = response.data
-            #
-            # Get the multipart boundary separator from the first part of the file.
-            boundary = data[4:20].decode('utf-8')
-            #
-            # Get MultipartDecoder to decode the data.
-            contentType = f"multipart/form-data; boundary={boundary}"
-            multipart_data = decoder.MultipartDecoder(data, contentType)
-            #
-            # The first part returned from ONTAP contains the amount of data in the response. When it is 0, we have read the entire file.
-            firstPart = True
-            for part in multipart_data.parts:
-                if(firstPart):
-                    requestSize = int(part.text)
-                    firstPart = False
-                else:
-                    f.write(part.content)
-        else:
-            print(f'Warning: API call to {endpoint} failed. HTTP status code: {response.status}.')
+        try:
+            endpoint = f'https://{ontapAdminServer}/api/storage/volumes/{volumeUUID}/files/{filePath}?length={blockSize}&byte_offset={bytesRead}'
+            response = http.request('GET', endpoint, headers=headers, timeout=5.0)
+            if response.status == 200:
+                bytesRead += blockSize
+                data = response.data
+                #
+                # Get the multipart boundary separator from the first part of the file.
+                boundary = data[4:20].decode('utf-8')
+                #
+                # Get MultipartDecoder to decode the data.
+                contentType = f"multipart/form-data; boundary={boundary}"
+                multipart_data = decoder.MultipartDecoder(data, contentType)
+                #
+                # The first part returned from ONTAP contains the amount of data in the response. When it is 0, we have read the entire file.
+                firstPart = True
+                for part in multipart_data.parts:
+                    if(firstPart):
+                        requestSize = int(part.text)
+                        firstPart = False
+                    else:
+                        f.write(part.content)
+            else:
+                print(f'Warning: API call to {endpoint} failed. HTTP status code: {response.status}.')
+                failed = True
+                break
+        except urllib3.exceptions.MaxRetryError as err:
+            print(f"Warning: Timeout while trying to connect to, or read from, {ontapAdminServer}. {err}")
+            failed = True
             break
 
     f.close()
@@ -187,8 +193,6 @@ def readFile(ontapAdminServer, headers, volumeUUID, filePath):
         return None
     else:
         return tmpFileName
-        #
-        # Upload the audit events to CloudWatch.
 
 ################################################################################
 # This functions converts the timestamp from the XML file to a timestamp in
@@ -364,6 +368,11 @@ def checkConfig():
     for item in config:
         if config[item] == None:
             config[item] = os.environ.get(item)
+            #
+            # Since CloudFormation will create environmenet variables for all the parameters, even if they are not set,
+            # we need to check if the value is an empty string and set it to None.
+            if config[item] == '':
+                config[item] = None
         if item not in optionalConfig and config[item] == None:
             raise Exception(f"{item} is not set.")
 
@@ -509,62 +518,66 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         # Loop through all of SVMs on the FSxN.
         endpoint = f"/api/svm/svms?return_timeout=4"
         while endpoint is not None:
-            response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=5.0)
-            if response.status == 200:
-                svmsData = json.loads(response.data.decode('utf-8'))
-                for record in svmsData['records']:
-                    vserverName = record['name']
-                    #
-                    # Get the volume UUID for the audit_logs volume.
-                    volumeUUID = None
-                    endpoint = f"https://{fsxn}/api/storage/volumes?name={config['volumeName']}&svm={vserverName}"
-                    response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
-                    if response.status == 200:
-                        data = json.loads(response.data.decode('utf-8'))
-                        if data['num_records'] > 0:
-                            volumeUUID = data['records'][0]['uuid']  # Since we specified the volume, and vserver name, there should only be one record.
-
-                    if volumeUUID == None:
-                        print(f"Warning: Volume {config['volumeName']} not found for {fsId} under SVM: {vserverName}.")
-                        continue # To the next SVM.
-                    #
-                    # Get all the files in the volume that match the audit file pattern.
-                    endpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
-                    records = []
-                    while endpoint is not None:
-                        response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=16.0)
+            try:
+                response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=5.0)
+                if response.status == 200:
+                    svmsData = json.loads(response.data.decode('utf-8'))
+                    for record in svmsData['records']:
+                        vserverName = record['name']
+                        #
+                        # Get the volume UUID for the audit_logs volume.
+                        volumeUUID = None
+                        endpoint = f"https://{fsxn}/api/storage/volumes?name={config['volumeName']}&svm={vserverName}"
+                        response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
                         if response.status == 200:
                             data = json.loads(response.data.decode('utf-8'))
-                            if data.get('num_records') == 0:
-                                if len(records) == 0:
-                                    print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
-                                endpoint = None  # To break out of the get all files loop.
-                            else:
-                                records.extend(data['records'])
-                                endpoint = data['_links'].get('next', {}).get('href', None)
-                        else:
-                            print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
-                            endpoint = None # To break out of the get all files loop.
+                            if data['num_records'] > 0:
+                                volumeUUID = data['records'][0]['uuid']  # Since we specified the volume, and vserver name, there should only be one record.
 
-                    for file in records:
-                        filePath = file['name']
-                        if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
-                            localFileName = readFile(fsxn, headersDownload, volumeUUID, filePath)
-                            if localFileName is not None:
-                                if config['copyToS3']:
-                                    s3Client.upload_file(localFileName, config['s3BucketName'], filePath)
-                                ingestAuditFile(localFileName, filePath)
-                                if lastFileRead.get(fsxn) is None:
-                                    lastFileRead[fsxn] = {vserverName: getEpoch(filePath)}
+                        if volumeUUID == None:
+                            print(f"Warning: Volume {config['volumeName']} not found for {fsId} under SVM: {vserverName}.")
+                            continue # To the next SVM.
+                        #
+                        # Get all the files in the volume that match the audit file pattern.
+                        endpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
+                        records = []
+                        while endpoint is not None:
+                            response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=16.0)
+                            if response.status == 200:
+                                data = json.loads(response.data.decode('utf-8'))
+                                if data.get('num_records') == 0:
+                                    if len(records) == 0:
+                                        print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
+                                    endpoint = None  # To break out of the get all files loop.
                                 else:
-                                    lastFileRead[fsxn][vserverName] = getEpoch(filePath)
-                                s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastFileRead).encode('UTF-8'))
-                                os.remove(localFileName)
-                #
-                # Check to see if there are more SVMs to process.
-                endpoint = svmsData['_links'].get('next', {}).get('href', None)
-            else:
-                print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
+                                    records.extend(data['records'])
+                                    endpoint = data['_links'].get('next', {}).get('href', None)
+                            else:
+                                print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
+                                endpoint = None # To break out of the get all files loop.
+
+                        for file in records:
+                            filePath = file['name']
+                            if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
+                                localFileName = readFile(fsxn, headersDownload, volumeUUID, filePath)
+                                if localFileName is not None:
+                                    if config['copyToS3']:
+                                        s3Client.upload_file(localFileName, config['s3BucketName'], filePath)
+                                    ingestAuditFile(localFileName, filePath)
+                                    if lastFileRead.get(fsxn) is None:
+                                        lastFileRead[fsxn] = {vserverName: getEpoch(filePath)}
+                                    else:
+                                        lastFileRead[fsxn][vserverName] = getEpoch(filePath)
+                                    s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastFileRead).encode('UTF-8'))
+                                    os.remove(localFileName)
+                    #
+                    # Check to see if there are more SVMs to process.
+                    endpoint = svmsData['_links'].get('next', {}).get('href', None)
+                else:
+                    print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
+                    endpoint = None # To break out of the get all SVMs loop.
+            except urllib3.exceptions.MaxRetryError as err:
+                print(f"Warning: Timeed out while trying to connect to, or read from, {fsxn}. {err}")
                 endpoint = None # To break out of the get all SVMs loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
