@@ -312,19 +312,37 @@ def ingestAuditFile(auditLogPath, auditLogName):
         # Make sure not to span more than 24 hours of events in a single put_log_events call.
         firstEventTimestamp = getTimestampFromEvent(dictData['Events']['Event'][0])
         cwEvents = []
+        totalEventsSize = 0
         for event in dictData['Events']['Event']:
+            #
+            # Check to see if we have spanned more than 24 hours of events.
             currentEventTimestamp = getTimestampFromEvent(event)
             if currentEventTimestamp - firstEventTimestamp > 79200000:  # 23 hours and 55 minutes in milliseconds.
                 print("Info: Putting 24 hours of events.")
                 putEventInCloudWatch(cwEvents, auditLogName)
                 cwEvents = []
+                totalEventsSize = 0
                 firstEventTimestamp = currentEventTimestamp
-
-            cwEvents.append(createCWEvent(event))
-            if len(cwEvents) == 5000:  # The real maximum is 10000 events, but there is also a size limit, so we will use 5000.
-                print("Info: Putting 5000 events")
+            #
+            # Check to see that we haven't gone over the 1MB limit for a single put_log_events call.
+            newEvent = createCWEvent(event)
+            eventSize = len(newEvent['message']) + 26  # 26 is the size of the timestamp and the message structure.
+            if totalEventsSize + eventSize > 1000000:  # Intentionally using 1,000,000 bytes to avoid exceeding the 1MB limit.
+                print("Info: Putting 1MB worth of events")
                 putEventInCloudWatch(cwEvents, auditLogName)
                 cwEvents = []
+                totalEventsSize = 0
+                firstEventTimestamp = currentEventTimestamp
+
+            totalEventsSize += eventSize
+            cwEvents.append(newEvent)
+            #
+            # Check to see that we haven't gone over the maximum number of events to put in a single call.
+            if len(cwEvents) == 9000: # The real limit is 10,000, but using 9,000 to play it safe.
+                print("Info: Putting 9000 events")
+                putEventInCloudWatch(cwEvents, auditLogName)
+                cwEvents = []
+                totalEventsSize = 0
                 firstEventTimestamp = currentEventTimestamp
     else:
         cwEvents = [createCWEvent(dictData['Events']['Event'])]
