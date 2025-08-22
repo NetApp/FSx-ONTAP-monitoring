@@ -387,7 +387,7 @@ def checkConfig():
         if config[item] == None:
             config[item] = os.environ.get(item)
             #
-            # Since CloudFormation will create environmenet variables for all the parameters, even if they are not set,
+            # Since CloudFormation will create environment variables for all the parameters, even if they are not set,
             # we need to check if the value is an empty string and set it to None.
             if config[item] == '':
                 config[item] = None
