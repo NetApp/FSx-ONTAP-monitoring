@@ -5,7 +5,8 @@
 # from all the FSx for ONTAP File Systems.
 # 
 # It will create a log stream for each FSxN file system it finds.
-# It will attempt to process every FSxN file system within the region.
+# It will attempt to process every FSxN file system within the specified
+# regions. If the regions variable is empty, it will process all regions.
 # It leverages AWS secrets manager to get the credentials for the user account
 # to use for each FSxN file systems.
 # It will skip any FSxN file system that it doesn't have credentials for.
@@ -90,8 +91,9 @@ import botocore
 # the fileSystem1SecretARN, fileSystem2SecretARN, fileSystem3SecretARN,
 # fileSystem4SecretARN, and fileSystem5SecretARN variables to the
 # secretARNs for the FSxN file systems. Empty, or variables not defined
-# will be ignored. Note that if fsxnSecretARNsFile is set, then these
-# variables will be ignored.
+# will be ignored.
+#
+# *NOTE*: If fsxnSecretARNsFile is set, then these variables will be ignored.
 #
 # fileSystem1ID = 
 # fileSystem1SecretARN =
@@ -137,18 +139,14 @@ import botocore
 #
 ################################################################################
 #
-# Variable: fsxRegion
+# Variables: logGroupRegion, logGroupName
 #
-# The region to process the FSxNs in.
-# fsxRegion = "us-west-2"
+# Define the name of the CloudWatch log group, and its region, where the
+# administrative events will be stored into.
 #
-################################################################################
+# *NOTE*: It must already exist.
 #
-# Variable: logGroupName
-#
-# The CloudWatch log group to store the administrative events into. It must
-# already exist.
-#
+# logGroupRegion = "us-west-2"
 # logGroupName = "/fsx/audit_logs"
 #
 ################################################################################
@@ -186,6 +184,40 @@ import botocore
 # applicationMatch=""
 # userMatch=""
 # stateMatch=""
+#
+################################################################################
+#
+# Variable: regions
+#
+# This is an array of AWS regions that you want the program to search for
+# FSxNs in. If it is left empty, it will search all regions that support
+# FSx for ONTAP. For example:
+# regions = ["us-west-2", "us-east-1", "eu-west-1"]
+regions = []
+#
+################################################################################
+#
+# Variable: accountRoles
+#
+# This is an array of AWS account roles that you want the program to assume
+# before searching for FSxNs in. If it is left empty, it only searches the
+# current account.
+#
+# The only permission required in the role is "fsx:DescribeFileSystems".
+#
+accountRoles = []
+#
+################################################################################
+#
+# Variable: scanCurrentAccount
+#
+# This controls whether the program will look at the current account for
+# FSxN to process. Set to the string 'no' to keep it from scanning the
+# current account. Any other value, including not setting the variable
+# or setting it to a null string, will result in it scanning the current
+# account.
+#
+# scanCurrentAccount=""
 #
 ################################################################################
 # END OF VARIABLE DEFINITIONS
@@ -239,17 +271,38 @@ def putEventInCloudWatch(cwEvents, logStreamName):
             print(f"Warning: Too old log event end index: {response['rejectedLogEventsInfo']['tooOldLogEventEndIndex']}")
 
 ################################################################################
+# This function scans for FSxNs and populates the fsxNs global variable
+# with the name and the IP address of the FSxNs management ports.
+################################################################################
+def scanFsxNs(fsxClient):
+    global fsxNs
+    #
+    # Get a list of FSxNs in the region.
+    fsxResponse = fsxClient.describe_file_systems()
+    for fsx in fsxResponse['FileSystems']:
+        fsxNs.append({"name": fsx['FileSystemId'], "IP": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0]})
+    #
+    # Make sure to get all of them since the response is paginated.
+    while fsxResponse.get('NextToken') is not None:
+        fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
+        for fsx in fsxResponse['FileSystems']:
+            fsxNs.append({"name": fsx['FileSystemId'], "IP": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0]})
+
+################################################################################
 # This function checks that all the required configuration variables are set.
 # And in the process, builds the "config" dictionary that contains all the
 # configuration variables.
 ################################################################################
 def checkConfig():
-    global config, s3Client, secretARNs
+    global config, s3Client, secretARNs, regions
     #
     # When defining the dictionary, initialize them to any variables that are set at the top of the program.
     config = {
         'logGroupName': logGroupName if 'logGroupName' in globals() else None,                    # pylint: disable=E0602
-        'fsxRegion': fsxRegion if 'fsxRegion' in globals() else None,                             # pylint: disable=E0602
+        'logGroupRegion': logGroupRegion if 'logGroupRegion' in globals() else None,              # pylint: disable=E0602
+        'regions': regions if 'regions' in globals() else [],                                     # pylint: disable=E0602
+        'accountRoles': accountRoles if 'accountRoles' in globals() else [],                      # pylint: disable=E0602
+        'scanCurrentAccount': scanCurrentAccount if 'scanCurrentAccount' in globals() else None,  # pylint: disable=E0602
         's3BucketRegion': s3BucketRegion if 's3BucketRegion' in globals() else None,              # pylint: disable=E0602
         's3BucketName': s3BucketName if 's3BucketName' in globals() else None,                    # pylint: disable=E0602
         'statsName': statsName if 'statsName' in globals() else None,                             # pylint: disable=E0602
@@ -272,26 +325,46 @@ def checkConfig():
         'fileSystem5SecretARN': fileSystem5SecretARN if 'fileSystem5SecretARN' in globals() else None   # pylint: disable=E0602
     }
     optionalConfig = ['fsxnSecretARNsFile', 'inputFilter', 'inputMatch', 'applicationMatch', 'userMatch', 'stateMatch',
-                      'fileSystem1ID', 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
-                      'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN',
+                      'fileSystem1ID', 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID', 'regions', 'accountRoles',
+                      'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN', 'scanCurrentAccount',
                       'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
     #
     # Check to see if any variables are set via environment variables.
+    for item in config.copy():
+        if item == "accountRoles":
+            if len(config[item]) == 0 and os.environ.get(item) is not None and os.environ[item] != '':
+                config[item] = os.environ[item].split(',')
+                for i in range(len(config[item])):
+                    config[item][i] = config[item][i].strip()
+        elif item == "regions":
+            if len(config[item]) == 0 and os.environ.get(item) is not None and os.environ[item] != '':
+                config[item] = os.environ[item].split(',')
+                for i in range(len(config[item])):
+                    config[item][i] = config[item][i].strip()
+        else:
+            if config[item] is None:
+                config[item] = os.environ.get(item)
+                #
+                # Since CloudFormation will create environment variables for everything, but set them to an
+                # empty string if the variable wasn't set, set the configuration variable back to None.
+                if config[item] == "":
+                    config[item] = None
+    #
+    # To be backwards compatible, if the fsxRegion environment variable is set,
+    # and logGroupRegion and/or regions is not set, then set them to the fsxRegion.
+    if os.environ.get('fsxRegion') is not None and os.environ['fsxRegion'] != '':
+        if config['logGroupRegion'] is None:
+            config['logGroupRegion'] = os.environ['fsxRegion']
+        if len(config['regions']) == 0:
+            config['regions'] = [os.environ['fsxRegion']]
+    #
+    # Check that all the required variables are set.
     for item in config:
-        if config[item] is None:
-            config[item] = os.environ.get(item)
-            #
-            # Since CloudFormation will create environment variables for everything, but set them to an
-            # empty string if the variable wasn't set, set the configuration variable back to None.
-            if config[item] == "":
-                config[item] = None
-        #
-        # If any required variables are not set at this point, raise an exception.
         if item not in optionalConfig and config[item] is None:
             raise Exception(f"{item} is not set.")
     #
     # Create a S3 client.
-    s3Client = boto3.client('s3', config['s3BucketRegion'])
+    s3Client = boto3.client('s3', region_name=config['s3BucketRegion'])
     #
     # Define the secretsARNs dictionary if it hasn't already been defined.
     if 'secretARNs' not in globals():
@@ -338,7 +411,7 @@ def checkConfig():
 # and then processes all the FSxNs.
 ################################################################################
 def lambda_handler(event, context):     # pylint: disable=W0613
-    global http, cwLogsClient, config, s3Client, secretARNs
+    global http, cwLogsClient, config, s3Client, secretARNs, fsxNs
     #
     # Check that we have all the configuration variables we need.
     checkConfig()
@@ -348,28 +421,80 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     #
     # NOTE: The s3 client is created in the checkConfig function.
     #
-    # Create a FSx client.
-    fsxClient = boto3.client('fsx', config['fsxRegion'])
-    #
     # Create a CloudWatch client.
-    cwLogsClient = boto3.client('logs', config['fsxRegion'])
+    cwLogsClient = boto3.client('logs', config['logGroupRegion'])
+    #
+    #############################################################################
+    # The following code block is an example of how to use a custom CA bundle
+    # so that you don't have to ignore SSL certificate errors.
+    #
+    # To get the CA bundle, you can use the following command:
+    # openssl s_client --showcerts --connect <IP>:443 < /dev/null
+    #
+    # Where <IP> is the IP address of the FSxN management port.
+    #
+    # The idea is to copy the CA bundle into the S3 bucket, then read it from
+    # there and pass the file to the urllib function.
+    #
+    # Copy the ca_bundle from the s3 bucket.
+    #cert_file = '/tmp/aws_ca_root.pem'
+    #f = open(cert_file, 'wt')
+    #response = s3Client.get_object(Bucket=config['s3BucketName'], Key="aws_ca_root")
+    #for line in response['Body'].iter_lines():
+    #    line = line.decode('utf-8')
+    #    f.write(line + '\n')
+    #f.close()
+    #http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', retries=retries, ca_certs=cert_file)
+    #############################################################################
     #
     # Disable warning about connecting to servers with self-signed SSL certificates.
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
     retries = Retry(total=None, connect=1, read=1, redirect=10, status=0, other=0)  # pylint: disable=E1123
     http = urllib3.PoolManager(cert_reqs='CERT_NONE', retries=retries)
     #
-    # Get a list of FSxNs in the region.
-    fsxNs = []   # Holds the FQDN of the FSxNs management ports.
-    fsxResponse = fsxClient.describe_file_systems()
-    for fsx in fsxResponse['FileSystems']:
-        fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
+    # If regions hasn't already been defined, get the list of all the AWS
+    # regions that support FSx for ONTAP.
+    if len(config['regions']) == 0:  # pylint: disable=E0601
+        ec2Client = boto3.client('ec2')
+        ec2Regions = ec2Client.describe_regions()['Regions']
+        for region in ec2Regions:
+            config['regions'] += [region['RegionName']]
+    fsxRegions = boto3.Session().get_available_regions('fsx')
+    fsxNs = []   # Holds the name and IP addresses of the FSxNs management ports.
     #
-    # Make sure to get all of them since the response is paginated.
-    while fsxResponse.get('NextToken') is not None:
-        fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
-        for fsx in fsxResponse['FileSystems']:
-            fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
+    # Discovery all the FSxNs. Including the ones in other accounts.
+    if config['scanCurrentAccount'] != "no":
+        print("DEBUG: Scanning regions for FSxNs for the current account.")
+        for region in config['regions']:
+            if region in fsxRegions:
+                print(f"DEBUG:    {region}")
+                fsxClient = boto3.client('fsx', region_name=region)
+                scanFsxNs(fsxClient)
+
+    for accountRole in config['accountRoles']:
+        print(f"DEBUG: Scanning regions for FSxNs for accountRole {accountRole}")
+        for region in config['regions']:
+            if region in fsxRegions:
+                print(f"DEBUG:    {region}")
+                sts_client = boto3.client('sts', region_name=region)
+
+                assumed_role_object = sts_client.assume_role(
+                        RoleArn=accountRole,
+                        RoleSessionName="FSxCrossAccountSession"
+                )
+                credentials = assumed_role_object['Credentials']
+
+                fsxClient = boto3.client('fsx',
+                                         region_name=region,
+                                         aws_access_key_id=credentials['AccessKeyId'],
+                                         aws_secret_access_key=credentials['SecretAccessKey'],
+                                         aws_session_token=credentials['SessionToken'])
+                scanFsxNs(fsxClient)
+
+    print(f"DEBUG: Found {len(fsxNs)} FSxNs")
+    if len(fsxNs) == 0:
+        print("Error: No FSxNs found. Exiting.")
+        return
     #
     # Get the last processed events stats file.
     try:
@@ -387,7 +512,9 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     #
     # Process each FSxN.
     for fsxn in fsxNs:
-        fsId = fsxn.split('.')[1]
+        fsId = fsxn['name']
+        fsIP = fsxn['IP']
+        print(f"DEBUG: Checking {fsId}")
         #
         # Get the credentials.
         if secretARNs.get(fsId) is None and config['defaultSecretARN'] is not None:
@@ -415,7 +542,6 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         #
         # Create a header with the basic authentication.
         auth = urllib3.make_headers(basic_auth=f'{username}:{password}')
-        headersDownload = { **auth, 'Accept': 'multipart/form-data' }
         headersQuery = { **auth }
         #
         # Get the last process event index for this FSxN.
@@ -431,10 +557,17 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         endpoint = f"/api/security/audit/messages?timestamp=>{lastProcessed['ascTimestamp']}&max_records=1000"
         while endpoint is not None:
             auditEvents = []
-            response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=15.0)
+            try:
+                response = http.request('GET', f"https://{fsIP}{endpoint}", headers=headersQuery, timeout=15.0)
+            except urllib3.exceptions.MaxRetryError as err:
+                print(f"Warning: Unable to connect to {fsIP}({fsId}) at {endpoint}. {err}")
+                break # Break out "while endpoint is not None" loop.
+            except urllib3.exceptions.ConnectTimeoutError as err:
+                print(f"Warning: Timeout connecting to {fsIP}({fsId}) at {endpoint}. {err}")
+                break # Break out "while endpoint is not None" loop.
             if response.status == 200:
                 data = json.loads(response.data.decode('utf-8'))
-                print(f'DEBUG: Received {len(data["records"])} records from {fsxn}.')
+                print(f'DEBUG: Received {len(data["records"])} records from {fsIP}({fsId}).')
                 for record in data['records']:
                     timestamp = getMsEpoch(record['timestamp'])
                     #
@@ -447,15 +580,14 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                         #
                         # Check that it is an event we want to record.
                         if (not re.search(inputFilter, record.get("input", "")) and
-                            re.search(config['inputMatch'], record.get("input", "")) and
-                            re.search(config['applicationMatch'], record.get("application", "")) and
-                            re.search(config['userMatch'], record.get("user", "")) and
-                            re.search(config['stateMatch'], record.get("state", ""))):
-                                lastAscTimestamp = record['timestamp']
-                                lastIndex = record['index']
-                                message = f'{record["timestamp"]} Node:{record["node"]["name"]} location:{record.get("location", "N/A")} application:{record.get("application", "N/A")} user:{record.get("user", "N/A")} state:{record.get("state", "N/A")} scope:{record.get("scope", "N/A")} input:{record.get("input", "N/A")}'
-                                # print(f"DEBUG: Adding event for {fsId} with index {lastIndex} and timestamp {lastAscTimestamp}: {message}")
-                                auditEvents.append({'timestamp': timestamp, 'message': message})
+                          re.search(config['inputMatch'], record.get("input", "")) and
+                          re.search(config['applicationMatch'], record.get("application", "")) and
+                          re.search(config['userMatch'], record.get("user", "")) and
+                          re.search(config['stateMatch'], record.get("state", ""))):
+                            lastAscTimestamp = record['timestamp']
+                            lastIndex = record['index']
+                            message = f'{record["timestamp"]} Node:{record["node"]["name"]} location:{record.get("location", "N/A")} application:{record.get("application", "N/A")} user:{record.get("user", "N/A")} state:{record.get("state", "N/A")} scope:{record.get("scope", "N/A")} input:{record.get("input", "N/A")}'
+                            auditEvents.append({'timestamp': timestamp, 'message': message})
                 #
                 # If we have any events, then put them in CloudWatch.
                 if len(auditEvents) > 0:
@@ -470,7 +602,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 # Check to see if there are any more.
                 endpoint = data['_links']['next']['href'] if 'next' in data['_links'] else None
             else:
-                print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
+                print(f"Warning: API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
                 break # Break out "while endpoint is not None" loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
