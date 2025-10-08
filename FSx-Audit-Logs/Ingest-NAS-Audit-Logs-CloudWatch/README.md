@@ -126,7 +126,9 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |vpcId|No|This is the VPC that the endpoint(s) will be created in. Only needed if you are creating an endpoint.|
     |endpointSecurityGroupIds|No|The security group that the endpoint(s) will be associated with. Must allow incoming TCP traffic over port 443. Only needed if you are creating an endpoint.|
 
-    **Note**: You must either provide the fsxnSecretARNsFile, defaultSecretARN, or the fileSystem1ID, fileSystem1SecretARN, fileSystem2ID, fileSystem2SecretARN, etc. parameters.
+    **Note**: You must either provide the `fsxnSecretARNsFile`, `defaultSecretARN`, or the `fileSystemXID/fileSystemXSecretARN` parameters.
+    If `fsxSnSecretARNsFile` is provided, the program will ignore the `fileSystemXID/fileSystemXSecretARN` parameters.
+
 
 6. Click on the `Next` button.
 7. The next page will provide for some additional configuration options. You can leave these as the default values.
