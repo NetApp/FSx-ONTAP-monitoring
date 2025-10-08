@@ -94,7 +94,8 @@ and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:
     |---|---|--|
     |Stack Name|Yes|The name of the CloudFormation stack. This can be anything, but since it is used as a suffix for some of the resources it creates, keep it under 40 characters.|
     |volumeName|Yes|This is the name of the volume that will contain the audit logs. This should be the same on all SVMs on all the FSx for ONTAP file systems you want to ingest the NAS audit logs from.|
-    |checkInterval|Yes|The interval in minutes that the Lambda function will check for new audit logs. You should set this to match the rotate frequency you have set for your audit logs.|
+    |checkInterval|Yes|The interval, **in minutes**, that the Lambda function will check for new audit logs. You should set this to match the rotate frequency you have set for your audit logs.|
+    |preserveOldEvents|No|Since CloudWatch will reject any event that is more than 14 days old, if you set this parameter to 'true' the program will set the CloudWatch event timestamp to 13 days from the time the event is inserted into CloudWatch LogStream if the audit event is older than 13 days. Note that this will not effect the timestamp recorded in the event message itself, just the CloudWatch event timestamp.|
     |logGroupName|Yes|The name of the CloudWatch log group to ingest the audit logs into. This should have already been created based on your business requirements.|
     |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to all the FSxN file system management endpoints that you want to gather audit logs from.|
     |lambdaSecruityGroupsIds|Yes|Select the security groups that you want the Lambda function associated with. The security group must allow outbound traffic on TCP port 443. Inbound rules don't matter since the Lambda function is not accessible from a network.|

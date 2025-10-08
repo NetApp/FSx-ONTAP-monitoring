@@ -96,10 +96,15 @@ process a lot of audit entries and/or process a lot of SVMs.
     | Variable | Required| Description |
     | --- | --- | --- |
     | fsxRegion | Yes |The region where the FSx for ONTAP file systems are located. |
-    | s3BucketRegion |Yes | The region of the S3 bucket where the stats file is stored. |
+    | volumeName | Yes| The name of the volume, on all the FSx for ONTAP file systems, where the audit logs are stored. |
+    | logGroupName | Yes| The name of the CloudWatch log group to ingest the audit logs into. |
     | s3BucketName | Yes |The name of the S3 bucket where the stats file is stored. |
+    | s3BucketRegion |Yes | The region of the S3 bucket where the stats file is stored. |
     | copyToS3 | No| Set to `true` if you want to copy the raw audit log files to the S3 bucket.|
+    | preserveOldEvents|No|Since CloudWatch will reject any event that is more than 14 days old, if you set this parameter to 'true' the program will set the CloudWatch event timestamp to 13 days from the time the event is inserted into CloudWatch LogStream if the audit event is older than 13 days. Note that this will not effect the timestamp recorded in the event message itself, just the CloudWatch event timestamp.|
+    | maxRunTime | No | The maximum amount of time, in seconds, that the program should run before exiting. This is mostly used when running the program as a Lambda function to avoid it being abrutively stopped because of a Lambda timeout.|
     |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each for the FSxN file systems. The format of the file should be just `<fsID>=<secretARN>`. For example: `fs-0e8d9172fa5411111=arn:aws:secretsmanager:us-east-1:123456789012:secret:fsxadmin-abc123`|
+    |defaultSecretARN|No|The ARN of an AWS Secrets Manager Secret to be used if a particular FSxN file system doesn't have a specific secret associated with it. Use with caution, since it will cause the program to try the credentials in the default secret for all FSxN where there isn't a secret specified for it which could cause an account to be locked out if the credentials are incorrect for that FSxN.|
     |fileSystem1ID|No|The ID of the first FSxN file system to ingest the audit logs from.|
     |fileSystem1SecretARN|No|The ARN of the secret that contains the credentials for the first FSx for Data ONTAP file system.|
     |fileSystem2ID|No|The ID of the second FSx for Data ONTAP file system to ingest the audit logs from.|
@@ -111,8 +116,6 @@ process a lot of audit entries and/or process a lot of SVMs.
     |fileSystem5ID|No|The ID of the fifth FSx for Data ONTAP file system to ingest the audit logs from.|
     |fileSystem5SecretARN|No|The ARN of the secret that contains the credentials for the fifth FSx for Data ONTAP file system.|
     | statsName | Yes| The name you want to use as the stats file. |
-    | logGroupName | Yes| The name of the CloudWatch log group to ingest the audit logs into. |
-    | volumeName | Yes| The name of the volume, on all the FSx for ONTAP file systems, where the audit logs are stored. |
 
     **NOTE:** You only need to set the `fsxnSecretARNsFile` or the `fileSystemXID` and `fileSystemXSecretARN` variables.
     If both are provide, then the `fsxnSecretARNsFile` will be used and the `fileSystemXID` and `fileSystemXSecretARN` variables will be ignored.

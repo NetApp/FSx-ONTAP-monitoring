@@ -119,6 +119,21 @@ import botocore
 # If you want the program to copy all the raw audit files into the S3 bucket,
 # then set this to the string "true". It will be converted to a boolean later.
 # copyToS3 = "true"
+#
+# If you want the program to only run for a certain amount of time, then set
+# this variable to the number of seconds you want it to run. If not set, it
+# run until it has processed all the FSxNs, or if running as a Lambda function,
+# it will run until it hits the Lambda run time limit. Setting this will help
+# prevent the Lambda function from reporting a "timing out" so any error
+# should be something to investigate.
+# maxRunTime = 290
+#
+# CloudWatch will reject any log event that is more than 14 days old.
+# If you want the program to set the CloudWatch timestamp of any event
+# older than 14 days to 13 days ago, then set this variable to the string
+# "true". It will be converted to a boolean later. Note that the timestamp
+# displayed in the event message will still be the original timestamp.
+# preserveOldEvents = "true"
 
 ################################################################################
 # This function returns the epoch time from the filename. It assumes the
@@ -200,6 +215,7 @@ def readFile(ontapAdminServer, headers, volumeUUID, filePath):
 #    2024-09-22T21:05:27.263864000Z
 ################################################################################
 def getTimestampFromEvent(event):
+    global config
 
     year = int(event['System']['TimeCreated']['@SystemTime'].split('-')[0])
     month = int( event['System']['TimeCreated']['@SystemTime'].split('-')[1])
@@ -213,6 +229,15 @@ def getTimestampFromEvent(event):
     # Convert the timestep from a float in seconds to an integer in milliseconds.
     msecond = int(msecond)/(10 ** (len(msecond) - 3))
     t = int(t * 1000 + msecond)
+    #
+    # CloudWatch will reject any log event that is more than 14 days old, so if the
+    # timestamp is more than 14 days old, then set it to 13 days ago.
+    if config['preserveOldEvents']:
+        currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
+        maxTimeBack = 13 * 24 * 60 * 60 * 1000
+        if t < (currentTime - maxTimeBack):
+            t = int(currentTime - maxTimeBack)
+
     return t
 
 ################################################################################
@@ -315,6 +340,9 @@ def ingestAuditFile(auditLogPath, auditLogName):
         totalEventsSize = 0
         for event in dictData['Events']['Event']:
             #
+            # Create a CloudWatch event from the XML event.
+            newEvent = createCWEvent(event)
+            #
             # Check to see if we have spanned more than 24 hours of events.
             currentEventTimestamp = getTimestampFromEvent(event)
             if currentEventTimestamp - firstEventTimestamp > 79200000:  # 23 hours and 55 minutes in milliseconds.
@@ -324,8 +352,19 @@ def ingestAuditFile(auditLogPath, auditLogName):
                 totalEventsSize = 0
                 firstEventTimestamp = currentEventTimestamp
             #
+            # Check that the events are in chronological order.
+            previousEventTimestamp = currentEventTimestamp if len(cwEvents) == 0 else cwEvents[-1]['timestamp']
+            if currentEventTimestamp < previousEventTimestamp:
+                #
+                # If they are within a minute, then just set the currentEventTimestamp to
+                # the previousEventTimestamp, otherwise, raise an exception.
+                if currentEventTimestamp - previousEventTimestamp > 59000:
+                    raise Exception(f"Events are not in chronological order. {currentEventTimestamp=} {previousEventTimestamp=}, Audit Log File: {auditLogName}")
+                else:
+                    print(f"Info: Events are out of order by less than a minute. Adjusting timestamp. {currentEventTimestamp=} {previousEventTimestamp=}, Audit Log File: {auditLogName}")
+                    newEvent['timestamp'] = previousEventTimestamp
+            #
             # Check to see that we haven't gone over the 1MB limit for a single put_log_events call.
-            newEvent = createCWEvent(event)
             eventSize = len(newEvent['message']) + 26  # 26 is the size of the timestamp and the message structure.
             if totalEventsSize + eventSize > 1000000:  # Intentionally using 1,000,000 bytes to avoid exceeding the 1MB limit.
                 print("Info: Putting 1MB worth of events")
@@ -365,6 +404,8 @@ def checkConfig():
         's3BucketName': s3BucketName if 's3BucketName' in globals() else None,         # pylint: disable=E0602
         'statsName': statsName if 'statsName' in globals() else None,                  # pylint: disable=E0602
         'copyToS3': copyToS3 if 'copyToS3' in globals() else None,                     # pylint: disable=E0602
+        'maxRunTime': maxRunTime if 'maxRunTime' in globals() else None,               # pylint: disable=E0602
+        'preserveOldEvents': preserveOldEvents if 'preserveOldEvents' in globals() else None,     # pylint: disable=E0602
         'fsxnSecretARNsFile': fsxnSecretARNsFile if 'fsxnSecretARNsFile' in globals() else None,  # pylint: disable=E0602
         'defaultSecretARN': defaultSecretARN if 'defaultSecretARN' in globals() else None,        # pylint: disable=E0602
         'fileSystem1ID': fileSystem1ID if 'fileSystem1ID' in globals() else None,      # pylint: disable=E0602
@@ -378,8 +419,8 @@ def checkConfig():
         'fileSystem4SecretARN': fileSystem4SecretARN if 'fileSystem4SecretARN' in globals() else None,  # pylint: disable=E0602
         'fileSystem5SecretARN': fileSystem5SecretARN if 'fileSystem5SecretARN' in globals() else None   # pylint: disable=E0602
     }
-    optionalConfig = ['copyToS3', 'fsxnSecretARNsFile', 'fileSystem1ID',
-                      'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
+    optionalConfig = ['copyToS3', 'maxRunTime', 'fsxnSecretARNsFile', 'preserveOldEvents',
+                      'fileSystem1ID', 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
                       'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN',
                       'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
 
@@ -398,12 +439,27 @@ def checkConfig():
         config['copyToS3'] = False
     else:
         config['copyToS3'] = config['copyToS3'].lower() == 'true'
+
+    if config['preserveOldEvents'] == None:
+        config['preserveOldEvents'] = False
+    else:
+        config['preserveOldEvents'] = config['preserveOldEvents'].lower() == 'true'
+    #
+    # If maxRunTime is set, then convert it to an integer and subtract 5 seconds to give us some buffer time.
+    if config['maxRunTime'] is not None:
+        if int(config['maxRunTime']) < 6:
+            raise Exception("maxRunTime must be more than 6 seconds.")
+        config['maxRunTime'] = int(config['maxRunTime']) - 5
     #
     # To be backwards compatible, load the vserverName.
     config['vserverName'] = vserverName if 'vserverName' in globals() else os.environ.get('vserverName')  # pylint: disable=E0602
     #
     # Create a S3 client.
-    s3Client = boto3.client('s3', config['s3BucketRegion'])
+    # Since us-east-1 is a special case, we need to handle it differently.
+    if config['s3BucketRegion'] == "us-east-1":
+        s3Client = boto3.client('s3', config['s3BucketRegion'], config=botocore.config.Config(s3={'us_east_1_regional_endpoint':'regional'}))
+    else:
+        s3Client = boto3.client('s3', config['s3BucketRegion'])
     #
     # Define the secretsARNs dictionary if it hasn't already been defined.
     if 'secretARNs' not in globals():
@@ -447,6 +503,8 @@ def checkConfig():
 ################################################################################
 def lambda_handler(event, context):     # pylint: disable=W0613
     global http, cwLogsClient, config, s3Client, secretARNs
+
+    startTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
     #
     # Check that we have all the configuration variables we need.
     checkConfig()
@@ -541,6 +599,11 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 if response.status == 200:
                     svmsData = json.loads(response.data.decode('utf-8'))
                     for record in svmsData['records']:
+                        if config['maxRunTime'] is not None:
+                            currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
+                            if currentTime > (startTime + config['maxRunTime']):
+                                print("Notice: Running too long. Exiting...")
+                                return
                         vserverName = record['name']
                         #
                         # Get the volume UUID for the audit_logs volume.
@@ -575,6 +638,11 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                 endpoint = None # To break out of the get all files loop.
 
                         for file in records:
+                            if config['maxRunTime'] is not None:
+                                currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
+                                if currentTime > (startTime + config['maxRunTime']):
+                                    print("Notice: Running too long. Exiting...")
+                                    return
                             filePath = file['name']
                             if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
                                 localFileName = readFile(fsxn, headersDownload, volumeUUID, filePath)
