@@ -117,8 +117,8 @@ process a lot of audit entries and/or process a lot of SVMs.
     |fileSystem5SecretARN|No|The ARN of the secret that contains the credentials for the fifth FSx for Data ONTAP file system.|
     | statsName | Yes| The name you want to use as the stats file. |
 
-    **NOTE:** You only need to set the `fsxnSecretARNsFile` or the `fileSystemXID` and `fileSystemXSecretARN` variables.
-    If both are provide, then the `fsxnSecretARNsFile` will be used and the `fileSystemXID` and `fileSystemXSecretARN` variables will be ignored.
+    **NOTE:** You need to set the `fsxnSecretARNsFile`, `defaultSecretARN` or the `fileSystemXID` and `fileSystemXSecretARN` variables.
+    If `fsxnSecretARNsFile` is provided the program will ignore the `fileSystemXID` and `fileSystemXSecretARN` variables.
 
 4. Test the Lambda function by clicking on the `Test` tab and then clicking on the `Test` button. You should see "Executing function: succeeded".
 If not, click on the "Details" button to see what errors there are.
