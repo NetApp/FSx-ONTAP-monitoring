@@ -711,8 +711,7 @@ Resources:
               t = int(t * 1000 + msecond)
               #
               # CloudWatch will reject any log event that is more than 14 days old, so if the
-              # timestamp is more than 14 days old, then set it to 14 days ago minus 1 hour.
-              # And, actually, because of potential time zone issues, just set it to 13 days.
+              # timestamp is more than 14 days old, then set it to 13 days ago.
               if config['preserveOldEvents']:
                   currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
                   maxTimeBack = 13 * 24 * 60 * 60 * 1000
@@ -885,7 +884,7 @@ Resources:
                   's3BucketName': s3BucketName if 's3BucketName' in globals() else None,         # pylint: disable=E0602
                   'statsName': statsName if 'statsName' in globals() else None,                  # pylint: disable=E0602
                   'copyToS3': copyToS3 if 'copyToS3' in globals() else None,                     # pylint: disable=E0602
-                  'maxRunTime': makeRunTime if 'makeRunTime' in globals() else None,             # pylint: disable=E0602
+                  'maxRunTime': maxRunTime if 'maxRunTime' in globals() else None,               # pylint: disable=E0602
                   'preserveOldEvents': preserveOldEvents if 'preserveOldEvents' in globals() else None,     # pylint: disable=E0602
                   'fsxnSecretARNsFile': fsxnSecretARNsFile if 'fsxnSecretARNsFile' in globals() else None,  # pylint: disable=E0602
                   'defaultSecretARN': defaultSecretARN if 'defaultSecretARN' in globals() else None,        # pylint: disable=E0602
@@ -1080,10 +1079,11 @@ Resources:
                           if response.status == 200:
                               svmsData = json.loads(response.data.decode('utf-8'))
                               for record in svmsData['records']:
-                                  currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
-                                  if currentTime > (startTime + config['maxRunTime']):
-                                      print("Running too long.")
-                                      return
+                                  if config['maxRunTime'] is not None:
+                                      currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
+                                      if currentTime > (startTime + config['maxRunTime']):
+                                          print("Notice: Running too long. Exiting...")
+                                          return
                                   vserverName = record['name']
                                   #
                                   # Get the volume UUID for the audit_logs volume.
@@ -1121,7 +1121,7 @@ Resources:
                                       if config['maxRunTime'] is not None:
                                           currentTime = datetime.datetime.now(datetime.timezone.utc).timestamp()
                                           if currentTime > (startTime + config['maxRunTime']):
-                                              print("Running too long.")
+                                              print("Notice: Running too long. Exiting...")
                                               return
                                       filePath = file['name']
                                       if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
