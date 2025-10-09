@@ -100,7 +100,7 @@ To install the program using the CloudFormation template, you will need to do th
 |SecretUsernameKey|The name of the key within the secret that holds the username portion of the FSxN file system credentials. The default is 'username'.|
 |SecretPasswordKey|The name of the key within the secret that holds the password portion of the FSxN file system credentials. The default is 'password'.|
 |CheckInterval|The interval, in minutes, that the EventBridge schedule will trigger the Lambda function. The default is 15 minutes.|
-|CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the monitoring Lambda function fails.|
+|CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the monitoring Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdoogAsLambda.|
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
 |LambdaRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role](#create-an-aws-role) section below. If left blank a role will be created for you.|
@@ -114,13 +114,21 @@ To install the program using the CloudFormation template, you will need to do th
 |VpcId|The ID of a VPC where the subnets provided above are located. Required if you are creating an endpoint, not needed otherwise.|
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
 
-The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
-You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have reasonable default values
-so you probably won't have to change any of them. Note that if you enable EMS alerts, then the default rule will
-alert on all EMS messages that have a severity of `Error`, `Alert` or `Emergency`. You can change the
-matching conditions at any time by updating the matching conditions file that is created in the S3 bucket.
-The name of the file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
-set for the OntapAdminServer parameter.
+    The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
+    You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have reasonable default values
+    so you probably won't have to change any of them. Note that if you enable EMS alerts, then the default rule will
+    alert on all EMS messages that have a severity of `Error`, `Alert` or `Emergency`. You can change the
+    matching conditions at any time by updating the matching conditions file that is created in the S3 bucket.
+    The name of the file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
+    set for the OntapAdminServer parameter.
+
+5. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
+    provide tags for the stack. Any tags specified here will be applied to all resources that are created that
+    support tags. Tags are optional and can be left blank. There are other configuration parameters you can
+    change here, but typically you can leave them as defaults. Click on the "Next" button.
+
+6. The final page will allow you to review all configuration parameters you provided.
+    If everything looks good, click on the "Create stack" button.
 
 ### Post Installation Checks
 After the stack has been created, check the status of the Lambda function to make sure it is
@@ -489,7 +497,7 @@ In the above example, it will alert on:
 - Any network interfaces that are down. 
 - Any EMS message that has an event name of “passwd.changed”.
 - Any EMS message that has a severity of "alert" or “emergency”.
-- Any SnapMirror relationship with a lag time more than 200% the amount of time since its last scheduled update, if it has a schedule assoicated with it.
+- Any SnapMirror relationship with a lag time more than 200% the amount of time since its last scheduled update, if it has a schedule associated with it.
     Otherwise, if the last successful update has been more than 86400 seconds (24 hours).
 - Any SnapMirror relationship with a lag time more than 86400 seconds (24 hours).
 - Any SnapMirror relationship that has a non-healthy status.
@@ -512,6 +520,19 @@ A matching conditions file must be created and stored in the S3 bucket with the 
 configuration variable. Feel free to use the example above as a starting point. Note that you should ensure it
 is in valid JSON format, otherwise the program will fail to load the file. There are various programs and
 websites that can validate a JSON file for you.
+
+##### CloudWatch Alarm to monitor the Lambda function
+It is recommended that you create a CloudWatch alarm to monitor the Lambda function so you'll know if it is
+running properly. You do that by going to the CloudWatch service in the AWS console and
+clicking on the `Alarms` link in the left hand navigation pane. Then, clicking on the `Create alarm`
+button. From there, click on the `Select metric` button. This will bring you to a page
+where you can provide the Lambda function name created in the steps above. Once you
+provide the name and hit `Return` it should present two boxes: "Lambda > By Resources" and "Lambda > By Function Name".
+Click on the "Lambda > By Function Name" box. This will bring you to a page where you can select the metric you want to monitor.
+In this case, you want to monitor the "Errors" metric so click on the box in front of the line with "Errors" as the metric name.
+Click on the "Select metric" button. This will bring you to a page where you can set the conditions for the alarm.
+The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` set be set to `Greater`. Under the `than..` label
+put `0.5` in the text box. This will set the alarm to trigger if there are any errors.
 
 ## Author Information
 
