@@ -838,7 +838,7 @@ Resources:
                           #
                           # If they are within a minute, then just set the currentEventTimestamp to
                           # the previousEventTimestamp, otherwise, raise an exception.
-                          if currentEventTimestamp - previousEventTimestamp > 59000:
+                          if previousEventTimestamp - currentEventTimestamp > 59000:
                               raise Exception(f"Events are not in chronological order. {currentEventTimestamp=} {previousEventTimestamp=}, Audit Log File: {auditLogName}")
                           else:
                               print(f"Info: Events are out of order by less than a minute. Adjusting timestamp. {currentEventTimestamp=} {previousEventTimestamp=}, Audit Log File: {auditLogName}")

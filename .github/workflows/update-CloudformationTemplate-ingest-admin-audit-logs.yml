@@ -7,10 +7,10 @@ name: "Update Cloudformation Template"
 on:
   pull_request:
     paths:
-      - 'FSx_Alerting/Auto-Add-CloudWatch-Alarms/auto_add_cw_alarms.py'
+      - 'FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch/ingest_administrative_logs.py'
   push:
     paths:
-      - 'FSx_Alerting/Auto-Add-CloudWatch-Alarms/auto_add_cw_alarms.py'
+      - 'FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch/ingest_administrative_logs.py'
     branches:
       - main
 
@@ -30,8 +30,8 @@ jobs:
 
       - name: Update the Cloudformation Template
         shell: bash
-        working-directory: FSx_Alerting/Auto-Add-CloudWatch-Alarms
-        run: ./update-auto-add-cw-alarms-CF-Template
+        working-directory: FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch
+        run: ./updateIngestAdministrativeLogsCFTemplate
 
       - name: Commit the changes
         uses: stefanzweifel/git-auto-commit-action@v5
