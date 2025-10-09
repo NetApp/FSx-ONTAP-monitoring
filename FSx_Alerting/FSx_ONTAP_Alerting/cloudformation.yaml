@@ -732,8 +732,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v3.1
-          # Date: 2025-10-09-10:46:32
+          # Version: v3.2
+          # Date: 2025-10-09-16:53:37
           ################################################################################
           
           import json
@@ -1462,7 +1462,7 @@ Resources:
                                           uniqueIdentifier = record['uuid'] + "_" + "transfer"
                                           eventIndex = eventExist(events, uniqueIdentifier)
                                           if eventIndex < 0:
-                                              message = f"Snapmiorror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
+                                              message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
                                               sendAlert(message, "WARNING")
                                               changedEvents=True
                                               event = {

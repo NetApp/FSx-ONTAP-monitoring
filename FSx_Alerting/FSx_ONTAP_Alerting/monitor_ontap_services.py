@@ -748,7 +748,7 @@ def processSnapMirrorRelationships(service):
                                 uniqueIdentifier = record['uuid'] + "_" + "transfer"
                                 eventIndex = eventExist(events, uniqueIdentifier)
                                 if eventIndex < 0:
-                                    message = f"Snapmiorror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
+                                    message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
                                     sendAlert(message, "WARNING")
                                     changedEvents=True
                                     event = {
