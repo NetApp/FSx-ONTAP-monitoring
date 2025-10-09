@@ -56,7 +56,7 @@ Metadata:
       volumeName:
         default: "Volume Name"
       checkInterval:
-        default: "Check Interval (seconds)"
+        default: "Check Interval (minutes)"
       logGroupName:
         default: "CloudWatch Log Group Name"
       subNetIds:
