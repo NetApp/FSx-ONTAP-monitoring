@@ -34,6 +34,7 @@ import urllib3
 from urllib3.util import Retry
 import botocore
 import boto3
+import hashlib
 
 eventResilience = 4 # Times an event has to be missing before it is removed
                     # from the alert history.
@@ -1003,11 +1004,58 @@ def processStorageUtilization(service):
         s3Client.put_object(Key=config["storageEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
+# This function sends the alert to a webhook defined by the
+# config['webhookEndpoint'] variable. It is currently designed to work with a
+# specific Moogsoft webhook implementation. You will most likely want to
+# modify it to work with the destination you want to send the alert to.
+################################################################################
+def sendWebHook(message, severity):
+    global clusterName, http
+
+    if config.get('webhookEndpoint') is None:
+        return
+    #
+    # Since the Moogsoft endpoint needs just the hostname for the configurationItem
+    # strip off the account information that might have been added.
+    x = clusterName.find("(")
+    if x != -1:
+        hostname = clusterName[0:x]
+    else:
+        hostname = clusterName
+    #
+    # The INC__indentifier field needs to be unique for each message, so add
+    # a hash of the message to it.
+    messageHash = int(hashlib.sha1(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
+    payload = {
+        "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
+        "INC__manager": "FSx ONTAP Monitoring",
+        "INC__severity": "3",
+        "INC__identifier": f"FSx ONTAP Monitoring Services alert for cluster {clusterName} - {messageHash}",
+        "INC__configurationItem": hostname,
+        "INC__fullMessageText": message
+    }
+    data = json.dumps(payload).encode('UTF-8')
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    #
+    # Note that the urllib3 library that AWS natively provides for their Lambda functions
+    # is of the 1.* version, so we have to use the syntax for that version.
+    response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data)
+    if response.status == 200:
+        logger.info("Webhook sent successfully.")
+    else:
+        logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
+
+################################################################################
 # This function sends the message to the various alerting systems.
 ################################################################################
 def sendAlert(message, severity):
-    global config, snsClient, logger, cloudWatchClient
+    global config, snsClient, logger, cloudWatchClient, clusterName
 
+    #
+    # Log to syslog, or the console if syslog isn't configured.
     if severity == "CRITICAL":
         logger.critical(message)
     elif severity == "ERROR":
@@ -1020,9 +1068,11 @@ def sendAlert(message, severity):
         logger.debug(message)
     else:
         logger.info(message)
-
+    #
+    # Publish to SNS.
     snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}: Monitor ONTAP Services Alert for cluster {clusterName}')
-
+    #
+    # Send to CloudWatch if defined.
     if cloudWatchClient is not None:
         #
         # Create a new log stream for the current day if it doesn't exist.
@@ -1050,6 +1100,10 @@ def sendAlert(message, severity):
                 },
             ]
         )
+    #
+    # Send to webhook if defined.
+    if config.get('webhookEndpoint') is not None:
+        sendWebHook(message, severity)
 
 ################################################################################
 # This function is used to check utilization of quota limits.
@@ -1316,7 +1370,7 @@ def processVserver(service):
                                 "message": message,
                                 "refresh": eventResilience
                                 }
-                        events.append(event) 
+                        events.append(event)
                     else:
                         # If the event was found, reset the refresh count. If it is just one less
                         # than the max, then it means it was decremented above so there wasn't
@@ -1347,7 +1401,7 @@ def processVserver(service):
                                 "message": message,
                                 "refresh": eventResilience
                                 }
-                        events.append(event) 
+                        events.append(event)
                     else:
                         # If the event was found, reset the refresh count. If it is just one less
                         # than the max, then it means it was decremented above so there wasn't
@@ -1531,7 +1585,8 @@ def readInConfig():
         "cloudWatchLogsEndPointHostname": None,
         "syslogIP": None,
         "cloudWatchLogGroupArn": None,
-        "awsAccountId": None
+        "awsAccountId": None,
+        "webhookEndpoint": None
         }
 
     filenameVariables = {

@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash
 #
 # This script is used to deploy the CloudFormation stack for monitoring
 # ONTAP system.
@@ -9,7 +9,7 @@
 ################################################################################
 usage () {
   cat <<EOF >&2
-Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>]
+Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>] [-W webhookEndpoint]
     -o <ontapServer> The name of the ONTAP system to monitor
     -R <region> The AWS region where the AWS resources are located. Optional, defaults to the region configured in the AWS CLI.
     -b <bucket> The S3 bucket where the CloudFormation template is stored
@@ -24,6 +24,7 @@ Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <
     -x <watchdogRoleArn> The ARN of the role to use for the watchdog Lambda function (optional).
     -v <checkInterval> The interval in minutes to check the ONTAP system (optional, the default is 15 minutes).
     -l <lambdaLayerArn> The ARN of the Lambda layer to use (optional).
+    -W <webhookEndpoint> The endpoint to send notifications to (optional).
 EOF
   exit 1
 }
@@ -36,7 +37,11 @@ EOF
 watchdog="true"
 checkInterval=15
 region=$(aws configure get region)
-while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:" opt; do
+if [ -z "$region" ]; then
+  region="$AWS_DEFAULT_REGION"
+fi
+
+while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:W:" opt; do
   case $opt in
     o) ontapServer="$OPTARG" ;;
     b) bucket="$OPTARG" ;;
@@ -52,6 +57,7 @@ while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:" opt; do
     v) checkInterval="$OPTARG" ;;
     l) lambdaLayerArn="$OPTARG" ;;
     R) region="$OPTARG" ;;
+    W) webhookEndpoint="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -59,6 +65,10 @@ done
 if [[ -z "$ontapServer" || -z "$bucket" || -z "$subnets" || -z "$securityGroup" || -z "$snsTopicArn" || -z "$secretArn" ]]; then
   echo "Error: Missing required arguments." >&2
   usage
+fi
+
+if [ -z "$region" ]; then
+  echo "Error: AWS region not specified and not configured in AWS CLI." >&2
 fi
 
 if [[ $watchdog != "true" && $watchdog != "false" ]]; then
@@ -82,11 +92,11 @@ fi
 #
 # The script got too big now it has to be stored in a S3 bucket.
 if aws s3 --region $region cp cloudformation.yaml s3://$bucket; then
-    :
-  else
-    echo "Error, could not copy cloudformation.yaml to S3 bucket." >&2
-    echo "Exiting..." >&2
-    exit 1
+  :
+else
+  echo "Error, could not copy cloudformation.yaml to S3 bucket." >&2
+  echo "Exiting..." >&2
+  exit 1
 fi
 #
 # Since the only reason to provide a watchdog role ARN is to attach it to the Lambda function
@@ -113,4 +123,5 @@ aws cloudformation create-stack --region $region --stack-name $stackName --templ
   ParameterKey=watchdogRoleArn,ParameterValue="$watchdogRoleArn" \
   ParameterKey=checkInterval,ParameterValue="$checkInterval" \
   ParameterKey=lambdaLayerArn,ParameterValue="$lambdaLayerArn" \
-  ParameterKey=LambdaRoleArn,ParameterValue="$roleArn"
+  ParameterKey=LambdaRoleArn,ParameterValue="$roleArn" \
+  ParameterKey=webhookEndpoint,ParameterValue="$webhookEndpoint"
