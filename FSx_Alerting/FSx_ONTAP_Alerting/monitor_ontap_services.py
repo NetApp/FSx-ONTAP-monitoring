@@ -1028,7 +1028,7 @@ def sendWebHook(message, severity):
     messageHash = int(hashlib.sha1(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
     payload = {
         "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
-        "INC__manager": "FSx ONTAP Monitoring",
+        "INC__manager": "FSxONTAP",
         "INC__severity": "3",
         "INC__identifier": f"FSx ONTAP Monitoring Services alert for cluster {clusterName} - {messageHash}",
         "INC__configurationItem": hostname,
