@@ -320,7 +320,7 @@ filename, then set the configFilename environment variable to the name of your c
 | cloudWatchLogsEndPointHostname | No | No | None | Set to the DNS hostname assigned to the CloudWatch Logs endpoint created above. Only needed if you had to create a VPC endpoint for the Cloud Watch Logs service|
 | syslogIP | No | No | None | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
 | awsAccountId | No | No | None | Set to the AWS account ID where the FSxN file system is located. This is purely for documentation purposes and serves no other purpose.|
-| webhookEndpoint | No | No | None | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWwebhook` function to format the message you sent to send. If left blank messages will not be sent to a webhook. |
+| webhookEndpoint | No | No | None | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 
 ##### Matching Conditions File
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the

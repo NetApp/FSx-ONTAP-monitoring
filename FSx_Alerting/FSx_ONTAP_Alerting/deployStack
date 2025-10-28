@@ -71,6 +71,7 @@ fi
 
 if [ -z "$region" ]; then
   echo "Error: AWS region not specified and not configured in AWS CLI." >&2
+  exit 1
 fi
 
 if [[ $watchdog != "true" && $watchdog != "false" ]]; then

@@ -1023,9 +1023,9 @@ def sendWebHook(message, severity):
     else:
         hostname = clusterName
     #
-    # The INC__indentifier field needs to be unique for each message, so add
+    # The INC__identifier field needs to be unique for each message, so add
     # a hash of the message to it.
-    messageHash = int(hashlib.sha1(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
+    messageHash = int(hashlib.sha256(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
     payload = {
         "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
         "INC__manager": "FSxONTAP",
