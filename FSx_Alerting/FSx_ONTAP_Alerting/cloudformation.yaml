@@ -24,6 +24,7 @@ Metadata:
           - lambdaLayerArn
           - accountId
           - webhookEndpoint
+          - maxRunTime
       - Label:
           default: "AWS Endpoint Options"
         Parameters:
@@ -93,6 +94,8 @@ Metadata:
         default: "Account ID"
       webhookEndpoint:
         default: "Webhook Endpoint"
+      maxRunTime:
+        default: "Maximum Lambda Execution Time (seconds)"
       createSecretsManagerEndpoint:
         default: "Create Secrets Manager Endpoint"
       createSNSEndpoint:
@@ -264,6 +267,13 @@ Parameters:
     Description: "The webhook endpoint to send alerts to."
     Type: String
     Default: ""
+
+  maxRunTime:
+    Description: "The maximum time, in seconds, the Lambda function is allowed to run before being terminated. Must be between 60 and 900 seconds."
+    Type: Number
+    Default: 60
+    MinValue: 60
+    MaxValue: 900
 
   checkInterval:
     Description: "The interval, in minutes, between checks."
@@ -684,7 +694,7 @@ Resources:
       Layers:
         - !If [CreateLambdaLayer, !GetAtt LambdaLayer.LayerVersionArn, !Ref lambdaLayerArn]
       Handler: "index.lambda_handler"
-      Timeout: 60
+      Timeout: !Ref maxRunTime
       Environment:
         Variables:
           s3BucketRegion: !Ref AWS::Region
@@ -741,8 +751,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v3.5
-          # Date: 2025-10-28-16:59:07
+          # Version: v3.6
+          # Date: 2025-10-29-12:06:05
           ################################################################################
           
           import json
@@ -1775,7 +1785,7 @@ Resources:
           # This function sends the message to the various alerting systems.
           ################################################################################
           def sendAlert(message, severity):
-              global config, snsClient, logger, cloudWatchClient, clusterName
+              global config, snsClient, logger, cloudWatchClient, clusterName, lambdaFunction
           
               #
               # Log to syslog, or the console if syslog isn't configured.
@@ -1793,7 +1803,11 @@ Resources:
                   logger.info(message)
               #
               # Publish to SNS.
-              snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}: Monitor ONTAP Services Alert for cluster {clusterName}')
+              if lambdaFunction: 
+                  source = " Lambda "
+              else:
+                  source = " "
+              snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}')
               #
               # Send to CloudWatch if defined.
               if cloudWatchClient is not None:
