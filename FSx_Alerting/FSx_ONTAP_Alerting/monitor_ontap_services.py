@@ -1052,7 +1052,7 @@ def sendWebHook(message, severity):
 # This function sends the message to the various alerting systems.
 ################################################################################
 def sendAlert(message, severity):
-    global config, snsClient, logger, cloudWatchClient, clusterName
+    global config, snsClient, logger, cloudWatchClient, clusterName, lambdaFunction
 
     #
     # Log to syslog, or the console if syslog isn't configured.
@@ -1070,7 +1070,11 @@ def sendAlert(message, severity):
         logger.info(message)
     #
     # Publish to SNS.
-    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}: Monitor ONTAP Services Alert for cluster {clusterName}')
+    if lambdaFunction:
+        source = " Lambda "
+    else:
+        source = " "
+    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}')
     #
     # Send to CloudWatch if defined.
     if cloudWatchClient is not None:
