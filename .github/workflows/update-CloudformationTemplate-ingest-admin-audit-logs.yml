@@ -7,10 +7,10 @@ name: "Update Cloudformation Template"
 on:
   pull_request:
     paths:
-      - 'Management-Utilities/auto_set_fsxn_auto_grow/set_fsxn_volume_auto_grow.py'
+      - 'FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch/ingest_administrative_logs.py'
   push:
     paths:
-      - 'Management-Utilities/auto_set_fsxn_auto_grow/set_fsxn_volume_auto_grow.py'
+      - 'FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch/ingest_administrative_logs.py'
     branches:
       - main
 
@@ -30,8 +30,8 @@ jobs:
 
       - name: Update the Cloudformation Template
         shell: bash
-        working-directory: Management-Utilities/auto_set_fsxn_auto_grow
-        run: ./update_auto_set_fsxn_auto_grow_CF_Template
+        working-directory: FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch
+        run: ./updateIngestAdministrativeLogsCFTemplate
 
       - name: Commit the changes
         uses: stefanzweifel/git-auto-commit-action@v5
