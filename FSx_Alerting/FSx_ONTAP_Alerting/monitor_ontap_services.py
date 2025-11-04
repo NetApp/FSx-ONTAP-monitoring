@@ -1085,9 +1085,10 @@ def sendWebHook(message, severity):
         else:
             logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
     except:
-        message = "Error: Exception occurred when sending the webhook."
+        message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']}."
         logger.critical(message)
-        snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'CRITCAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}')
+        subject = f'CRITCAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
+        snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
 
 ################################################################################
 # This function sends the message to the various alerting systems.
@@ -1115,7 +1116,10 @@ def sendAlert(message, severity):
         source = " Lambda "
     else:
         source = " "
-    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}')
+    #
+    # Ensure the subject is less than 100 characters.
+    subject = f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}'
+    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
     #
     # Send to CloudWatch if defined.
     if cloudWatchClient is not None:
