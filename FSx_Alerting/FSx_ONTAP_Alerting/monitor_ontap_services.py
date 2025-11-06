@@ -1179,7 +1179,10 @@ def processQuotaUtilization(service):
         event["refresh"] -= 1
     #
     # Run the API call to get the quota report.
-    url = '/api/storage/quota/reports?fields=*&return_timeout=15'
+    # For some reason the API version of the quota report became unrelable (i.e. returning 0 records)
+    # so using the private CLI version of the API.
+    #url = '/api/storage/quota/reports?fields=*&return_timeout=15'
+    url = '/api/private/cli/volume/quota/report?fields=vserver,volume,index,tree,quota-type,quota-target,disk-used,disk-limit,files-used,file-limit,soft-disk-limit,soft-file-limit,quota-specifier,disk-used-pct-soft-disk-limit,disk-used-pct-disk-limit,files-used-pct-soft-file-limit,files-used-pct-file-limit&return_timeout=15'
     records = []
     while url is not None:
         endpoint = f'https://{config["OntapAdminServer"]}{url}'
@@ -1200,30 +1203,58 @@ def processQuotaUtilization(service):
         for rule in service["rules"]:
             for key in rule.keys():
                 lkey = key.lower() # Convert to all lower case so the key can be case insensitive.
-                if lkey == "maxquotainodespercentused":
-                    #
-                    # Since the quota report might not have the files key, and even if it does, it might not have
-                    # the hard_limit_percent" key, need to check for their existencae first.
-                    if(record.get("files") is not None and record["files"]["used"].get("hard_limit_percent") is not None and
-                            record["files"]["used"]["hard_limit_percent"] > rule[key]):
+                if lkey == "maxsoftquotainodespercentused":
+                    if(record.get("files_used_pct_soft_file_limit") is not None and record["files_used_pct_soft_file_limit"] >= rule[key]):
                         uniqueIdentifier = str(record["index"]) + "_" + key
                         eventIndex = eventExist(events, uniqueIdentifier)
                         if eventIndex < 0:
-                            if record.get("qtree") is not None:
-                                qtree=f' under qtree: {record["qtree"]["name"]} '
-                            else:
-                                qtree=' '
-                            if record.get("users") is not None:
-                                users=None
-                                for user in record["users"]:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
                                     if users is None:
-                                        users = user["name"]
+                                        users = user
                                     else:
-                                        users += ',{user["name"]}'
-                                user=f'associated with user(s) "{users}" '
-                            else:
-                                user=''
-                            message = f'Quota Inode Usage Alert: Quota of type "{record["type"]}" on {record["svm"]["name"]}:/{record["volume"]["name"]}{qtree}{user}on {clusterName} is using {record["files"]["used"]["hard_limit_percent"]}% which is more than {rule[key]}% of its inodes.'
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Inode Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_soft_file_limit"]}% which is more than {rule[key]}% of its inodes.'
+                            sendAlert(message, "WARNING")
+                            changedEvents=True
+                            event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                    }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
+
+                elif lkey == "maxquotainodespercentused" or lkey == "maxhardquotainodespercentused":
+                    if(record.get("files_used_pct_file_limit") is not None and record["files_used_pct_file_limit"] >= rule[key]):
+                        uniqueIdentifier = str(record["index"]) + "_" + key
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
+                                    if users is None:
+                                        users = user
+                                    else:
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Inode Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_file_limit"]}% which is more than {rule[key]}% of its inodes.'
                             sendAlert(message, "WARNING")
                             changedEvents=True
                             event = {
@@ -1241,26 +1272,23 @@ def processQuotaUtilization(service):
                             events[eventIndex]["refresh"] = eventResilience
 
                 elif lkey == "maxhardquotaspacepercentused":
-                    if(record.get("space") is not None and record["space"]["used"].get("hard_limit_percent") and
-                            record["space"]["used"]["hard_limit_percent"] >= rule[key]):
+                    if(record.get("disk_used_pct_disk_limit") and record["disk_used_pct_disk_limit"] >= rule[key]):
                         uniqueIdentifier = str(record["index"]) + "_" + key
                         eventIndex = eventExist(events, uniqueIdentifier)
                         if eventIndex < 0:
-                            if record.get("qtree") is not None:
-                                qtree=f' under qtree: {record["qtree"]["name"]} '
-                            else:
-                                qtree=" "
-                            if record.get("users") is not None:
-                                users=None
-                                for user in record["users"]:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
                                     if users is None:
-                                        users = user["name"]
+                                        users = user
                                     else:
-                                        users += ',{user["name"]}'
-                                user=f'associated with user(s) "{users}" '
-                            else:
-                                user=''
-                            message = f'Quota Space Usage Alert: Hard quota of type "{record["type"]}" on {record["svm"]["name"]}:/{record["volume"]["name"]}{qtree}{user}on {clusterName} is using {record["space"]["used"]["hard_limit_percent"]}% which is more than {rule[key]}% of its allocaed space.'
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocaed space.'
                             sendAlert(message, "WARNING")
                             changedEvents=True
                             event = {
@@ -1278,26 +1306,23 @@ def processQuotaUtilization(service):
                             events[eventIndex]["refresh"] = eventResilience
 
                 elif lkey == "maxsoftquotaspacepercentused":
-                    if(record.get("space") is not None and record["space"]["used"].get("soft_limit_percent") and
-                            record["space"]["used"]["soft_limit_percent"] >= rule[key]):
+                    if(record.get("disk_used_pct_soft_disk_limit") and record["disk_used_pct_soft_disk_limit"] >= rule[key]):
                         uniqueIdentifier = str(record["index"]) + "_" + key
                         eventIndex = eventExist(events, uniqueIdentifier)
                         if eventIndex < 0:
-                            if record.get("qtree") is not None:
-                                qtree=f' under qtree: {record["qtree"]["name"]} '
-                            else:
-                                qtree=" "
-                            if record.get("users") is not None:
-                                users=None
-                                for user in record["users"]:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
                                     if users is None:
-                                        users = user["name"]
+                                        users = user
                                     else:
-                                        users += ',{user["name"]}'
-                                user=f'associated with user(s) "{users}" '
-                            else:
-                                user=''
-                            message = f'Quota Space Usage Alert: Soft quota of type "{record["type"]}" on {record["svm"]["name"]}:/{record["volume"]["name"]}{qtree}{user}on {clusterName} is using {record["space"]["used"]["soft_limit_percent"]}% which is more than {rule[key]}% of its allocaed space.'
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocaed space.'
                             sendAlert(message, "WARNING")
                             changedEvents=True
                             event = {
@@ -1625,10 +1650,14 @@ def buildDefaultMatchingConditions():
             value = int(value)
             if value > 0:
                 conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxHardQuotaSpacePercentUsed": value})
+        elif name == "initialInodesSoftQuotaUtilizationAlert":
+            value = int(value)
+            if value > 0:
+                conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxSoftQuotaInodesPercentUsed": value})
         elif name == "initialInodesQuotaUtilizationAlert":
             value = int(value)
             if value > 0:
-                conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxQuotaInodesPercentUsed": value})
+                conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxHardQuotaInodesPercentUsed": value})
         elif name == "initialVserverStateAlert":
             if value == "true":
                 conditions["services"][getServiceIndex("vserver", conditions)]["rules"].append({"vserverState": True})
