@@ -386,7 +386,8 @@ Each rule should be an object with one, or more, of the following keys:
 |---|---|---|
 |maxHardQuotaSpacePercentUsed|Integer|Specifies the maximum allowable storage utilization (between 0 and 100) against the hard quota limit before an alert is sent.|
 |maxSoftQuotaSpacePercentUsed|Integer|Specifies the maximum allowable storage utilization (between 0 and 100) against the soft quota limit before an alert is sent.|
-|maxQuotaInodesPercentUsed|Integer|Specifies the maximum allowable inode utilization (between 0 and 100) before an alert is sent.|
+|maxHardQuotaInodesPercentUsed|Integer|Specifies the maximum allowable inode utilization (between 0 and 100) against the hard quota limit before an alert is sent.|
+|maxSoftQuotaInodesPercentUsed|Integer|Specifies the maximum allowable inode utilization (between 0 and 100) against the soft quota limit before an alert is sent.|
 
 ###### Matching condition schema for Vserver (vserver)
 Each rule should be an object with one, or more, of the following keys:
@@ -484,7 +485,8 @@ Each rule should be an object with one, or more, of the following keys:
           "maxSoftQuotaSpacePercentUsed": 100
         },
         {
-          "maxQuotaInodesPercentUsed": 95
+          "maxHardQuotaInodesPercentUsed": 95,
+          "maxSoftQuotaInodesPercentUsed": 100
         }
       ]
     }
@@ -515,7 +517,8 @@ In the above example, it will alert on:
 - if for the 'fsx_root' volume in the 'fsx SVM, when it is using more than 90% of its inodes.
 - If any quota policies where the space utilization is more than 95% of the hard limit.
 - If any quota policies where the space utilization is more than 100% of the soft limit.
-- If any quota policies are showing any inode utilization more than 95%
+- If any quota policies where the inode utilization is more than 95% of the hard limit.
+- If any quota policies where the inode utilization is more than 100% of the soft limit.
 
 A matching conditions file must be created and stored in the S3 bucket with the name given as the "conditionsFilename"
 configuration variable. Feel free to use the example above as a starting point. Note that you should ensure it
