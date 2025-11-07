@@ -25,6 +25,7 @@ Metadata:
           - accountId
           - webhookEndpoint
           - maxRunTime
+          - memorySize
       - Label:
           default: "AWS Endpoint Options"
         Parameters:
@@ -97,6 +98,8 @@ Metadata:
         default: "Webhook Endpoint"
       maxRunTime:
         default: "Maximum Lambda Execution Time (seconds)"
+      memorySize:
+        default: "The amount of memory to allocate to the Lambda function (MB)"
       createSecretsManagerEndpoint:
         default: "Create Secrets Manager Endpoint"
       createSNSEndpoint:
@@ -277,6 +280,13 @@ Parameters:
     Default: 60
     MinValue: 60
     MaxValue: 900
+
+  memorySize:
+    Description: "The amount of memory to allocate to the Lambda function, in MB. Must be between 128 and 10240 MB."
+    Type: Number
+    Default: 128
+    MinValue: 128
+    MaxValue: 10240
 
   checkInterval:
     Description: "The interval, in minutes, between checks."
@@ -704,6 +714,7 @@ Resources:
         - !If [CreateLambdaLayer, !GetAtt LambdaLayer.LayerVersionArn, !Ref lambdaLayerArn]
       Handler: "index.lambda_handler"
       Timeout: !Ref maxRunTime
+      MemorySize: !Ref memorySize
       Environment:
         Variables:
           s3BucketRegion: !Ref AWS::Region
@@ -761,8 +772,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v3.0
-          # Date: 2025-11-06-16:23:14
+          # Version: v3.10
+          # Date: 2025-11-07-09:26:39
           ################################################################################
           
           import json
@@ -2031,7 +2042,7 @@ Resources:
                                           userStr=f'associated with user(s) "{users}" '
                                       if record.get("tree") is not None:
                                           qtreeStr=f' under qtree: {record["tree"]} '
-                                      message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocaed space.'
+                                      message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
                                       sendAlert(message, "WARNING")
                                       changedEvents=True
                                       event = {
@@ -2065,7 +2076,7 @@ Resources:
                                           userStr=f'associated with user(s) "{users}" '
                                       if record.get("tree") is not None:
                                           qtreeStr=f' under qtree: {record["tree"]} '
-                                      message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocaed space.'
+                                      message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
                                       sendAlert(message, "WARNING")
                                       changedEvents=True
                                       event = {
