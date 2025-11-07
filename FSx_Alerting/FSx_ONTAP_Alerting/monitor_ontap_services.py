@@ -1288,7 +1288,7 @@ def processQuotaUtilization(service):
                                 userStr=f'associated with user(s) "{users}" '
                             if record.get("tree") is not None:
                                 qtreeStr=f' under qtree: {record["tree"]} '
-                            message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocaed space.'
+                            message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
                             sendAlert(message, "WARNING")
                             changedEvents=True
                             event = {
@@ -1322,7 +1322,7 @@ def processQuotaUtilization(service):
                                 userStr=f'associated with user(s) "{users}" '
                             if record.get("tree") is not None:
                                 qtreeStr=f' under qtree: {record["tree"]} '
-                            message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocaed space.'
+                            message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
                             sendAlert(message, "WARNING")
                             changedEvents=True
                             event = {
