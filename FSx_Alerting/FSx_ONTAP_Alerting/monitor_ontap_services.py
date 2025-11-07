@@ -836,7 +836,7 @@ def processSnapMirrorRelationships(service):
 # This function is used to check all the volume and aggregate utlization.
 ################################################################################
 def processStorageUtilization(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, clusterTimezone
 
     changedEvents=False
     #
@@ -874,7 +874,7 @@ def processStorageUtilization(service):
                 url = None
     #
     # Run the API call to get the volume information.
-    url = '/api/storage/volumes?fields=space,files,svm,state&return_timeout=15'
+    url = '/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'
     volumeRecords = []
     while url is not None:
         endpoint = f'https://{config["OntapAdminServer"]}{url}'
@@ -891,7 +891,7 @@ def processStorageUtilization(service):
                 url = None
     #
     # Now get the constituent volumes.
-    url = '/api/storage/volumes?is_constituent=true&fields=space,files,svm,state&return_timeout=15'
+    url = '/api/storage/volumes?is_constituent=true&fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'
     while url is not None:
         endpoint = f'https://{config["OntapAdminServer"]}{url}'
         volumeResponse = http.request('GET', endpoint, headers=headers)
@@ -1017,7 +1017,57 @@ def processStorageUtilization(service):
                             if events[eventIndex]["refresh"] != (eventResilience - 1):
                                 changedEvents = True
                             events[eventIndex]["refresh"] = eventResilience
-
+            elif lkey == "oldsnapshot":
+                curTime = datetime.datetime.now(pytz.timezone(clusterTimezone) if clusterTimezone != None else datetime.timezone.utc)
+                curTimeSec = curTime.timestamp()
+                #
+                # Run the API call to get the snapshot information.
+                snapshotRecords = []
+                for volume in volumeRecords:
+                    if volume["flexcache_endpoint_type"].lower() != "cache": # Skip over FlexCache volumes
+                        url = f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'
+                        while url is not None:
+                            endpoint = f'https://{config["OntapAdminServer"]}{url}'
+                            response = http.request('GET', endpoint, headers=headers)
+                            if response.status != 200:
+                                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+                                break
+                            else:
+                                data = json.loads(response.data)
+                                snapshotRecords.extend(data.get("records"))
+                                if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                                    url = data["_links"]["next"]["href"]
+                                else:
+                                    url = None
+                logger.debug(f'Found {len(snapshotRecords)} snapshots.')
+                for snapshot in snapshotRecords:
+                    if snapshot.get("create_time") is not None:
+                        #
+                        # Format should be: 2025-11-07T10:05:00-06:00
+                        creationTime = datetime.datetime.strptime(snapshot["create_time"], '%Y-%m-%dT%H:%M:%S%z')
+                        creationTimeSec = creationTime.timestamp()
+                        ageSeconds = curTimeSec - creationTimeSec
+                        if ageSeconds >= rule[key]:
+                            uniqueIdentifier = f'{snapshot["uuid"]}_{key}'
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                timeStr = lagTimeStr(int(ageSeconds))
+                                message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} seconds.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
             else:
                 message = f'Unknown storage alert type: "{key}".'
                 logger.warning(message)
