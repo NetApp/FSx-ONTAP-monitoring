@@ -55,6 +55,9 @@ Least-privilege security model with granular permissions:
 * No performance metrics
 * Minimal infrastructure
 
+![EMS Logs](./images/EMS-Cloudwatch-Logs.png)
+![Dashboards](./images/CW-Dashboard-Screenshot.png)
+
 ### CloudWatch Dashbaord Section
 | Section | Metrics Displayed | Purpose |
 |-----------------|-------------------|---------|
