@@ -25,6 +25,7 @@ Here is an itemized list of the services that this program can monitor:
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is using more than a specified percentage of its inodes. You can set two thresholds (Warning and Critical).
 - If a volume if offline.
+- If any snapshots are older than a specified age.
 - If any quotas are over a certain percentage full. You can be alerted on both soft and hard limits.
 
 ## Architecture
@@ -377,7 +378,8 @@ Each rule should be an object with one, or more, of the following keys:
 |volumeCriticalPercentUsed|Integer|Specifies the maximum allowable volume utilization (between 0 and 100) before an alert is sent.|
 |volumeWarnFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
 |volumeCriticalFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
-|offline:|Boolean|If `true` will alert if the volume is offline.|
+|offline|Boolean|If `true` will alert if the volume is offline.|
+|oldSnapshot|Integer|Specifies the maximum allowable age, in days, before an alert is sent for a snapshot.|
 
 ###### Matching condition schema for Quota (quota)
 Each rule should be an object with one, or more, of the following keys:
@@ -445,33 +447,22 @@ Each rule should be an object with one, or more, of the following keys:
     },
     {
       "name": "storage",
-      "exceptions": [{"svm": "fsx", "name": "fsx_root"}],
       "rules": [
         {
           "aggrWarnPercentUsed": 80,
-          "aggrCriticalPercentUsed": 95
+          "aggrCriticalPercentUsed": 90
         },
         {
           "volumeWarnPercentUsed": 85,
-          "volumeCriticalPercentUsed": 90
+          "volumeCriticalPercentUsed": 95
         },
         {
-          "volumeWarnFilesPercentUsed": 85,
-          "volumeCriticalFilesPercentUsed": 90
-        }
-      ]
-    },
-    {
-      "name": "storage",
-      "match": [{"svm": "fsx", "name": "fsx_root"}],
-      "rules": [
-        {
-          "volumeWarnPercentUsed": 75,
-          "volumeCriticalPercentUsed": 85
+           "volumeWarnFilesPercentUsed": 90,
+           "volumeCriticalFilesPercentUsed: 95
         },
         {
-          "volumeWarnFilesPercentUsed": 80,
-          "volumeCriticalFilesPercentUsed": 90
+          "offline": true,
+          "oldSnapshot": 90
         }
       ]
     },
@@ -479,9 +470,7 @@ Each rule should be an object with one, or more, of the following keys:
       "name": "quota",
       "rules": [
         {
-          "maxHardQuotaSpacePercentUsed": 95
-        },
-        {
+          "maxHardQuotaSpacePercentUsed": 95,
           "maxSoftQuotaSpacePercentUsed": 100
         },
         {
@@ -502,19 +491,14 @@ In the above example, it will alert on:
 - Any EMS message that has a severity of "alert" or “emergency”.
 - Any SnapMirror relationship with a lag time more than 200% the amount of time since its last scheduled update, if it has a schedule associated with it.
     Otherwise, if the last successful update has been more than 86400 seconds (24 hours).
-- Any SnapMirror relationship with a lag time more than 86400 seconds (24 hours).
 - Any SnapMirror relationship that has a non-healthy status.
 - Any SnapMirror update that hasn't had any flow of data in 600 seconds (10 minutes).
 - If the cluster aggregate is more than 80% full.
-- If the cluster aggregate is more than 95% full.
-- If any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is more than 85% full.
-- if any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is more than 90% full.
-- if any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is using more than 85% of its inodes.
-- if any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is using more than 90% of its inodes.
-- If for the 'fsx_root' volume in the 'fsx SVM, when it is more than 75% full.
-- if for the 'fsx_root' volume in the 'fsx SVM, when it is more than 85% full.
-- if for the 'fsx_root' volume in the 'fsx SVM, when it is using more than 80% of its inodes.
-- if for the 'fsx_root' volume in the 'fsx SVM, when it is using more than 90% of its inodes.
+- If the cluster aggregate is more than 90% full.
+- If any volume is more than 85% full.
+- if any volume is more than 95% full.
+- if any volume is using more than 90% of its inodes.
+- if any volume is using more than 95% of its inodes.
 - If any quota policies where the space utilization is more than 95% of the hard limit.
 - If any quota policies where the space utilization is more than 100% of the soft limit.
 - If any quota policies where the inode utilization is more than 95% of the hard limit.

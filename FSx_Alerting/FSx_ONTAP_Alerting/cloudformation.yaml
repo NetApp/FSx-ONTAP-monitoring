@@ -53,6 +53,7 @@ Metadata:
           - volumeFileUtilizationWarnAlert
           - volumeFileUtilizationCriticalAlert
           - volumeOfflineAlert
+          - oldSnapshotAlert
           - softQuotaUtilizationAlert
           - hardQuotaUtilizationAlert
           - inodesQuotaUtilizationAlert
@@ -142,6 +143,8 @@ Metadata:
         default: "Volume File (inode) Utilization Critical Alert (%)"
       volumeOfflineAlert:
         default: "Volume Offline Alert"
+      oldSnapshotAlert:
+        default: "Old Snapshot Alert"
       softQuotaUtilizationAlert:
         default: "Space Utilization Soft Quota Alert (%)"
       hardQuotaUtilizationAlert:
@@ -376,6 +379,12 @@ Parameters:
     Type: String
     AllowedValues: ["true", "false"]
     Default: "true"
+
+  oldSnapshotAlert:
+    Description: "Alert when a snapshot is older than the specified number of days. Set to 0 to disable this alert."
+    Type: Number
+    MinValue: 0
+    Default: 365
 
   softQuotaUtilizationAlert:
     Description: "Alert when a soft quota exceeds this threshold in percentage. Set to 0 to disable this alert."
@@ -743,6 +752,7 @@ Resources:
           initialVolumeFileUtilizationWarnAlert: !Ref volumeFileUtilizationWarnAlert
           initialVolumeFileUtilizationCriticalAlert: !Ref volumeFileUtilizationCriticalAlert
           initialVolumeOfflineAlert: !Ref volumeOfflineAlert
+          initialoldSnapshot: !Ref oldSnapshotAlert
           initialSoftQuotaUtilizationAlert: !Ref softQuotaUtilizationAlert
           initialHardQuotaUtilizationAlert: !Ref hardQuotaUtilizationAlert
           initialInodesQuotaUtilizationAlert: !Ref inodesQuotaUtilizationAlert
@@ -772,8 +782,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v3.11
-          # Date: 2025-11-07-17:19:35
+          # Version: v3.12
+          # Date: 2025-11-10-11:48:24
           ################################################################################
           
           import json
@@ -1800,13 +1810,13 @@ Resources:
                                   # Format should be: 2025-11-07T10:05:00-06:00
                                   creationTime = datetime.datetime.strptime(snapshot["create_time"], '%Y-%m-%dT%H:%M:%S%z')
                                   creationTimeSec = creationTime.timestamp()
-                                  ageSeconds = curTimeSec - creationTimeSec
-                                  if ageSeconds >= rule[key]:
+                                  ageSeconds = int(curTimeSec - creationTimeSec)
+                                  if ageSeconds >= (rule[key] * 60 * 60 * 24):
                                       uniqueIdentifier = f'{snapshot["uuid"]}_{key}'
                                       eventIndex = eventExist(events, uniqueIdentifier)
                                       if eventIndex < 0:
                                           timeStr = lagTimeStr(int(ageSeconds))
-                                          message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} seconds.'
+                                          message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} days.'
                                           sendAlert(message, "WARNING")
                                           changedEvents=True
                                           event = {
@@ -2446,6 +2456,10 @@ Resources:
                           conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": True})
                       else:
                           conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": False})
+                  elif name == "initialOldSnapshot": 
+                      value = int(value)
+                      if value > 0:
+                          conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"oldSnapshot": value})
                   elif name == "initialSoftQuotaUtilizationAlert":
                       value = int(value)
                       if value > 0:

@@ -1046,13 +1046,13 @@ def processStorageUtilization(service):
                         # Format should be: 2025-11-07T10:05:00-06:00
                         creationTime = datetime.datetime.strptime(snapshot["create_time"], '%Y-%m-%dT%H:%M:%S%z')
                         creationTimeSec = creationTime.timestamp()
-                        ageSeconds = curTimeSec - creationTimeSec
-                        if ageSeconds >= rule[key]:
+                        ageSeconds = int(curTimeSec - creationTimeSec)
+                        if ageSeconds >= (rule[key] * 60 * 60 * 24):
                             uniqueIdentifier = f'{snapshot["uuid"]}_{key}'
                             eventIndex = eventExist(events, uniqueIdentifier)
                             if eventIndex < 0:
                                 timeStr = lagTimeStr(int(ageSeconds))
-                                message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} seconds.'
+                                message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} days.'
                                 sendAlert(message, "WARNING")
                                 changedEvents=True
                                 event = {
@@ -1692,6 +1692,10 @@ def buildDefaultMatchingConditions():
                 conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": True})
             else:
                 conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": False})
+        elif name == "initialOldSnapshot":
+            value = int(value)
+            if value > 0:
+                conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"oldSnapshot": value})
         elif name == "initialSoftQuotaUtilizationAlert":
             value = int(value)
             if value > 0:
