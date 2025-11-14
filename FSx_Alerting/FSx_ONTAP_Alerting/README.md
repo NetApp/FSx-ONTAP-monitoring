@@ -25,6 +25,7 @@ Here is an itemized list of the services that this program can monitor:
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is using more than a specified percentage of its inodes. You can set two thresholds (Warning and Critical).
 - If a volume if offline.
+- If any snapshots are older than a specified age.
 - If any quotas are over a certain percentage full. You can be alerted on both soft and hard limits.
 
 ## Architecture
@@ -67,14 +68,12 @@ The CloudFormation template will do the following:
 - Create a role for the Lambda function to use. The permissions will be the same as what
     is outlined in the [Create an AWS Role](#create-an-aws-role) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create a role that allows the EventBridge schedule to trigger the Lambda function.
-    The only permission that this role needs is to be able to invoke a Lambda function.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create the Lambda function with the Python code provided in this repository.
-- Create an EventBridge Schedule to trigger the Lambda function. By default, it will trigger
+- Create an EventBridge rule to trigger the Lambda function. By default, it will trigger
     it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
 - Optionally create a CloudWatch alarm that will alert you if the Lambda function fails.
     - Create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is done so the SNS topic can be in another region since CloudWatch doesn't support doing that natively.
+    - Create a role for the CloudWatch alarm so it can invoke a Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
 - Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
 To install the program using the CloudFormation template, you will need to do the following:
@@ -106,6 +105,7 @@ To install the program using the CloudFormation template, you will need to do th
 |LambdaRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role](#create-an-aws-role) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda_layer.zip found in your S3 bucket.|
 |accountId|An account ID you want added to the FSxN file system name in alerts. This purely for documentation purposes and serves no other purpose.|
+|webhookEndpoint|The webhook endpoint URL you want the program to send alerts to. This is optional and can be left blank if you don't want to send alerts to a webhook.|
 |CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
 |CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
 |CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
@@ -114,13 +114,13 @@ To install the program using the CloudFormation template, you will need to do th
 |VpcId|The ID of a VPC where the subnets provided above are located. Required if you are creating an endpoint, not needed otherwise.|
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
 
-    The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
-    You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have reasonable default values
-    so you probably won't have to change any of them. Note that if you enable EMS alerts, then the default rule will
-    alert on all EMS messages that have a severity of `Error`, `Alert` or `Emergency`. You can change the
-    matching conditions at any time by updating the matching conditions file that is created in the S3 bucket.
-    The name of the file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
-    set for the OntapAdminServer parameter.
+The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
+You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have reasonable default values
+so you probably won't have to change any of them. Note that if you enable EMS alerts, then the default rule will
+alert on all EMS messages that have a severity of `Error`, `Alert` or `Emergency`. You can change the
+matching conditions at any time by updating the matching conditions file that is created in the S3 bucket.
+The name of the file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
+set for the OntapAdminServer parameter.
 
 5. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
     provide tags for the stack. Any tags specified here will be applied to all resources that are created that
@@ -311,7 +311,7 @@ filename, then set the configFilename environment variable to the name of your c
 | vserverEventsFilename | No | No | OntapAdminServer + "-vserverEvents" | Set to the filename (S3 object) where you want the program to store the vserver events it has alerted on. This file will be created as necessary. |
 | systemStatusFilename | No | No | OntapAdminServer + "-systemStatus" | Set to the filename (S3 object) where you want the program to store the overall system status information into. This file will be created as necessary. |
 | snsTopicArn | Yes | No | None | Set to the ARN of the SNS topic you want the program to publish alert messages to. |
-| cloudWatchLogGroupName | No | No | None | The name of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
+| cloudWatchLogGroupArn | No | No | None | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | conditionsFilename | Yes | No | OntapAdminServer + "-conditions" | Set to the filename (S3 object) where you want the program to read the matching condition information from. |
 | secretArn | Yes | No | None | Set to the ARN of the secret within the AWS Secrets Manager that holds the FSxN credentials. |
 | secretUsernameKey | Yes | No | None | Set to the key name within the AWS Secrets Manager secret that holds the username portion of the FSxN credentials. |
@@ -320,6 +320,8 @@ filename, then set the configFilename environment variable to the name of your c
 | secretsManagerEndPointHostname | No | No | None | Set to the DNS hostname assigned to the SecretsManager endpoint created above. Only needed if you had to create a VPC endpoint for the Secrets Manager service.|
 | cloudWatchLogsEndPointHostname | No | No | None | Set to the DNS hostname assigned to the CloudWatch Logs endpoint created above. Only needed if you had to create a VPC endpoint for the Cloud Watch Logs service|
 | syslogIP | No | No | None | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
+| awsAccountId | No | No | None | Set to the AWS account ID where the FSxN file system is located. This is purely for documentation purposes and serves no other purpose.|
+| webhookEndpoint | No | No | None | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 
 ##### Matching Conditions File
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the
@@ -376,7 +378,8 @@ Each rule should be an object with one, or more, of the following keys:
 |volumeCriticalPercentUsed|Integer|Specifies the maximum allowable volume utilization (between 0 and 100) before an alert is sent.|
 |volumeWarnFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
 |volumeCriticalFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
-|offline:|Boolean|If `true` will alert if the volume is offline.|
+|offline|Boolean|If `true` will alert if the volume is offline.|
+|oldSnapshot|Integer|Specifies the maximum allowable age, in days, before an alert is sent for a snapshot.|
 
 ###### Matching condition schema for Quota (quota)
 Each rule should be an object with one, or more, of the following keys:
@@ -385,7 +388,8 @@ Each rule should be an object with one, or more, of the following keys:
 |---|---|---|
 |maxHardQuotaSpacePercentUsed|Integer|Specifies the maximum allowable storage utilization (between 0 and 100) against the hard quota limit before an alert is sent.|
 |maxSoftQuotaSpacePercentUsed|Integer|Specifies the maximum allowable storage utilization (between 0 and 100) against the soft quota limit before an alert is sent.|
-|maxQuotaInodesPercentUsed|Integer|Specifies the maximum allowable inode utilization (between 0 and 100) before an alert is sent.|
+|maxHardQuotaInodesPercentUsed|Integer|Specifies the maximum allowable inode utilization (between 0 and 100) against the hard quota limit before an alert is sent.|
+|maxSoftQuotaInodesPercentUsed|Integer|Specifies the maximum allowable inode utilization (between 0 and 100) against the soft quota limit before an alert is sent.|
 
 ###### Matching condition schema for Vserver (vserver)
 Each rule should be an object with one, or more, of the following keys:
@@ -443,33 +447,22 @@ Each rule should be an object with one, or more, of the following keys:
     },
     {
       "name": "storage",
-      "exceptions": [{"svm": "fsx", "name": "fsx_root"}],
       "rules": [
         {
           "aggrWarnPercentUsed": 80,
-          "aggrCriticalPercentUsed": 95
+          "aggrCriticalPercentUsed": 90
         },
         {
           "volumeWarnPercentUsed": 85,
-          "volumeCriticalPercentUsed": 90
+          "volumeCriticalPercentUsed": 95
         },
         {
-          "volumeWarnFilesPercentUsed": 85,
-          "volumeCriticalFilesPercentUsed": 90
-        }
-      ]
-    },
-    {
-      "name": "storage",
-      "match": [{"svm": "fsx", "name": "fsx_root"}],
-      "rules": [
-        {
-          "volumeWarnPercentUsed": 75,
-          "volumeCriticalPercentUsed": 85
+           "volumeWarnFilesPercentUsed": 90,
+           "volumeCriticalFilesPercentUsed: 95
         },
         {
-          "volumeWarnFilesPercentUsed": 80,
-          "volumeCriticalFilesPercentUsed": 90
+          "offline": true,
+          "oldSnapshot": 90
         }
       ]
     },
@@ -477,13 +470,12 @@ Each rule should be an object with one, or more, of the following keys:
       "name": "quota",
       "rules": [
         {
-          "maxHardQuotaSpacePercentUsed": 95
-        },
-        {
+          "maxHardQuotaSpacePercentUsed": 95,
           "maxSoftQuotaSpacePercentUsed": 100
         },
         {
-          "maxQuotaInodesPercentUsed": 95
+          "maxHardQuotaInodesPercentUsed": 95,
+          "maxSoftQuotaInodesPercentUsed": 100
         }
       ]
     }
@@ -499,22 +491,18 @@ In the above example, it will alert on:
 - Any EMS message that has a severity of "alert" or “emergency”.
 - Any SnapMirror relationship with a lag time more than 200% the amount of time since its last scheduled update, if it has a schedule associated with it.
     Otherwise, if the last successful update has been more than 86400 seconds (24 hours).
-- Any SnapMirror relationship with a lag time more than 86400 seconds (24 hours).
 - Any SnapMirror relationship that has a non-healthy status.
 - Any SnapMirror update that hasn't had any flow of data in 600 seconds (10 minutes).
 - If the cluster aggregate is more than 80% full.
-- If the cluster aggregate is more than 95% full.
-- If any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is more than 85% full.
-- if any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is more than 90% full.
-- if any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is using more than 85% of its inodes.
-- if any volume, except for the 'fsx_root' volume in the 'fsx' SVM, that is using more than 90% of its inodes.
-- If for the 'fsx_root' volume in the 'fsx SVM, when it is more than 75% full.
-- if for the 'fsx_root' volume in the 'fsx SVM, when it is more than 85% full.
-- if for the 'fsx_root' volume in the 'fsx SVM, when it is using more than 80% of its inodes.
-- if for the 'fsx_root' volume in the 'fsx SVM, when it is using more than 90% of its inodes.
+- If the cluster aggregate is more than 90% full.
+- If any volume is more than 85% full.
+- if any volume is more than 95% full.
+- if any volume is using more than 90% of its inodes.
+- if any volume is using more than 95% of its inodes.
 - If any quota policies where the space utilization is more than 95% of the hard limit.
 - If any quota policies where the space utilization is more than 100% of the soft limit.
-- If any quota policies are showing any inode utilization more than 95%
+- If any quota policies where the inode utilization is more than 95% of the hard limit.
+- If any quota policies where the inode utilization is more than 100% of the soft limit.
 
 A matching conditions file must be created and stored in the S3 bucket with the name given as the "conditionsFilename"
 configuration variable. Feel free to use the example above as a starting point. Note that you should ensure it

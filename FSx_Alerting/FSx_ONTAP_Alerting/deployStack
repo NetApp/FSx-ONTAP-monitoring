@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash
 #
 # This script is used to deploy the CloudFormation stack for monitoring
 # ONTAP system.
@@ -9,7 +9,7 @@
 ################################################################################
 usage () {
   cat <<EOF >&2
-Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>]
+Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>] [-W webhookEndpoint] [-f cloudformationUrl] [-m maxRunTime] [-M memorySize]
     -o <ontapServer> The name of the ONTAP system to monitor
     -R <region> The AWS region where the AWS resources are located. Optional, defaults to the region configured in the AWS CLI.
     -b <bucket> The S3 bucket where the CloudFormation template is stored
@@ -18,12 +18,16 @@ Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <
     -t <snsTopicArn> The ARN of the SNS topic for notifications.
     -a <secretArn> The ARN of the Secrets Manager secret for credentials.
     -c <matchingConnditionsFile> The matching conditions file (optional).
-    -i <accountId> The account ID that will be added to the cluster name for identification puproses.
+    -i <accountId> The account ID that will be added to the cluster name for identification puproses. (optional).
     -r <roleArn> The Arn of the role to use for the Monitoring Lambda function (optional).
     -w <true|false> Create a watchdog alarm (optional, default is true).
     -x <watchdogRoleArn> The ARN of the role to use for the watchdog Lambda function (optional).
     -v <checkInterval> The interval in minutes to check the ONTAP system (optional, the default is 15 minutes).
     -l <lambdaLayerArn> The ARN of the Lambda layer to use (optional).
+    -W <webhookEndpoint> The endpoint to send notifications to (optional).
+    -f <cloudformationUrl> The URL of the CloudFormation template (optional). Should be in the form of: https://s3.<AWSregion>.amazonaws.com/<bucketName>/cloudformation.yaml
+    -m <maxRunTime> The maximum run time for the monitoring function in seconds (optional). Must be between 60 and 900. Defaults to 60.
+    -M <memorySize> The amount of memory to allocate to the monitoring function in MB (optional). Must be between 128 and 10240. Defaults to 128.
 EOF
   exit 1
 }
@@ -35,8 +39,17 @@ EOF
 # Process command line arguments.
 watchdog="true"
 checkInterval=15
+maxRunTime=60
+memorySize=128
 region=$(aws configure get region)
-while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:" opt; do
+if [ -z "$region" ]; then
+  region="$AWS_DEFAULT_REGION"
+fi
+if [ -z "$region" ]; then
+  region="$AWS_REGION"
+fi
+
+while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:W:f:m:M:" opt; do
   case $opt in
     o) ontapServer="$OPTARG" ;;
     b) bucket="$OPTARG" ;;
@@ -52,6 +65,10 @@ while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:" opt; do
     v) checkInterval="$OPTARG" ;;
     l) lambdaLayerArn="$OPTARG" ;;
     R) region="$OPTARG" ;;
+    W) webhookEndpoint="$OPTARG" ;;
+    f) cloudformationUrl="$OPTARG" ;;
+    m) maxRunTime="$OPTARG" ;;
+    M) memorySize="$OPTARG" ;;
     *) usage ;;
   esac
 done
@@ -59,6 +76,11 @@ done
 if [[ -z "$ontapServer" || -z "$bucket" || -z "$subnets" || -z "$securityGroup" || -z "$snsTopicArn" || -z "$secretArn" ]]; then
   echo "Error: Missing required arguments." >&2
   usage
+fi
+
+if [ -z "$region" ]; then
+  echo "Error: AWS region not specified and not configured in AWS CLI." >&2
+  exit 1
 fi
 
 if [[ $watchdog != "true" && $watchdog != "false" ]]; then
@@ -81,12 +103,14 @@ if [ ! -z "$matchingConditionsFile" ]; then
 fi
 #
 # The script got too big now it has to be stored in a S3 bucket.
-if aws s3 --region $region cp cloudformation.yaml s3://$bucket; then
-    :
+if [ -z "$cloudformationUrl" ]; then
+  if aws s3 --region $region cp cloudformation.yaml s3://$bucket; then
+    cloudformationUrl="https://s3.${region}.amazonaws.com/${bucket}/cloudformation.yaml"
   else
     echo "Error, could not copy cloudformation.yaml to S3 bucket." >&2
     echo "Exiting..." >&2
     exit 1
+  fi
 fi
 #
 # Since the only reason to provide a watchdog role ARN is to attach it to the Lambda function
@@ -99,7 +123,7 @@ else
 fi
 #
 # Deploy the stack
-aws cloudformation create-stack --region $region --stack-name $stackName --template-url https://s3.${region}.amazonaws.com/${bucket}/cloudformation.yaml \
+aws cloudformation create-stack --region $region --stack-name $stackName --template-url $cloudformationUrl \
   --capabilities CAPABILITY_NAMED_IAM --parameters \
   ParameterKey=OntapAdminSever,ParameterValue=$ontapServer \
   ParameterKey=subNetIds,ParameterValue="$subnets" \
@@ -113,4 +137,7 @@ aws cloudformation create-stack --region $region --stack-name $stackName --templ
   ParameterKey=watchdogRoleArn,ParameterValue="$watchdogRoleArn" \
   ParameterKey=checkInterval,ParameterValue="$checkInterval" \
   ParameterKey=lambdaLayerArn,ParameterValue="$lambdaLayerArn" \
-  ParameterKey=LambdaRoleArn,ParameterValue="$roleArn"
+  ParameterKey=LambdaRoleArn,ParameterValue="$roleArn" \
+  ParameterKey=webhookEndpoint,ParameterValue="$webhookEndpoint" \
+  ParameterKey=maxRunTime,ParameterValue="$maxRunTime" \
+  ParameterKey=memorySize,ParameterValue="$memorySize"

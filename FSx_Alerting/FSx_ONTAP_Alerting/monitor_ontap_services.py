@@ -34,6 +34,7 @@ import urllib3
 from urllib3.util import Retry
 import botocore
 import boto3
+import hashlib
 
 eventResilience = 4 # Times an event has to be missing before it is removed
                     # from the alert history.
@@ -46,9 +47,8 @@ initialVersion = "Initial Run"  # The version to store if this is the first
                                 # FSxN.
 
 ################################################################################
-# This function is used to extract the one-, two-, or three-digit number from
-# the string passed in, starting at the 'start' character. Then, multiple it
-# by the unit after the number:
+# This function is used to extract a number from the string passed in, starting
+# at the 'start' character. Then, multiple it by the unit after the number:
 # D = Day = 60*60*24
 # H = Hour = 60*60
 # M = Minutes = 60
@@ -60,19 +60,12 @@ def getNumber(string, start):
     if len(string) <= start:
         return (0, start)
     #
-    # Check to see if it is a 1, 2 or 3 digit number.
-    startp1=start+1   # Single digit
-    startp2=start+2   # Double digit
-    startp3=start+3   # Triple digit
-    if re.search('[0-9]', string[startp1:startp2]) and re.search('[0-9]', string[startp2:startp3]):
-        end=startp3
-    elif re.search('[0-9]', string[startp1:startp2]):
-        end=startp2
-    else:
-        end=startp1
+    # Check to see how many digits are in the number.
+    end = start
+    while re.search('[0-9]', string[end:end+1]) and end < len(string):
+        end += 1
 
     num=int(string[start:end])
-
     endp1=end+1
     if string[end:endp1] == "D":
         num=num*60*60*24
@@ -343,78 +336,88 @@ def processEMSEvents(service):
         event["refresh"] -= 1
     #
     # Run the API call to get the current list of EMS events.
-    endpoint = f'https://{config["OntapAdminServer"]}/api/support/ems/events?return_timeout=15'
-    response = http.request('GET', endpoint, headers=headers)
-    if response.status == 200:
-        data = json.loads(response.data)
-        #
-        # Process the events to see if there are any new ones.
-        print(f'Received {len(data["records"])} EMS records.')
-        logger.debug(f'Received {len(data["records"])} EMS records.')
-        for record in data["records"]:
-            for rule in service["rules"]:
-                messageFilter = rule.get("filter")
-                if messageFilter == None or messageFilter == "":
-                    messageFilter = "ThisShouldn'tMatchAnything"
+    records = []
+    url = '/api/support/ems/events?return_timeout=15'
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
+        response = http.request('GET', endpoint, headers=headers)
+        if response.status == 200:
+            data = json.loads(response.data)
+            records.extend(data.get("records"))
+        else:
+            logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+            return  #  Don't age out any events if we weren't able to get the current list.
 
-                if (not re.search(messageFilter, record["log_message"]) and
-                    re.search(rule["name"], record["message"]["name"]) and
-                    re.search(rule["severity"], record["message"]["severity"]) and
-                    re.search(rule["message"], record["log_message"])):
-                    eventIndex = eventExist (events, record["index"])
-                    if eventIndex < 0:
-                        message = f'{record["time"]} : {clusterName} {record["message"]["name"]}({record["message"]["severity"]}) - {record["log_message"]}'
-                        useverity=record["message"]["severity"].upper()
-                        if useverity == "EMERGENCY":
-                            sendAlert(message, "CRITICAL")
-                        elif useverity == "ALERT":
-                            sendAlert(message, "ERROR")
-                        elif useverity == "ERROR":
-                            sendAlert(message, "WARNING")
-                        elif useverity == "NOTICE" or useverity == "INFORMATIONAL":
-                            sendAlert(message, "INFO")
-                        elif useverity == "DEBUG":
-                            sendAlert(message, "DEBUG")
-                        else:
-                            sendAlert(f'Received unknown severity from ONTAP "{record["message"]["severity"]}". The message received is next.', "INFO")
-                            sendAlert(message, "INFO")
+        if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+            url = data["_links"]["next"]["href"]
+        else:
+            url = None
+    #
+    # Process the events to see if there are any new ones.
+    print(f'Received {len(records)} EMS records.')
+    logger.debug(f'Received {len(records)} EMS records.')
+    for record in records:
+        for rule in service["rules"]:
+            messageFilter = rule.get("filter")
+            if messageFilter == None or messageFilter == "":
+                messageFilter = "ThisShouldn'tMatchAnything"
 
-                        changedEvents = True
-                        event = {
-                                "index": record["index"],
-                                "time": record["time"],
-                                "messageName": record["message"]["name"],
-                                "message": record["log_message"],
-                                "refresh": eventResilience
-                                }
-                        events.append(event)
+            if (not re.search(messageFilter, record["log_message"]) and
+                re.search(rule["name"], record["message"]["name"]) and
+                re.search(rule["severity"], record["message"]["severity"]) and
+                re.search(rule["message"], record["log_message"])):
+                eventIndex = eventExist (events, record["index"])
+                if eventIndex < 0:
+                    message = f'{record["time"]} : {clusterName} {record["message"]["name"]}({record["message"]["severity"]}) - {record["log_message"]}'
+                    useverity=record["message"]["severity"].upper()
+                    if useverity == "EMERGENCY":
+                        sendAlert(message, "CRITICAL")
+                    elif useverity == "ALERT":
+                        sendAlert(message, "ERROR")
+                    elif useverity == "ERROR":
+                        sendAlert(message, "WARNING")
+                    elif useverity == "NOTICE" or useverity == "INFORMATIONAL":
+                        sendAlert(message, "INFO")
+                    elif useverity == "DEBUG":
+                        sendAlert(message, "DEBUG")
                     else:
-                        #
-                        # If the event was found, reset the refresh count. If it is just one less
-                        # than the max, then it means it was decremented above so there wasn't
-                        # really a change in state.
-                        if events[eventIndex]["refresh"] != (eventResilience - 1):
-                            changedEvents = True
-                        events[eventIndex]["refresh"] = eventResilience
-        #
-        # Now that we have processed all the events, check to see if any events should be deleted.
-        i = len(events) - 1
-        while i >= 0:
-            if events[i]["refresh"] <= 0:
-                logger.debug(f'Deleting event: {events[i]["time"]} : {events[i]["message"]}')
-                del events[i]
-                changedEvents = True
-            else:
-                # If an event wasn't refreshed, then we need to save the new refresh count.
-                if events[i]["refresh"] != eventResilience:
+                        sendAlert(f'Received unknown severity from ONTAP "{record["message"]["severity"]}". The message received is next.', "INFO")
+                        sendAlert(message, "INFO")
+
                     changedEvents = True
-            i -= 1
-        #
-        # If the events array changed, save it.
-        if changedEvents:
-            s3Client.put_object(Key=config["emsEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
-    else:
-        logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+                    event = {
+                            "index": record["index"],
+                            "time": record["time"],
+                            "messageName": record["message"]["name"],
+                            "message": record["log_message"],
+                            "refresh": eventResilience
+                            }
+                    events.append(event)
+                else:
+                    #
+                    # If the event was found, reset the refresh count. If it is just one less
+                    # than the max, then it means it was decremented above so there wasn't
+                    # really a change in state.
+                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                        changedEvents = True
+                    events[eventIndex]["refresh"] = eventResilience
+    #
+    # Now that we have processed all the events, check to see if any events should be deleted.
+    i = len(events) - 1
+    while i >= 0:
+        if events[i]["refresh"] <= 0:
+            logger.debug(f'Deleting event: {events[i]["time"]} : {events[i]["message"]}')
+            del events[i]
+            changedEvents = True
+        else:
+            # If an event wasn't refreshed, then we need to save the new refresh count.
+            if events[i]["refresh"] != eventResilience:
+                changedEvents = True
+        i -= 1
+    #
+    # If the events array changed, save it.
+    if changedEvents:
+        s3Client.put_object(Key=config["emsEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
 # This function is used to find an existing SM relationship based on the source
@@ -637,89 +640,79 @@ def processSnapMirrorRelationships(service):
                 logger.warning(f'Unknown snapmirror alert type: "{key}".')
     #
     # Run the API call to get the current state of all the snapmirror relationships.
-    endpoint = f'https://{config["OntapAdminServer"]}/api/snapmirror/relationships?fields=*&return_timeout=15'
-    response = http.request('GET', endpoint, headers=headers)
-    if response.status == 200:
-        data = json.loads(response.data)
-        for record in data["records"]:
-            #
-            # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
-            processedLagTime = False
-            #
-            # If the source cluster isn't defined, then assume it is a local SM relationship.
-            if record['source'].get('cluster') is None:
-                sourceClusterName = clusterName
-            else:
-                sourceClusterName = record['source']['cluster']['name']
-            #
-            # For lag time if maxLagTimePercent is defined check to see if there is a schedule,
-            # if there is a schedule alert on that otherrwise alert on the maxLagTime.
-            # But, first check that lag_time is defined, and that the state is not "uninitialized",
-            # since the lag_time is set to the oldest snapshot of the source volume which would
-            # cause a false positive.
-            if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
-                lagSeconds = parseLagTime(record["lag_time"])
-                if maxLagTimePercent is not None:
-                    lastScheduledUpdate = getLastScheduledUpdate(record)
-                    if lastScheduledUpdate != -1:
-                        processedLagTime = True
-                        if lagSeconds > ((curTimeSeconds - lastScheduledUpdate) * maxLagTimePercent/100):
-                            #
-                            # If the transfer is in progress, and they have stalled transfer alert enabled, we don't need to alert on the lag time.
-                            if not (record.get("transfer") is not None and record["transfer"]["state"].lower() in ["transferring", "finalizing", "preparing", "fasttransferring"] and stalledTransferSeconds is not None):
-                                uniqueIdentifier = record["uuid"] + "_" + maxLagTimePercentKey
-                                eventIndex = eventExist(events, uniqueIdentifier)
-                                if eventIndex < 0:
-                                    timeStr = lagTimeStr(lagSeconds)
-                                    asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
-                                    message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
-                                    sendAlert(message, "WARNING")
-                                    changedEvents=True
-                                    event = {
-                                        "index": uniqueIdentifier,
-                                        "message": message,
-                                        "refresh": eventResilience
-                                    }
-                                    events.append(event)
-                                else:
-                                    # If the event was found, reset the refresh count. If it is just one less
-                                    # than the max, then it means it was decremented above so there wasn't
-                                    # really a change in state.
-                                    if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                        changedEvents = True
-                                    events[eventIndex]["refresh"] = eventResilience
+    url = f'/api/snapmirror/relationships?fields=*&return_timeout=15'
+    records = []
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
+        response = http.request('GET', endpoint, headers=headers)
+        if response.status == 200:
+            data = json.loads(response.data)
+            records.extend(data.get("records"))
+        else:
+            logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+            return
 
-                if maxLagTime is not None and not processedLagTime:
-                    if lagSeconds > maxLagTime:
-                        uniqueIdentifier = record["uuid"] + "_" + maxLagTimeKey
-                        eventIndex = eventExist(events, uniqueIdentifier)
-                        if eventIndex < 0:
-                            timeStr = lagTimeStr(lagSeconds)
-                            message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
-                            sendAlert(message, "WARNING")
-                            changedEvents=True
-                            event = {
-                                "index": uniqueIdentifier,
-                                "message": message,
-                                "refresh": eventResilience
-                            }
-                            events.append(event)
-                        else:
-                            # If the event was found, reset the refresh count. If it is just one less
-                            # than the max, then it means it was decremented above so there wasn't
-                            # really a change in state.
-                            if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                changedEvents = True
-                            events[eventIndex]["refresh"] = eventResilience
+        if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+            url = data["_links"]["next"]["href"]
+        else:
+            url = None
 
-            if healthy is not None:
-                if not healthy and not record["healthy"]: # Report on "not healthy" and the status is "not healthy"
-                    uniqueIdentifier = record["uuid"] + "_" + healthyKey
+    logger.debug(f'Found {len(records)} SnapMirror relationships.')
+    for record in records:
+        #
+        # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
+        processedLagTime = False
+        #
+        # If the source cluster isn't defined, then assume it is a local SM relationship.
+        if record['source'].get('cluster') is None:
+            sourceClusterName = clusterName
+        else:
+            sourceClusterName = record['source']['cluster']['name']
+        #
+        # For lag time if maxLagTimePercent is defined check to see if there is a schedule,
+        # if there is a schedule alert on that otherrwise alert on the maxLagTime.
+        # But, first check that lag_time is defined, and that the state is not "uninitialized",
+        # since the lag_time is set to the oldest snapshot of the source volume which would
+        # cause a false positive.
+        if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
+            lagSeconds = parseLagTime(record["lag_time"])
+            if maxLagTimePercent is not None:
+                lastScheduledUpdate = getLastScheduledUpdate(record)
+                if lastScheduledUpdate != -1:
+                    processedLagTime = True
+                    if lagSeconds > ((curTimeSeconds - lastScheduledUpdate) * maxLagTimePercent/100):
+                        #
+                        # If the transfer is in progress, and they have stalled transfer alert enabled, we don't need to alert on the lag time.
+                        if not (record.get("transfer") is not None and record["transfer"]["state"].lower() in ["transferring", "finalizing", "preparing", "fasttransferring"] and stalledTransferSeconds is not None):
+                            uniqueIdentifier = record["uuid"] + "_" + maxLagTimePercentKey
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                timeStr = lagTimeStr(lagSeconds)
+                                asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
+                                message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
+
+            if maxLagTime is not None and not processedLagTime:
+                if lagSeconds > maxLagTime:
+                    uniqueIdentifier = record["uuid"] + "_" + maxLagTimeKey
                     eventIndex = eventExist(events, uniqueIdentifier)
                     if eventIndex < 0:
-                        message = f'Snapmirror Health Alert: {sourceClusterName}::{record["source"]["path"]} {clusterName}::{record["destination"]["path"]} has a status of {record["healthy"]}.'
-                        for reason in record["unhealthy_reason"]:
-                            message += "\n" + reason["message"]
+                        timeStr = lagTimeStr(lagSeconds)
+                        message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
                         sendAlert(message, "WARNING")
                         changedEvents=True
                         event = {
@@ -736,92 +729,114 @@ def processSnapMirrorRelationships(service):
                             changedEvents = True
                         events[eventIndex]["refresh"] = eventResilience
 
-            if stalledTransferSeconds is not None:
-                if record.get('transfer') is not None and record['transfer']['state'].lower() == "transferring":
-                    transferUuid = record['transfer']['uuid']
-                    bytesTransferred = record['transfer']['bytes_transferred']
-                    prevRec =  getPreviousSMRecord(smRelationships, transferUuid) # This reset the "refresh" field if found.
-                    if prevRec != None:
-                        timeDiff=curTimeSeconds - prevRec["time"]
-                        if prevRec['bytesTransferred'] == bytesTransferred:
-                            if (curTimeSeconds - prevRec['time']) > stalledTransferSeconds:
-                                uniqueIdentifier = record['uuid'] + "_" + "transfer"
-                                eventIndex = eventExist(events, uniqueIdentifier)
-                                if eventIndex < 0:
-                                    message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
-                                    sendAlert(message, "WARNING")
-                                    changedEvents=True
-                                    event = {
-                                        "index": uniqueIdentifier,
-                                        "message": message,
-                                        "refresh": eventResilience
-                                    }
-                                    events.append(event)
-                                else:
-                                    # If the event was found, reset the refresh count. If it is just one less
-                                    # than the max, then it means it was decremented above so there wasn't
-                                    # really a change in state.
-                                    if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                        changedEvents = True
-                                    events[eventIndex]["refresh"] = eventResilience
-                        else:
-                            prevRec['time'] = curTimeSeconds
-                            prevRec['refresh'] = True
-                            prevRec['bytesTransferred'] = bytesTransferred
-                            updateRelationships = True
-                    else:
-                        prevRec = {
-                            "time": curTimeSeconds,
-                            "refresh": True,
-                            "bytesTransferred": bytesTransferred,
-                            "uuid": transferUuid
-                        }
-                        updateRelationships = True
-                        smRelationships.append(prevRec)
-        #
-        # After processing the records, see if any SM relationships need to be removed.
-        i = len(smRelationships) - 1
-        while i >= 0:
-            if not smRelationships[i]["refresh"]:
-                relationshipId = smRelationships[i].get("uuid")
-                if relationshipId is None:
-                    id="Old format"
+        if healthy is not None:
+            if not healthy and not record["healthy"]: # Report on "not healthy" and the status is "not healthy"
+                uniqueIdentifier = record["uuid"] + "_" + healthyKey
+                eventIndex = eventExist(events, uniqueIdentifier)
+                if eventIndex < 0:
+                    message = f'Snapmirror Health Alert: {sourceClusterName}::{record["source"]["path"]} {clusterName}::{record["destination"]["path"]} has a status of {record["healthy"]}.'
+                    for reason in record["unhealthy_reason"]:
+                        message += "\n" + reason["message"]
+                    sendAlert(message, "WARNING")
+                    changedEvents=True
+                    event = {
+                        "index": uniqueIdentifier,
+                        "message": message,
+                        "refresh": eventResilience
+                    }
+                    events.append(event)
                 else:
-                    id = relationshipId
-                logger.debug(f'Deleting smRelationship: {id}')
-                del smRelationships[i]
-                updateRelationships = True
+                    # If the event was found, reset the refresh count. If it is just one less
+                    # than the max, then it means it was decremented above so there wasn't
+                    # really a change in state.
+                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                        changedEvents = True
+                    events[eventIndex]["refresh"] = eventResilience
 
-            i -= 1
-        #
-        # If any of the SM relationships changed, save it.
-        if(updateRelationships):
-            s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'))
-        #
-        # After processing the records, see if any events need to be removed.
-        i = len(events) - 1
-        while i >= 0:
-            if events[i]["refresh"] <= 0:
-                logger.debug(f'Deleting event: {events[i]["message"]}')
-                del events[i]
-                changedEvents = True
+        if stalledTransferSeconds is not None:
+            if record.get('transfer') is not None and record['transfer']['state'].lower() == "transferring":
+                transferUuid = record['transfer']['uuid']
+                bytesTransferred = record['transfer']['bytes_transferred']
+                prevRec =  getPreviousSMRecord(smRelationships, transferUuid) # This reset the "refresh" field if found.
+                if prevRec != None:
+                    timeDiff=curTimeSeconds - prevRec["time"]
+                    if prevRec['bytesTransferred'] == bytesTransferred:
+                        if (curTimeSeconds - prevRec['time']) > stalledTransferSeconds:
+                            uniqueIdentifier = record['uuid'] + "_" + "transfer"
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
+                    else:
+                        prevRec['time'] = curTimeSeconds
+                        prevRec['refresh'] = True
+                        prevRec['bytesTransferred'] = bytesTransferred
+                        updateRelationships = True
+                else:
+                    prevRec = {
+                        "time": curTimeSeconds,
+                        "refresh": True,
+                        "bytesTransferred": bytesTransferred,
+                        "uuid": transferUuid
+                    }
+                    updateRelationships = True
+                    smRelationships.append(prevRec)
+    #
+    # After processing the records, see if any SM relationships need to be removed.
+    i = len(smRelationships) - 1
+    while i >= 0:
+        if not smRelationships[i]["refresh"]:
+            relationshipId = smRelationships[i].get("uuid")
+            if relationshipId is None:
+                id="Old format"
             else:
-                # If an event wasn't refreshed, then we need to save the new refresh count.
-                if events[i]["refresh"] != eventResilience:
-                    changedEvents = True
-            i -= 1
-        #
-        # If the events array changed, save it.
-        if(changedEvents):
-            s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
-    else:
-        logger.warning(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+                id = relationshipId
+            logger.debug(f'Deleting smRelationship: {id}')
+            del smRelationships[i]
+            updateRelationships = True
+
+        i -= 1
+    #
+    # If any of the SM relationships changed, save it.
+    if(updateRelationships):
+        s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'))
+    #
+    # After processing the records, see if any events need to be removed.
+    i = len(events) - 1
+    while i >= 0:
+        if events[i]["refresh"] <= 0:
+            logger.debug(f'Deleting event: {events[i]["message"]}')
+            del events[i]
+            changedEvents = True
+        else:
+            # If an event wasn't refreshed, then we need to save the new refresh count.
+            if events[i]["refresh"] != eventResilience:
+                changedEvents = True
+        i -= 1
+    #
+    # If the events array changed, save it.
+    if(changedEvents):
+        s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
 # This function is used to check all the volume and aggregate utlization.
 ################################################################################
 def processStorageUtilization(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, clusterTimezone
 
     changedEvents=False
     #
@@ -842,47 +857,97 @@ def processStorageUtilization(service):
         event["refresh"] -= 1
     #
     # Run the API call to get the physical storage used.
-    endpoint = f'https://{config["OntapAdminServer"]}/api/storage/aggregates?fields=space&return_timeout=15'
-    aggrResponse = http.request('GET', endpoint, headers=headers)
-    if aggrResponse.status != 200:
-        logger.error(f'API call to {endpoint} failed. HTTP status code {aggrResponse.status}.')
-        aggrResponse = None
+    url = '/api/storage/aggregates?fields=space&return_timeout=15'
+    aggrRecords = []
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
+        aggrResponse = http.request('GET', endpoint, headers=headers)
+        if aggrResponse.status != 200:
+            logger.error(f'API call to {endpoint} failed. HTTP status code {aggrResponse.status}.')
+            break
+        else:
+            data = json.loads(aggrResponse.data)
+            aggrRecords.extend(data.get("records"))
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
     #
     # Run the API call to get the volume information.
-    endpoint = f'https://{config["OntapAdminServer"]}/api/storage/volumes?fields=space,files,svm,state&return_timeout=15'
-    volumeResponse = http.request('GET', endpoint, headers=headers)
-    if volumeResponse.status != 200:
-        logger.error(f'API call to {endpoint} failed. HTTP status code {volumeResponse.status}.')
-        volumeResponse = None
-        volumeRecords = None
-    else:
-        volumeRecords = json.loads(volumeResponse.data).get("records")
-        #
-        # Now get the constituent volumes.
-        endpoint = f'https://{config["OntapAdminServer"]}/api/storage/volumes?is_constituent=true&fields=space,files,svm,state&return_timeout=15'
+    url = '/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'
+    volumeRecords = []
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
         volumeResponse = http.request('GET', endpoint, headers=headers)
         if volumeResponse.status != 200:
             logger.error(f'API call to {endpoint} failed. HTTP status code {volumeResponse.status}.')
+            break
         else:
-            volumeRecords.extend(json.loads(volumeResponse.data).get("records"))
+            data = json.loads(volumeResponse.data)
+            volumeRecords.extend(data.get("records"))
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
     #
-    # If both API calls failed, no point on continuing.
-    if volumeResponse is None and aggrResponse is None:
+    # Now get the constituent volumes.
+    url = '/api/storage/volumes?is_constituent=true&fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
+        volumeResponse = http.request('GET', endpoint, headers=headers)
+        if volumeResponse.status != 200:
+            logger.error(f'API call to {endpoint} failed. HTTP status code {volumeResponse.status}.')
+            break
+        else:
+            data = json.loads(volumeResponse.data)
+            volumeRecords.extend(data.get("records"))
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
+
+    logger.debug(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check.')
+    #
+    # If there are no volumes or aggregates, there is nothing to do.
+    if len(volumeRecords) == 0 and len(aggrRecords) == 0:
         return
 
     for rule in service["rules"]:
         for key in rule.keys():
             lkey=key.lower()
             if lkey == "aggrwarnpercentused" or lkey == 'aggrcriticalpercentused':
-                if aggrResponse is not None:
-                    data = json.loads(aggrResponse.data)
-                    for aggr in data["records"]:
-                        if aggr["space"]["block_storage"]["used_percent"] >= rule[key]:
-                            uniqueIdentifier = aggr["uuid"] + "_" + key
+                for aggr in aggrRecords:
+                    if aggr["space"]["block_storage"]["used_percent"] >= rule[key]:
+                        uniqueIdentifier = aggr["uuid"] + "_" + key
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            alertType = 'Warning' if lkey == "aggrwarnpercentused" else 'Critical'
+                            message = f'Aggregate {alertType} Alert: Aggregate {aggr["name"]} on {clusterName} is {aggr["space"]["block_storage"]["used_percent"]}% full, which is more or equal to {rule[key]}% full.'
+                            sendAlert(message, "WARNING")
+                            changedEvents = True
+                            event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
+
+            elif lkey == "volumewarnpercentused" or lkey == "volumecriticalpercentused":
+                for record in volumeRecords:
+                    if record["space"].get("percent_used"):
+                        if record["space"]["percent_used"] >= rule[key]:
+                            uniqueIdentifier = record["uuid"] + "_" + key
                             eventIndex = eventExist(events, uniqueIdentifier)
                             if eventIndex < 0:
-                                alertType = 'Warning' if lkey == "aggrwarnpercentused" else 'Critical'
-                                message = f'Aggregate {alertType} Alert: Aggregate {aggr["name"]} on {clusterName} is {aggr["space"]["block_storage"]["used_percent"]}% full, which is more or equal to {rule[key]}% full.'
+                                alertType = 'Warning' if lkey == "volumewarnpercentused" else 'Critical'
+                                message = f'Volume Usage {alertType} Alert: volume {record["svm"]["name"]}:{record["name"]} on {clusterName} is {record["space"]["percent_used"]}% full, which is more or equal to {rule[key]}% full.'
                                 sendAlert(message, "WARNING")
                                 changedEvents = True
                                 event = {
@@ -890,7 +955,6 @@ def processStorageUtilization(service):
                                         "message": message,
                                         "refresh": eventResilience
                                     }
-                                logger.debug(event)
                                 events.append(event)
                             else:
                                 # If the event was found, reset the refresh count. If it is just one less
@@ -900,16 +964,21 @@ def processStorageUtilization(service):
                                     changedEvents = True
                                 events[eventIndex]["refresh"] = eventResilience
 
-            elif lkey == "volumewarnpercentused" or lkey == "volumecriticalpercentused":
-                if volumeResponse is not None:
-                    for record in volumeRecords:
-                        if record["space"].get("percent_used"):
-                            if record["space"]["percent_used"] >= rule[key]:
+            elif lkey == "volumewarnfilespercentused" or lkey == "volumecriticalfilespercentused":
+                for record in volumeRecords:
+                    #
+                    # If a volume is offline, the API will not report the "files" information.
+                    if record.get("files") is not None:
+                        maxFiles = record["files"].get("maximum")
+                        usedFiles = record["files"].get("used")
+                        if maxFiles != None and usedFiles != None:
+                            percentUsed = (usedFiles / maxFiles) * 100
+                            if percentUsed >= rule[key]:
                                 uniqueIdentifier = record["uuid"] + "_" + key
                                 eventIndex = eventExist(events, uniqueIdentifier)
                                 if eventIndex < 0:
-                                    alertType = 'Warning' if lkey == "volumewarnpercentused" else 'Critical'
-                                    message = f'Volume Usage {alertType} Alert: volume {record["svm"]["name"]}:{record["name"]} on {clusterName} is {record["space"]["percent_used"]}% full, which is more or equal to {rule[key]}% full.'
+                                    alertType = 'Warning' if lkey == "volumewarnfilespercentused" else 'Critical'
+                                    message = f"Volume File (inode) Usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of it's inodes, which is more or equal to {rule[key]}% utilization."
                                     sendAlert(message, "WARNING")
                                     changedEvents = True
                                     event = {
@@ -925,38 +994,6 @@ def processStorageUtilization(service):
                                     if events[eventIndex]["refresh"] != (eventResilience - 1):
                                         changedEvents = True
                                     events[eventIndex]["refresh"] = eventResilience
-
-            elif lkey == "volumewarnfilespercentused" or lkey == "volumecriticalfilespercentused":
-                if volumeResponse is not None:
-                    for record in volumeRecords:
-                        #
-                        # If a volume is offline, the API will not report the "files" information.
-                        if record.get("files") is not None:
-                            maxFiles = record["files"].get("maximum")
-                            usedFiles = record["files"].get("used")
-                            if maxFiles != None and usedFiles != None:
-                                percentUsed = (usedFiles / maxFiles) * 100
-                                if percentUsed >= rule[key]:
-                                    uniqueIdentifier = record["uuid"] + "_" + key
-                                    eventIndex = eventExist(events, uniqueIdentifier)
-                                    if eventIndex < 0:
-                                        alertType = 'Warning' if lkey == "volumewarnfilespercentused" else 'Critical'
-                                        message = f"Volume File (inode) Usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of it's inodes, which is more or equal to {rule[key]}% utilization."
-                                        sendAlert(message, "WARNING")
-                                        changedEvents = True
-                                        event = {
-                                                "index": uniqueIdentifier,
-                                                "message": message,
-                                                "refresh": eventResilience
-                                            }
-                                        events.append(event)
-                                    else:
-                                        # If the event was found, reset the refresh count. If it is just one less
-                                        # than the max, then it means it was decremented above so there wasn't
-                                        # really a change in state.
-                                        if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                            changedEvents = True
-                                        events[eventIndex]["refresh"] = eventResilience
 
             elif lkey == "offline":
                 for record in volumeRecords:
@@ -980,7 +1017,57 @@ def processStorageUtilization(service):
                             if events[eventIndex]["refresh"] != (eventResilience - 1):
                                 changedEvents = True
                             events[eventIndex]["refresh"] = eventResilience
-
+            elif lkey == "oldsnapshot":
+                curTime = datetime.datetime.now(pytz.timezone(clusterTimezone) if clusterTimezone != None else datetime.timezone.utc)
+                curTimeSec = curTime.timestamp()
+                #
+                # Run the API call to get the snapshot information.
+                snapshotRecords = []
+                for volume in volumeRecords:
+                    if volume["flexcache_endpoint_type"].lower() != "cache": # Skip over FlexCache volumes
+                        url = f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'
+                        while url is not None:
+                            endpoint = f'https://{config["OntapAdminServer"]}{url}'
+                            response = http.request('GET', endpoint, headers=headers)
+                            if response.status != 200:
+                                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+                                break
+                            else:
+                                data = json.loads(response.data)
+                                snapshotRecords.extend(data.get("records"))
+                                if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                                    url = data["_links"]["next"]["href"]
+                                else:
+                                    url = None
+                logger.debug(f'Found {len(snapshotRecords)} snapshots.')
+                for snapshot in snapshotRecords:
+                    if snapshot.get("create_time") is not None:
+                        #
+                        # Format should be: 2025-11-07T10:05:00-06:00
+                        creationTime = datetime.datetime.strptime(snapshot["create_time"], '%Y-%m-%dT%H:%M:%S%z')
+                        creationTimeSec = creationTime.timestamp()
+                        ageSeconds = int(curTimeSec - creationTimeSec)
+                        if ageSeconds >= (rule[key] * 60 * 60 * 24):
+                            uniqueIdentifier = f'{snapshot["uuid"]}_{key}'
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                timeStr = lagTimeStr(int(ageSeconds))
+                                message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} days.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
             else:
                 message = f'Unknown storage alert type: "{key}".'
                 logger.warning(message)
@@ -1003,11 +1090,64 @@ def processStorageUtilization(service):
         s3Client.put_object(Key=config["storageEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
+# This function sends the alert to a webhook defined by the
+# config['webhookEndpoint'] variable. It is currently designed to work with a
+# specific Moogsoft webhook implementation. You will most likely want to
+# modify it to work with the destination you want to send the alert to.
+################################################################################
+def sendWebHook(message, severity):
+    global clusterName, http, snsClient, config, logger
+
+    if config.get('webhookEndpoint') is None:
+        return
+    #
+    # Since the Moogsoft endpoint needs just the hostname for the configurationItem
+    # strip off the account information that might have been added.
+    x = clusterName.find("(")
+    if x != -1:
+        hostname = clusterName[0:x]
+    else:
+        hostname = clusterName
+    #
+    # The INC__identifier field needs to be unique for each message, so add
+    # a hash of the message to it.
+    messageHash = int(hashlib.sha256(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
+    payload = {
+        "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
+        "INC__manager": "FSxONTAP",
+        "INC__severity": "3",
+        "INC__identifier": f"FSx ONTAP Monitoring Services alert for cluster {clusterName} - {messageHash}",
+        "INC__configurationItem": hostname,
+        "INC__fullMessageText": message
+    }
+    data = json.dumps(payload).encode('UTF-8')
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    #
+    # Note that the urllib3 library that AWS natively provides for their Lambda functions
+    # is of the 1.* version, so we have to use the syntax for that version.
+    try:
+        response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
+        if response.status == 200:
+            logger.info("Webhook sent successfully.")
+        else:
+            logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
+    except:
+        message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']}."
+        logger.critical(message)
+        subject = f'CRITCAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
+        snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+
+################################################################################
 # This function sends the message to the various alerting systems.
 ################################################################################
 def sendAlert(message, severity):
-    global config, snsClient, logger, cloudWatchClient
+    global config, snsClient, logger, cloudWatchClient, clusterName, lambdaFunction
 
+    #
+    # Log to syslog, or the console if syslog isn't configured.
     if severity == "CRITICAL":
         logger.critical(message)
     elif severity == "ERROR":
@@ -1020,9 +1160,18 @@ def sendAlert(message, severity):
         logger.debug(message)
     else:
         logger.info(message)
-
-    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=f'{severity}: Monitor ONTAP Services Alert for cluster {clusterName}')
-
+    #
+    # Publish to SNS.
+    if lambdaFunction:
+        source = " Lambda "
+    else:
+        source = " "
+    #
+    # Ensure the subject is less than 100 characters.
+    subject = f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}'
+    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+    #
+    # Send to CloudWatch if defined.
     if cloudWatchClient is not None:
         #
         # Create a new log stream for the current day if it doesn't exist.
@@ -1050,6 +1199,10 @@ def sendAlert(message, severity):
                 },
             ]
         )
+    #
+    # Send to webhook if defined.
+    if config.get('webhookEndpoint') is not None:
+        sendWebHook(message, severity)
 
 ################################################################################
 # This function is used to check utilization of quota limits.
@@ -1076,153 +1229,186 @@ def processQuotaUtilization(service):
         event["refresh"] -= 1
     #
     # Run the API call to get the quota report.
-    endpoint = f'https://{config["OntapAdminServer"]}/api/storage/quota/reports?fields=*&return_timeout=30'
-    response = http.request('GET', endpoint, headers=headers)
-    if response.status == 200:
-        data = json.loads(response.data)
-        for record in data["records"]:
-            for rule in service["rules"]:
-                for key in rule.keys():
-                    lkey = key.lower() # Convert to all lower case so the key can be case insensitive.
-                    if lkey == "maxquotainodespercentused":
-                        #
-                        # Since the quota report might not have the files key, and even if it does, it might not have
-                        # the hard_limit_percent" key, need to check for their existencae first.
-                        if(record.get("files") is not None and record["files"]["used"].get("hard_limit_percent") is not None and
-                                record["files"]["used"]["hard_limit_percent"] > rule[key]):
-                            uniqueIdentifier = str(record["index"]) + "_" + key
-                            eventIndex = eventExist(events, uniqueIdentifier)
-                            if eventIndex < 0:
-                                if record.get("qtree") is not None:
-                                    qtree=f' under qtree: {record["qtree"]["name"]} '
-                                else:
-                                    qtree=' '
-                                if record.get("users") is not None:
-                                    users=None
-                                    for user in record["users"]:
-                                        if users is None:
-                                            users = user["name"]
-                                        else:
-                                            users += ',{user["name"]}'
-                                    user=f'associated with user(s) "{users}" '
-                                else:
-                                    user=''
-                                message = f'Quota Inode Usage Alert: Quota of type "{record["type"]}" on {record["svm"]["name"]}:/{record["volume"]["name"]}{qtree}{user}on {clusterName} is using {record["files"]["used"]["hard_limit_percent"]}% which is more than {rule[key]}% of its inodes.'
-                                sendAlert(message, "WARNING")
-                                changedEvents=True
-                                event = {
-                                        "index": uniqueIdentifier,
-                                        "message": message,
-                                        "refresh": eventResilience
-                                        }
-                                logger.debug(message)
-                                events.append(event)
-                            else:
-                                # If the event was found, reset the refresh count. If it is just one less
-                                # than the max, then it means it was decremented above so there wasn't
-                                # really a change in state.
-                                if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                    changedEvents = True
-                                events[eventIndex]["refresh"] = eventResilience
+    # For some reason the API version of the quota report became unrelable (i.e. returning 0 records)
+    # so using the private CLI version of the API.
+    #url = '/api/storage/quota/reports?fields=*&return_timeout=15'
+    url = '/api/private/cli/volume/quota/report?fields=vserver,volume,index,tree,quota-type,quota-target,disk-used,disk-limit,files-used,file-limit,soft-disk-limit,soft-file-limit,quota-specifier,disk-used-pct-soft-disk-limit,disk-used-pct-disk-limit,files-used-pct-soft-file-limit,files-used-pct-file-limit&return_timeout=15'
+    records = []
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
+        response = http.request('GET', endpoint, headers=headers)
+        if response.status == 200:
+            data = json.loads(response.data)
+            records.extend(data.get("records"))
+        else:
+            logger.error(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+            return
+        if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+            url = data["_links"]["next"]["href"]
+        else:
+            url = None
 
-                    elif lkey == "maxhardquotaspacepercentused":
-                        if(record.get("space") is not None and record["space"]["used"].get("hard_limit_percent") and
-                                record["space"]["used"]["hard_limit_percent"] >= rule[key]):
-                            uniqueIdentifier = str(record["index"]) + "_" + key
-                            eventIndex = eventExist(events, uniqueIdentifier)
-                            if eventIndex < 0:
-                                if record.get("qtree") is not None:
-                                    qtree=f' under qtree: {record["qtree"]["name"]} '
-                                else:
-                                    qtree=" "
-                                if record.get("users") is not None:
-                                    users=None
-                                    for user in record["users"]:
-                                        if users is None:
-                                            users = user["name"]
-                                        else:
-                                            users += ',{user["name"]}'
-                                    user=f'associated with user(s) "{users}" '
-                                else:
-                                    user=''
-                                message = f'Quota Space Usage Alert: Hard quota of type "{record["type"]}" on {record["svm"]["name"]}:/{record["volume"]["name"]}{qtree}{user}on {clusterName} is using {record["space"]["used"]["hard_limit_percent"]}% which is more than {rule[key]}% of its allocaed space.'
-                                sendAlert(message, "WARNING")
-                                changedEvents=True
-                                event = {
-                                        "index": uniqueIdentifier,
-                                        "message": message,
-                                        "refresh": eventResilience
-                                        }
-                                logger.debug(message)
-                                events.append(event)
-                            else:
-                                # If the event was found, reset the refresh count. If it is just one less
-                                # than the max, then it means it was decremented above so there wasn't
-                                # really a change in state.
-                                if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                    changedEvents = True
-                                events[eventIndex]["refresh"] = eventResilience
-
-                    elif lkey == "maxsoftquotaspacepercentused":
-                        if(record.get("space") is not None and record["space"]["used"].get("soft_limit_percent") and
-                                record["space"]["used"]["soft_limit_percent"] >= rule[key]):
-                            uniqueIdentifier = str(record["index"]) + "_" + key
-                            eventIndex = eventExist(events, uniqueIdentifier)
-                            if eventIndex < 0:
-                                if record.get("qtree") is not None:
-                                    qtree=f' under qtree: {record["qtree"]["name"]} '
-                                else:
-                                    qtree=" "
-                                if record.get("users") is not None:
-                                    users=None
-                                    for user in record["users"]:
-                                        if users is None:
-                                            users = user["name"]
-                                        else:
-                                            users += ',{user["name"]}'
-                                    user=f'associated with user(s) "{users}" '
-                                else:
-                                    user=''
-                                message = f'Quota Space Usage Alert: Soft quota of type "{record["type"]}" on {record["svm"]["name"]}:/{record["volume"]["name"]}{qtree}{user}on {clusterName} is using {record["space"]["used"]["soft_limit_percent"]}% which is more than {rule[key]}% of its allocaed space.'
-                                sendAlert(message, "WARNING")
-                                changedEvents=True
-                                event = {
+    logger.debug(f'Found {len(records)} quota report records.')
+    for record in records:
+        for rule in service["rules"]:
+            for key in rule.keys():
+                lkey = key.lower() # Convert to all lower case so the key can be case insensitive.
+                if lkey == "maxsoftquotainodespercentused":
+                    if(record.get("files_used_pct_soft_file_limit") is not None and record["files_used_pct_soft_file_limit"] >= rule[key]):
+                        uniqueIdentifier = str(record["index"]) + "_" + key
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
+                                    if users is None:
+                                        users = user
+                                    else:
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Inode Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_soft_file_limit"]}% which is more than {rule[key]}% of its inodes.'
+                            sendAlert(message, "WARNING")
+                            changedEvents=True
+                            event = {
                                     "index": uniqueIdentifier,
                                     "message": message,
                                     "refresh": eventResilience
-                                }
-                                logger.debug(message)
-                                events.append(event)
-                            else:
-                                # If the event was found, reset the refresh count. If it is just one less
-                                # than the max, then it means it was decremented above so there wasn't
-                                # really a change in state.
-                                if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                    changedEvents = True
-                                events[eventIndex]["refresh"] = eventResilience
+                                    }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
 
-                    else:
-                        message = f'Unknown quota matching condition type "{key}".'
-                        logger.warning(message)
-        #
-        # After processing the records, see if any events need to be removed.
-        i = len(events) - 1
-        while i >= 0:
-            if events[i]["refresh"] <= 0:
-                logger.debug(f'Deleting event: {events[i]["message"]}')
-                del events[i]
+                elif lkey == "maxquotainodespercentused" or lkey == "maxhardquotainodespercentused":
+                    if(record.get("files_used_pct_file_limit") is not None and record["files_used_pct_file_limit"] >= rule[key]):
+                        uniqueIdentifier = str(record["index"]) + "_" + key
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
+                                    if users is None:
+                                        users = user
+                                    else:
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Inode Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_file_limit"]}% which is more than {rule[key]}% of its inodes.'
+                            sendAlert(message, "WARNING")
+                            changedEvents=True
+                            event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                    }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
+
+                elif lkey == "maxhardquotaspacepercentused":
+                    if(record.get("disk_used_pct_disk_limit") and record["disk_used_pct_disk_limit"] >= rule[key]):
+                        uniqueIdentifier = str(record["index"]) + "_" + key
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
+                                    if users is None:
+                                        users = user
+                                    else:
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
+                            sendAlert(message, "WARNING")
+                            changedEvents=True
+                            event = {
+                                    "index": uniqueIdentifier,
+                                    "message": message,
+                                    "refresh": eventResilience
+                                    }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
+
+                elif lkey == "maxsoftquotaspacepercentused":
+                    if(record.get("disk_used_pct_soft_disk_limit") and record["disk_used_pct_soft_disk_limit"] >= rule[key]):
+                        uniqueIdentifier = str(record["index"]) + "_" + key
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            userStr = ''
+                            qtreeStr = ' '
+                            if record["quota_type"] == "user":
+                                users = None
+                                for user in record["quota_target"]:
+                                    if users is None:
+                                        users = user
+                                    else:
+                                        users += f',{user}'
+                                userStr=f'associated with user(s) "{users}" '
+                            if record.get("tree") is not None:
+                                qtreeStr=f' under qtree: {record["tree"]} '
+                            message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
+                            sendAlert(message, "WARNING")
+                            changedEvents=True
+                            event = {
+                                "index": uniqueIdentifier,
+                                "message": message,
+                                "refresh": eventResilience
+                            }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
+
+                else:
+                    message = f'Unknown quota matching condition type "{key}".'
+                    logger.warning(message)
+    #
+    # After processing the records, see if any events need to be removed.
+    i = len(events) - 1
+    while i >= 0:
+        if events[i]["refresh"] <= 0:
+            logger.debug(f'Deleting event: {events[i]["message"]}')
+            del events[i]
+            changedEvents = True
+        else:
+            # If an event wasn't refreshed, then we need to save the new refresh count.
+            if events[i]["refresh"] != eventResilience:
                 changedEvents = True
-            else:
-                # If an event wasn't refreshed, then we need to save the new refresh count.
-                if events[i]["refresh"] != eventResilience:
-                    changedEvents = True
-            i -= 1
-        #
-        # If the events array changed, save it.
-        if(changedEvents):
-            s3Client.put_object(Key=config["quotaEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
-    else:
-        logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+        i -= 1
+    #
+    # If the events array changed, save it.
+    if(changedEvents):
+        s3Client.put_object(Key=config["quotaEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
 ################################################################################
@@ -1268,95 +1454,127 @@ def processVserver(service):
     if vserverState is not None and vserverState:
         #
         # Run the API call to get the vserver state for each vserver.
-        endpoint = f'https://{config["OntapAdminServer"]}/api/svm/svms?fields=state&return_timeout=15'
-        response = http.request('GET', endpoint, headers=headers)
-        if response.status == 200:
-            data = json.loads(response.data)
-            for record in data["records"]:
-                if record["state"].lower() != "running":
-                    uniqueIdentifier = str(record["uuid"]) + "_" + vserverStateKey
-                    eventIndex = eventExist(events, uniqueIdentifier)
-                    if eventIndex < 0:
-                        message = f'SVM State Alert: SVM {record["name"]} on {clusterName} is not online.'
-                        sendAlert(message, "WARNING")
-                        changedEvents=True
-                        event = {
-                                "index": uniqueIdentifier,
-                                "message": message,
-                                "refresh": eventResilience
-                                }
-                        events.append(event)
-                    else:
-                        # If the event was found, reset the refresh count. If it is just one less
-                        # than the max, then it means it was decremented above so there wasn't
-                        # really a change in state.
-                        if events[eventIndex]["refresh"] != (eventResilience - 1):
-                            changedEvents = True
-                        events[eventIndex]["refresh"] = eventResilience
-        else:
-            logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+        url = f'/api/svm/svms?fields=state&return_timeout=15'
+        records = []
+        while url is not None:
+            endpoint = f'https://{config["OntapAdminServer"]}{url}'
+            response = http.request('GET', endpoint, headers=headers)
+            if response.status == 200:
+                data = json.loads(response.data)
+                records.extend(data.get("records"))
+            else:
+                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+                break
+
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
+
+        logger.debug(f'Found {len(records)} vservers to check.')
+        for record in records:
+            if record["state"].lower() != "running":
+                uniqueIdentifier = str(record["uuid"]) + "_" + vserverStateKey
+                eventIndex = eventExist(events, uniqueIdentifier)
+                if eventIndex < 0:
+                    message = f'SVM State Alert: SVM {record["name"]} on {clusterName} is not online.'
+                    sendAlert(message, "WARNING")
+                    changedEvents=True
+                    event = {
+                            "index": uniqueIdentifier,
+                            "message": message,
+                            "refresh": eventResilience
+                            }
+                    events.append(event)
+                else:
+                    # If the event was found, reset the refresh count. If it is just one less
+                    # than the max, then it means it was decremented above so there wasn't
+                    # really a change in state.
+                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                        changedEvents = True
+                    events[eventIndex]["refresh"] = eventResilience
 
     if nfsProtocolState is not None and nfsProtocolState:
         #
         # Run the API call to get the NFS protocol state for each vserver.
-        endpoint = f'https://{config["OntapAdminServer"]}/api/protocols/nfs/services?fields=state&return_timeout=15'
-        response = http.request('GET', endpoint, headers=headers)
-        if response.status == 200:
-            data = json.loads(response.data)
-            for record in data["records"]:
-                if record["state"].lower() != "online":
-                    uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + nfsProtocolStateKey
-                    eventIndex = eventExist(events, uniqueIdentifier)
-                    if eventIndex < 0:
-                        message = f'NFS Protocol State Alert: NFS protocol on {record["svm"]["name"]} on {clusterName} is not online.'
-                        sendAlert(message, "WARNING")
-                        changedEvents=True
-                        event = {
-                                "index": uniqueIdentifier,
-                                "message": message,
-                                "refresh": eventResilience
-                                }
-                        events.append(event) 
-                    else:
-                        # If the event was found, reset the refresh count. If it is just one less
-                        # than the max, then it means it was decremented above so there wasn't
-                        # really a change in state.
-                        if events[eventIndex]["refresh"] != (eventResilience - 1):
-                            changedEvents = True
-                        events[eventIndex]["refresh"] = eventResilience
-        else:
-            logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+        url = '/api/protocols/nfs/services?fields=state&return_timeout=15'
+        records = []
+        while url is not None:
+            endpoint = f'https://{config["OntapAdminServer"]}{url}'
+            response = http.request('GET', endpoint, headers=headers)
+            if response.status == 200:
+                data = json.loads(response.data)
+                records.extend(data.get("records"))
+            else:
+                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+                break
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
+
+        for record in records:
+            if record["state"].lower() != "online":
+                uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + nfsProtocolStateKey
+                eventIndex = eventExist(events, uniqueIdentifier)
+                if eventIndex < 0:
+                    message = f'NFS Protocol State Alert: NFS protocol on {record["svm"]["name"]} on {clusterName} is not online.'
+                    sendAlert(message, "WARNING")
+                    changedEvents=True
+                    event = {
+                            "index": uniqueIdentifier,
+                            "message": message,
+                            "refresh": eventResilience
+                            }
+                    events.append(event)
+                else:
+                    # If the event was found, reset the refresh count. If it is just one less
+                    # than the max, then it means it was decremented above so there wasn't
+                    # really a change in state.
+                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                        changedEvents = True
+                    events[eventIndex]["refresh"] = eventResilience
 
     if cifsProtocolState is not None and cifsProtocolState:
         #
         # Run the API call to get the NFS protocol state for each vserver.
-        endpoint = f'https://{config["OntapAdminServer"]}/api/protocols/cifs/services?fields=enabled&return_timeout=15'
-        response = http.request('GET', endpoint, headers=headers)
-        if response.status == 200:
-            data = json.loads(response.data)
-            for record in data["records"]:
-                if not record["enabled"]:
-                    uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + cifsProtocolStateKey
-                    eventIndex = eventExist(events, uniqueIdentifier)
-                    if eventIndex < 0:
-                        message = f'CIFS Protocol State Alert: CIFS protocol on {record["svm"]["name"]} on {clusterName} is not online.'
-                        sendAlert(message, "WARNING")
-                        changedEvents=True
-                        event = {
-                                "index": uniqueIdentifier,
-                                "message": message,
-                                "refresh": eventResilience
-                                }
-                        events.append(event) 
-                    else:
-                        # If the event was found, reset the refresh count. If it is just one less
-                        # than the max, then it means it was decremented above so there wasn't
-                        # really a change in state.
-                        if events[eventIndex]["refresh"] != (eventResilience - 1):
-                            changedEvents = True
-                        events[eventIndex]["refresh"] = eventResilience
-        else:
-            logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+        url = '/api/protocols/cifs/services?fields=enabled&return_timeout=15'
+        records = []
+        while url is not None:
+            endpoint = f'https://{config["OntapAdminServer"]}{url}'
+            response = http.request('GET', endpoint, headers=headers)
+            if response.status == 200:
+                data = json.loads(response.data)
+                records.extend(data.get("records"))
+            else:
+                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
+                break
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
+
+        for record in records:
+            if not record["enabled"]:
+                uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + cifsProtocolStateKey
+                eventIndex = eventExist(events, uniqueIdentifier)
+                if eventIndex < 0:
+                    message = f'CIFS Protocol State Alert: CIFS protocol on {record["svm"]["name"]} on {clusterName} is not online.'
+                    sendAlert(message, "WARNING")
+                    changedEvents=True
+                    event = {
+                            "index": uniqueIdentifier,
+                            "message": message,
+                            "refresh": eventResilience
+                            }
+                    events.append(event)
+                else:
+                    # If the event was found, reset the refresh count. If it is just one less
+                    # than the max, then it means it was decremented above so there wasn't
+                    # really a change in state.
+                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                        changedEvents = True
+                    events[eventIndex]["refresh"] = eventResilience
 
     #
     # After processing the records, see if any events need to be removed.
@@ -1474,6 +1692,10 @@ def buildDefaultMatchingConditions():
                 conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": True})
             else:
                 conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": False})
+        elif name == "initialOldSnapshot":
+            value = int(value)
+            if value > 0:
+                conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"oldSnapshot": value})
         elif name == "initialSoftQuotaUtilizationAlert":
             value = int(value)
             if value > 0:
@@ -1482,10 +1704,14 @@ def buildDefaultMatchingConditions():
             value = int(value)
             if value > 0:
                 conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxHardQuotaSpacePercentUsed": value})
+        elif name == "initialInodesSoftQuotaUtilizationAlert":
+            value = int(value)
+            if value > 0:
+                conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxSoftQuotaInodesPercentUsed": value})
         elif name == "initialInodesQuotaUtilizationAlert":
             value = int(value)
             if value > 0:
-                conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxQuotaInodesPercentUsed": value})
+                conditions["services"][getServiceIndex("quota", conditions)]["rules"].append({"maxHardQuotaInodesPercentUsed": value})
         elif name == "initialVserverStateAlert":
             if value == "true":
                 conditions["services"][getServiceIndex("vserver", conditions)]["rules"].append({"vserverState": True})
@@ -1531,7 +1757,8 @@ def readInConfig():
         "cloudWatchLogsEndPointHostname": None,
         "syslogIP": None,
         "cloudWatchLogGroupArn": None,
-        "awsAccountId": None
+        "awsAccountId": None,
+        "webhookEndpoint": None
         }
 
     filenameVariables = {
@@ -1652,7 +1879,8 @@ def lambda_handler(event, context):
     # Set up logging.
     logger = logging.getLogger("mon_fsxn_service")
     if lambdaFunction:
-        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
+#        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
+        logger.setLevel(logging.DEBUG)       # Anything at this level and above this get logged.
     else: # Assume we are running in a test environment.
         logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
         formatter = logging.Formatter(
