@@ -1134,10 +1134,10 @@ def sendWebHook(message, severity):
             logger.info("Webhook sent successfully.")
         else:
             logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
-    except:
+    except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
         message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']}."
         logger.critical(message)
-        subject = f'CRITCAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
+        subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
         snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
 
 ################################################################################
@@ -1879,8 +1879,7 @@ def lambda_handler(event, context):
     # Set up logging.
     logger = logging.getLogger("mon_fsxn_service")
     if lambdaFunction:
-#        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
-        logger.setLevel(logging.DEBUG)       # Anything at this level and above this get logged.
+        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
     else: # Assume we are running in a test environment.
         logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
         formatter = logging.Formatter(
