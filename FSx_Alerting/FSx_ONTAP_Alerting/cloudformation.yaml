@@ -752,7 +752,7 @@ Resources:
           initialVolumeFileUtilizationWarnAlert: !Ref volumeFileUtilizationWarnAlert
           initialVolumeFileUtilizationCriticalAlert: !Ref volumeFileUtilizationCriticalAlert
           initialVolumeOfflineAlert: !Ref volumeOfflineAlert
-          initialoldSnapshot: !Ref oldSnapshotAlert
+          initialOldSnapshot: !Ref oldSnapshotAlert
           initialSoftQuotaUtilizationAlert: !Ref softQuotaUtilizationAlert
           initialHardQuotaUtilizationAlert: !Ref hardQuotaUtilizationAlert
           initialInodesQuotaUtilizationAlert: !Ref inodesQuotaUtilizationAlert
@@ -782,8 +782,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v3.12
-          # Date: 2025-11-10-11:48:24
+          # Version: v3.13
+          # Date: 2025-11-12-12:14:20
           ################################################################################
           
           import json
@@ -1898,10 +1898,10 @@ Resources:
                       logger.info("Webhook sent successfully.")
                   else:
                       logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
-              except:
+              except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
                   message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']}."
                   logger.critical(message)
-                  subject = f'CRITCAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
+                  subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
                   snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
           
           ################################################################################
@@ -2456,7 +2456,7 @@ Resources:
                           conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": True})
                       else:
                           conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": False})
-                  elif name == "initialOldSnapshot": 
+                  elif name == "initialOldSnapshot":
                       value = int(value)
                       if value > 0:
                           conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"oldSnapshot": value})
@@ -2643,8 +2643,7 @@ Resources:
               # Set up logging.
               logger = logging.getLogger("mon_fsxn_service")
               if lambdaFunction:
-          #        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
-                  logger.setLevel(logging.DEBUG)       # Anything at this level and above this get logged.
+                  logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
               else: # Assume we are running in a test environment.
                   logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
                   formatter = logging.Formatter(

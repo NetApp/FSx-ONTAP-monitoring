@@ -92,7 +92,7 @@ To install the program using the CloudFormation template, you will need to do th
 |OntapAdminServer|The DNS name, or IP address, of the management endpoint of the FSxN file system you wish to monitor.|
 |S3BucketName|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
 |SubnetIds|The subnet IDs that the Lambda function will be attached to. They must have connectivity to the FSxN file system management endpoint that you wish to monitor. It is recommended to select at least two.|
-|SecurityGroupIds|The security group IDs that the Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, and CloudWatch and S3 AWS service endpoints, as well as the FSxN file system you want to monitor.|
+|SecurityGroupIds|The security group IDs that the Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the FSxN file system you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
 |CloudWatchLogGroupARN|The ARN of **an existing** CloudWatch Log Group that the Lambda function can send event messages to. It will create a new Log Stream within the Log Group every day that is unique to this file system so you can use the same Log Group for multiple instances of this program. If this field is left blank, alerts will not be sent to CloudWatch.|
 |SecretArn|The ARN of the secret within the AWS Secrets Manager that holds the FSxN file system credentials.|
@@ -104,8 +104,10 @@ To install the program using the CloudFormation template, you will need to do th
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
 |LambdaRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role](#create-an-aws-role) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda_layer.zip found in your S3 bucket.|
-|accountId|An account ID you want added to the FSxN file system name in alerts. This purely for documentation purposes and serves no other purpose.|
+|accountId|An account ID you want added to the FSxN file system name in alerts. This is purely for documentation purposes and serves no other purpose.|
 |webhookEndpoint|The webhook endpoint URL you want the program to send alerts to. This is optional and can be left blank if you don't want to send alerts to a webhook.|
+|maxRunTime|The maximum amount of time, in seconds, that the Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Endpoints for AWS Services](#endpoints-for-aws-services) section below for more information.|
+|memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your FSxN file system.|
 |CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
 |CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
 |CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Endpoints for AWS services](#endpoints-for-aws-services) for more information.|
@@ -327,7 +329,8 @@ filename, then set the configFilename environment variable to the name of your c
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the
 file is JSON. JSON is basically a series of "key" : "value" pairs. Where the value can be object that also has
 "key" : "value" pairs. For more information about the format of a JSON file, please refer to this [page](https://www.json.org/json-en.html).
-The JSON schema in this file is made up of an array of objects, with a key name of "services". Each element of the "services" array
+
+The schema in the JSON file is made up of an array of objects, with a key name of "services". Each element of the "services" array
 is an object with at least two keys. The first key is “name" which specifies the name of the service it is going to provide
 matching conditions (rules) for. The second key is "rules" which is an array of objects that provide the specific
 matching condition. Note that each service's rules has its own unique schema. The following is the definition of each service's schema.
@@ -458,7 +461,7 @@ Each rule should be an object with one, or more, of the following keys:
         },
         {
            "volumeWarnFilesPercentUsed": 90,
-           "volumeCriticalFilesPercentUsed: 95
+           "volumeCriticalFilesPercentUsed": 95
         },
         {
           "offline": true,
