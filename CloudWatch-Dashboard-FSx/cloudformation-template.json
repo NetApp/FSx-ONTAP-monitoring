@@ -381,7 +381,7 @@
                 "Code": {
                     "ImageUri": {
                         "Fn::Sub": [
-                            "052582346341.dkr.ecr.${Region}.amazonaws.com/fsx-cloudwatch-dashboard:production",
+                            "052582346341.dkr.ecr.${Region}.amazonaws.com/fsx-monitoring-stack:production",
                             {
                                 "Region": {
                                     "Ref": "AWS::Region"
