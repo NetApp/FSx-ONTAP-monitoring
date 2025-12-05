@@ -125,11 +125,11 @@ Depending on which deployment mode you select, the CloudFormation template will 
 | Schedulers | Yes | Yes | Yes | Three Amazon EventBridge schedulers that trigger the Lambda function to:<br>o Collect ONTAP metrics.<br>o Create, update or delete CloudWatch alarms.<br>o Collect EMS messages|
 | CloudWatch alarm | Yes | Yes | No | This alarm will alert you if the Lambda function fails. Not created if you don't provide an SNS Topic to send alerts to.|
 | Lambda Role | Yes | Yes | Yes | The IAM role that allows the Lambda function to run. This is optional if you don't provide a role ARN for the Lambda function to use.|
-| Scheduler Role | Yes | Yes | Yes | The IAM role that allows the scheduler to trigger the Lambda function. This is optinoal if you don't provide a role ARN for the scheduler to use. |
-| SecretManager endpoint | Yes | Yes | Yes | This allows the Lambda function to access the SecretManager API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
-| CloudWatch endpoint | Optional | Optional | Optional | This allows the Lambda function to access the CloudWatch API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
-| FSxService endpoint | Optional | Optional | Optional | This allows the Lambda function to access the FSxService API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
-| CloudWatch Logs endpoint | Optional | Optional | Optional | This allows the Lambda function to access the CloudWatch Logs API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
+| Scheduler Role | Yes | Yes | Yes | The IAM role that allows the scheduler to trigger the Lambda function. This is optional if you don't provide a role ARN for the scheduler to use. |
+| SecretManager endpoint | Yes | Yes | Yes | This allows the Lambda function to access the SecretManager API. It is optional and only needed if the Lambda function is deployed into a "Public" subnet. |
+| CloudWatch endpoint | Optional | Optional | Optional | This allows the Lambda function to access the CloudWatch API. It is optional and only needed if the Lambda function is deployed into a "Public" subnet. |
+| FSxService endpoint | Optional | Optional | Optional | This allows the Lambda function to access the FSxService API. It is optional and only needed if the Lambda function is deployed into a "Public" subnet. |
+| CloudWatch Logs endpoint | Optional | Optional | Optional | This allows the Lambda function to access the CloudWatch Logs API. It is optional and only needed if the Lambda function is deployed into a "Public" subnet. |
 
 ## Prerequisites
 1. You should have an AWS Account with the following permissions to create and manage resources:
