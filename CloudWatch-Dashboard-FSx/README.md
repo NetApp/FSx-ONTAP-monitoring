@@ -94,7 +94,7 @@ function to send calls to FSxService to retrieve file systems information and me
 The following permissions are required for the Lambda function to run:
 | Permission | Reason |
 |:-----------|:-------|
-| AWSLambdaVPCAccessExecutionRole (AWS managed Policy) | Provides the required permissions to allow the Lambda function to run inside a VPC |
+| AWSLambdaVPCAccessExecutionRole<br>(AWS managed Policy) | Provides the required permissions to allow the Lambda function to run inside a VPC |
 | secretsmanager:GetSecretValue | To retrieve fsx credentials from Secrets Manager |
 | fsx:DescribeFileSystems | To list all FSxN file systems in the region |
 | fsx:DescribeVolumes | To list all volumes in each FSxN file system |
