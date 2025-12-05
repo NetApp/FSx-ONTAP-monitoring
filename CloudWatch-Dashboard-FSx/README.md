@@ -2,7 +2,7 @@
 
 ## Introduction
 This sample provides a CloudFormation template to deploy a monitoring solution. It provides three main functions:
-- A single AWS CloudWatch dashboard specifically designed monitoring all your FSx for ONTAP file systems in a region.
+- A single AWS CloudWatch dashboard specifically designed for monitoring all your FSx for ONTAP file systems in a region.
 - Management of CloudWatch alarms.
 - Capture of EMS message from FSxN file systems and store them into CloudWatch Logs LogStream.
 
