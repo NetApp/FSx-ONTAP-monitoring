@@ -36,8 +36,8 @@ This sample provides a CloudFormation template to deploy a monitoring solution. 
 Here is a screenshot of the top portion of the dashboard created by this solution:
 ![Screenshot](images/CW-Dashboard-Screenshot.png)
 
-#### Dashbaord Sections
-The following is a breif description of each section of the dashboard:
+#### Dashboard Sections
+The following is a brief description of each section of the dashboard:
 | Section | Metrics Displayed | Purpose |
 |-----------------|-------------------|---------|
 | Client Operations | Read/Write/Metadata IOPS, Throughput (MiB/s) | Monitor client-side performance and activity|
@@ -50,7 +50,7 @@ The following is a breif description of each section of the dashboard:
 | Alarm Overview | Active alarms, alarm states, categories | Centralized alert management |
 
 ### CloudWatch Alarms
-This solution automatically creates CloudWatch alarms for the following FSxN components:
+This solution automatically creates CloudWatch alarms for the following FSxN attributes:
 - CPU Utilization
 - Disk throughput utilization
 - Disk IOPS utilization
@@ -69,16 +69,16 @@ This solution consists of the following components:
 1. Lambda function - This function performs the following actions:
     1. Build custom widgets for the dashboard.
     1. Collects metrics directly from FSxN (like snapmirror health status).
-    1. Create CloudWatch alarms for various components of all the FSxN file systems in the region.
-    1. Collects EMS message directly fron FSxN.
-1. Schedulers - Two Amazon EventBridge schedulers that trigger the Lambda function to:
+    1. Creates and deletes CloudWatch alarms for various components of all the FSxN file systems in the region.
+    1. Collects EMS message directly from FSxN.
+1. Schedulers - Three AWS EventBridge schedulers that trigger the Lambda function to:
     1. Collect ONTAP metrics. Scheduled to trigger every minute.
     1. Create, update or delete CloudWatch alarms. Scheduled to trigger once an hour.
     1. Collect EMS messages. Configurable interval, default to every 5 minutes.
 1. A CloudWatch alarm that will alert you when the Lambda function fails. Not created if you don't provide an SNS Topic to send alerts to.
-1. Lambda Role - The IAM role that allows the Lambda function to run. This is optional if you don't provide a role ARN for the Lambda function to use.
-1. Scheduler Role - The IAM role that allows the scheduler to trigger the Lambda function. This is optinoal if you don't provide a role ARN for the scheduler to use.
-1. SecretManager endpoint - The Lambda function runs inside a VPC, which by default lacks outgoing internet connectivity. To
+1. Lambda Role - The IAM role that allows the Lambda function to run. This is optional and only created if you don't provide a role ARN for the Lambda function to use. The required permissions are listed below.
+1. Scheduler Role - The IAM role that allows the scheduler to trigger the Lambda function. This is optional and only created if you don't provide a role ARN for the scheduler to use. The required permissions are listed below.
+1. SecretsManager endpoint - The Lambda function runs inside a VPC, which by default lacks outgoing internet connectivity. To
 enable the function to securely access the fsx credentials stored in AWS Secrets Manager, a VPC endpoint for the Secrets
 Manager service might be required. This endpoint allows the Lambda function to retrieve sensitive information from Secrets Manager
 without needing direct internet access, maintaining security while ensuring the function can access the necessary credentials.
@@ -94,7 +94,7 @@ function to send calls to FSxService to retrieve file systems information and me
 The following permissions are required for the Lambda function to run:
 | Permission | Reason |
 |:-----------|:-------|
-| AWSLambdaVPCAccessExecutionRole | Provides the required permissions to allow the Lambda function to run inside a VPC |
+| AWSLambdaVPCAccessExecutionRole (AWS managed Policy) | Provides the required permissions to allow the Lambda function to run inside a VPC |
 | secretsmanager:GetSecretValue | To retrieve fsx credentials from Secrets Manager |
 | fsx:DescribeFileSystems | To list all FSxN file systems in the region |
 | fsx:DescribeVolumes | To list all volumes in each FSxN file system |
@@ -116,13 +116,13 @@ The following permissions are required for the scheduler to trigger the Lambda f
 | lambda:InvokeFunction | To allow the scheduler to trigger the Lambda function |
 
 ## Implementation
-Depending on which deployment mode you select, the Cloudformation template will create the following resources:
+Depending on which deployment mode you select, the CloudFormation template will create the following resources:
 
 | Resource | Full stack | Monitoring only | EMS logs only | Description |
 |:---------|:----------:|:---------------:|:-------------:|:------------|
 | Dashboard | Yes | Yes | No |  The Amazon CloudWatch dashboard |
-| Lambda function | Yes | Yes | Yes | The service does the following:<br>Build custom widgets for the dashboard.<br>Collect metrics directly from ONTAP (like SnapMirror health status and EMS messages).<br>Create CloudWatch alarms for all files systems in the region.|
-| Schedulers | Yes | Yes | Yes | Three Amazon EventBridge schedulers that trigger the Lambda function to:<br>Collect ONTAP metrics.<br>Create, update or delete CloudWatch alarms.<br>Cellect EMS messages|
+| Lambda function | Yes | Yes | Yes | The service does the following:<br>o Build custom widgets for the dashboard.<br>o Collect metrics directly from ONTAP (like SnapMirror health status and EMS messages).<br>o Create CloudWatch alarms for all files systems in the region.|
+| Schedulers | Yes | Yes | Yes | Three Amazon EventBridge schedulers that trigger the Lambda function to:<br>o Collect ONTAP metrics.<br>o Create, update or delete CloudWatch alarms.<br>o Collect EMS messages|
 | CloudWatch alarm | Yes | Yes | No | This alarm will alert you if the Lambda function fails. Not created if you don't provide an SNS Topic to send alerts to.|
 | Lambda Role | Yes | Yes | Yes | The IAM role that allows the Lambda function to run. This is optional if you don't provide a role ARN for the Lambda function to use.|
 | Scheduler Role | Yes | Yes | Yes | The IAM role that allows the scheduler to trigger the Lambda function. This is optinoal if you don't provide a role ARN for the scheduler to use. |
@@ -130,7 +130,7 @@ Depending on which deployment mode you select, the Cloudformation template will 
 | CloudWatch endpoint | Optional | Optional | Optional | This allows the Lambda function to access the CloudWatch API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
 | FSxService endpoint | Optional | Optional | Optional | This allows the Lambda function to access the FSxService API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
 | CloudWatch Logs endpoint | Optional | Optional | Optional | This allows the Lambda function to access the CloudWatch Logs API. It is optional and only needed if the Lamdba function is deployed into a "Public" subnet. |
- 
+
 ## Prerequisites
 1. You should have an AWS Account with the following permissions to create and manage resources:
     * "cloudformation:DescribeStacks"
@@ -199,10 +199,10 @@ can be either the same VPC where the file systems are located, or a different VP
 3. Subnet IDs - The IDs of the subnets in which the Lambda function will run. These subnets must have connectivity to the file 		
 systems.
 4. Security Group IDs - The IDs of the Security Groups that will be associated with the Lambda function when it runs. These Security 
-Groups must allow connectivity to the file systems.
+Groups must allow connectivity to the file systems over TCP port 443. It needs no inbound rules.
 5. Create FSx Service Endpoint - A boolean flag indicating whether you plan to create a FSxService VPC endpoint inside the VPC. Set 
 this to true if you want to create the endpoint, or false if you don't. The decision to create this endpoint depends on whether you already have this type of endpoint in the subnet where the Lambda function is to run. If you already have one, set this to false; otherwise, set it to true.	
-6. Create Secret Manager Endpoint - A boolean flag indicating whether you plan to create a SecretManager VPC endpoint inside the 
+6. Create Secrets Manager Endpoint - A boolean flag indicating whether you plan to create a Secrets Manager VPC endpoint inside the 
 VPC. Set this to true if you want to create the endpoint, or false if you don't. The decision to create this endpoint depends on whether you already have this type of endpoint in the subnet where the Lambda function is to run. If you already have one, set this to false; otherwise, set it to true.
 7. Create CloudWatch Endpoint - A boolean flag indicating whether you plan to create a CloudWatch VPC endpoint inside the VPC. Set 
 this to true if you want to create the endpoint, or false if you don't. The decision to create this endpoint depends on whether you already have this type of endpoint in the subnet where the Lambda function is to run. If you already have one, set this to false; otherwise, set it to true.
@@ -210,6 +210,7 @@ this to true if you want to create the endpoint, or false if you don't. The deci
 This ARN is required for certain functionalities, such as snapmirror metrics collection. 
 If not provided, some features may not operate correctly. This secret should contain key-value pairs as described in Prerequisites section above.
 9. SNS Topic ARN for CloudWatch alarms - Optional - The ARN of the SNS topic to which CloudWatch alarms will be sent. If not provided, alarms will not be notified to any SNS topic.
+10. Send usage data to NetApp - A boolean flag indicating whether you agree to send anonymous usage data to NetApp. This data helps us improve our solutions. No personal or sensitive information is collected.
 
 ## Alarms Configuration
 The Lambda function is responsible for creating alarms based on the thresholds set via environment variables. These environment variables can be set from the AWS console, under the Configuration tab of the dashboard Lambda function. You can find the specific Lambda function by its name “FSxNDashboard-<CloudFormation-Stack-Name>.
