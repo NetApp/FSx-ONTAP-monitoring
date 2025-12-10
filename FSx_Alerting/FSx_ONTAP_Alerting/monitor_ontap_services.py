@@ -57,6 +57,8 @@ initialVersion = "Initial Run"  # The version to store if this is the first
 ################################################################################
 def getNumber(string, start):
 
+    global logger, clusterName
+
     if len(string) <= start:
         return (0, start)
     #
@@ -74,7 +76,7 @@ def getNumber(string, start):
     elif string[end:endp1] == "M":
         num=num*60
     elif string[end:endp1] != "S":
-        logger.warning(f'Unknown lag time specifier "{string[end:endp1]}".')
+        logger.warning(f'Unknown lag time specifier "{string[end:endp1]} found on cluster {clusterName}".')
 
     return (num, endp1)
 
@@ -152,14 +154,14 @@ def checkSystem():
         # initial status structure.
         if err.response['Error']['Code'] == "NoSuchKey":
             fsxStatus = {
-                "systemHealth": True,
+                "systemHealth": 0,
                 "version" : initialVersion,
                 "numberNodes" : 2,
                 "downInterfaces" : []
             }
             changedEvents = True
         else:
-            raise err
+            raise Exception(err)
     else:
         fsxStatus = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -170,8 +172,8 @@ def checkSystem():
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
         if response.status == 200:
-            if not fsxStatus["systemHealth"]:
-                fsxStatus["systemHealth"] = True
+            if fsxStatus["systemHealth"] != 0:
+                fsxStatus["systemHealth"] = 0
                 changedEvents = True
 
             data = json.loads(response.data)
@@ -195,7 +197,8 @@ def checkSystem():
             badHTTPStatus = True
             raise Exception(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
     except:
-        if fsxStatus["systemHealth"]:
+        logger.debug(f'Failed to issue API against {config["OntapAdminServer"]}.', exc_info=True)
+        if fsxStatus["systemHealth"] == 1:  # 1 == second failure.
             if config["awsAccountId"] != None:
                 clusterName = f'{config["OntapAdminServer"]}({config["awsAccountId"]})'
             else:
@@ -205,7 +208,11 @@ def checkSystem():
             else:
                 message = f'CRITICAL: Failed to issue API against {clusterName}. Cluster could be down.'
             sendAlert(message, "CRITICAL")
-            fsxStatus["systemHealth"] = False
+            fsxStatus["systemHealth"] += 1
+            changedEvents = True
+
+        if fsxStatus["systemHealth"] == 0:
+            fsxStatus["systemHealth"] += 1
             changedEvents = True
 
     if changedEvents:
@@ -253,7 +260,7 @@ def checkSystemHealth(service):
                     if response.status == 200:
                         data = json.loads(response.data)
                         if data["num_records"] != fsxStatus["numberNodes"]:
-                            message = f'Alert: The number of nodes on cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.'
+                            message = f'Alert: The number of nodes in cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.\nNote, this is likely a planned failover event to upgrade the O/S, or to change the throughput capacity.'
                             sendAlert(message, "INFO")
                             fsxStatus["numberNodes"] = data["num_records"]
                             changedEvents = True
@@ -296,7 +303,7 @@ def checkSystemHealth(service):
                         i = len(fsxStatus["downInterfaces"]) - 1
                         while i >= 0:
                             if fsxStatus["downInterfaces"][i]["refresh"] <= 0:
-                                logger.debug(f'Deleting interface: {fsxStatus["downInterfaces"][i]["index"]}')
+                                logger.debug(f'Deleting interface: {fsxStatus["downInterfaces"][i]["index"]} Cluster={clusterName}')
                                 del fsxStatus["downInterfaces"][i]
                                 changedEvents = True
                             else:
@@ -306,7 +313,7 @@ def checkSystemHealth(service):
                     else:
                         logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
             else:
-                logger.warning(f'Unknown System Health alert type: "{key}".')
+                logger.warning(f'Unknown System Health alert type: "{key}" found on cluster {clusterName}.')
 
     if changedEvents:
         s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
@@ -327,7 +334,7 @@ def processEMSEvents(service):
         if err.response['Error']['Code'] == "NoSuchKey":
             events = []
         else:
-            raise err
+            raise Exception(err)
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -355,7 +362,7 @@ def processEMSEvents(service):
     #
     # Process the events to see if there are any new ones.
     print(f'Received {len(records)} EMS records.')
-    logger.debug(f'Received {len(records)} EMS records.')
+    logger.debug(f'Received {len(records)} EMS records from cluster {clusterName}.')
     for record in records:
         for rule in service["rules"]:
             messageFilter = rule.get("filter")
@@ -406,7 +413,7 @@ def processEMSEvents(service):
     i = len(events) - 1
     while i >= 0:
         if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["time"]} : {events[i]["message"]}')
+            logger.debug(f'Deleting event: {events[i]["time"]} : {events[i]["message"]} Cluster={clusterName}')
             del events[i]
             changedEvents = True
         else:
@@ -584,7 +591,7 @@ def processSnapMirrorRelationships(service):
         if err.response['Error']['Code'] == "NoSuchKey":
             events = []
         else:
-            raise err
+            raise Exception(err)
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -602,7 +609,7 @@ def processSnapMirrorRelationships(service):
         if err.response['Error']['Code'] == "NoSuchKey":
             smRelationships = []
         else:
-            raise err
+            raise Exception(err)
     else:
         smRelationships = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -637,7 +644,7 @@ def processSnapMirrorRelationships(service):
                 stalledTransferSeconds = rule[key]
                 stalledTransferSecondsKey = key
             else:
-                logger.warning(f'Unknown snapmirror alert type: "{key}".')
+                logger.warning(f'Unknown snapmirror alert type: "{key}" found on cluster {clusterName}.')
     #
     # Run the API call to get the current state of all the snapmirror relationships.
     url = f'/api/snapmirror/relationships?fields=*&return_timeout=15'
@@ -657,7 +664,7 @@ def processSnapMirrorRelationships(service):
         else:
             url = None
 
-    logger.debug(f'Found {len(records)} SnapMirror relationships.')
+    logger.debug(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}.')
     for record in records:
         #
         # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
@@ -805,7 +812,7 @@ def processSnapMirrorRelationships(service):
                 id="Old format"
             else:
                 id = relationshipId
-            logger.debug(f'Deleting smRelationship: {id}')
+            logger.debug(f'Deleting smRelationship: {id} cluster={clusterName}')
             del smRelationships[i]
             updateRelationships = True
 
@@ -819,7 +826,7 @@ def processSnapMirrorRelationships(service):
     i = len(events) - 1
     while i >= 0:
         if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]}')
+            logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
             del events[i]
             changedEvents = True
         else:
@@ -848,7 +855,7 @@ def processStorageUtilization(service):
         if err.response['Error']['Code'] == "NoSuchKey":
             events = []
         else:
-            raise err
+            raise Exception(err)
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -906,7 +913,7 @@ def processStorageUtilization(service):
             else:
                 url = None
 
-    logger.debug(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check.')
+    logger.debug(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}.')
     #
     # If there are no volumes or aggregates, there is nothing to do.
     if len(volumeRecords) == 0 and len(aggrRecords) == 0:
@@ -1024,7 +1031,7 @@ def processStorageUtilization(service):
                 # Run the API call to get the snapshot information.
                 snapshotRecords = []
                 for volume in volumeRecords:
-                    if volume["flexcache_endpoint_type"].lower() != "cache": # Skip over FlexCache volumes
+                    if volume["flexcache_endpoint_type"].lower() != "cache" and volume["style"].lower() != "flexgroup_constituent":
                         url = f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'
                         while url is not None:
                             endpoint = f'https://{config["OntapAdminServer"]}{url}'
@@ -1039,7 +1046,7 @@ def processStorageUtilization(service):
                                     url = data["_links"]["next"]["href"]
                                 else:
                                     url = None
-                logger.debug(f'Found {len(snapshotRecords)} snapshots.')
+                logger.debug(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}.')
                 for snapshot in snapshotRecords:
                     if snapshot.get("create_time") is not None:
                         #
@@ -1069,14 +1076,14 @@ def processStorageUtilization(service):
                                     changedEvents = True
                                 events[eventIndex]["refresh"] = eventResilience
             else:
-                message = f'Unknown storage alert type: "{key}".'
+                message = f'Unknown storage alert type: "{key}" found for cluster {clusterName}.'
                 logger.warning(message)
     #
     # After processing the records, see if any events need to be removed.
     i = len(events) - 1
     while i >= 0:
         if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]}')
+            logger.debug(f'Deleting event: {events[i]["message"]} on cluster {clusterName}')
             del events[i]
             changedEvents = True
         else:
@@ -1131,14 +1138,32 @@ def sendWebHook(message, severity):
     try:
         response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
         if response.status == 200:
-            logger.info("Webhook sent successfully.")
+            logger.info("Webhook sent successfully for {clusterName}.")
         else:
-            logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
+            logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}. This was on the behalf of cluster {clusterName}.")
     except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
-        message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']}."
+        message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']} for cluster {clusterName}."
         logger.critical(message)
         subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
         snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+
+################################################################################
+# This function converts a serverity string to a number value.
+################################################################################
+def severityToNumber(severity):
+    lseverity = severity.lower()
+    if lseverity == "critical":
+        return 1
+    elif lseverity == "error":
+        return 2
+    elif lseverity == "warning":
+        return 3
+    elif lseverity == "info":
+        return 4
+    elif lseverity == "debug":
+        return 5
+    else:
+        return 4
 
 ################################################################################
 # This function sends the message to the various alerting systems.
@@ -1182,26 +1207,27 @@ def sendAlert(message, severity):
         logGroupName = config["cloudWatchLogGroupArn"].split(":")[-2] if config["cloudWatchLogGroupArn"].endswith(":*") else config["cloudWatchLogGroupArn"].split(":")[-1]
         #
         # Check to see if the log stream already exists.
-        logStreams = cloudWatchClient.describe_log_streams(logGroupName=logGroupName, logStreamNamePrefix=logStreamName)
-        if len(logStreams["logStreams"]) == 0:
-            cloudWatchClient.create_log_stream(
+        try:
+            logStreams = cloudWatchClient.describe_log_streams(logGroupName=logGroupName, logStreamNamePrefix=logStreamName)
+            if len(logStreams["logStreams"]) == 0:
+                cloudWatchClient.create_log_stream(logGroupName=logGroupName, logStreamName=logStreamName)
+            #
+            # Send the message to CloudWatch.
+            cloudWatchClient.put_log_events(
                 logGroupName=logGroupName,
-                logStreamName=logStreamName)
-        #
-        # Send the message to CloudWatch.
-        cloudWatchClient.put_log_events(
-            logGroupName=logGroupName,
-            logStreamName=logStreamName,
-            logEvents=[
-                {
-                    'timestamp': int(datetime.datetime.now().timestamp() * 1000),
-                    'message': message
-                },
-            ]
-        )
+                logStreamName=logStreamName,
+                logEvents=[
+                    {
+                        'timestamp': int(datetime.datetime.now().timestamp() * 1000),
+                        'message': message
+                    }
+                ]
+            )
+        except cloudWatchClient.exceptions.ResourceNotFoundException:
+            logger.error(f'CloudWatch log group {logGroupName} not found for cluster {clusterName}.')
     #
     # Send to webhook if defined.
-    if config.get('webhookEndpoint') is not None:
+    if config.get('webhookEndpoint') is not None and severityToNumber(config['webhookSeverity']) >= severityToNumber(severity):
         sendWebHook(message, severity)
 
 ################################################################################
@@ -1220,7 +1246,7 @@ def processQuotaUtilization(service):
         if err.response['Error']['Code'] == "NoSuchKey":
             events = []
         else:
-            raise err
+            raise Exception(err)
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -1248,7 +1274,7 @@ def processQuotaUtilization(service):
         else:
             url = None
 
-    logger.debug(f'Found {len(records)} quota report records.')
+    logger.debug(f'Found {len(records)} quota report records cluster={clusterName}.')
     for record in records:
         for rule in service["rules"]:
             for key in rule.keys():
@@ -1390,14 +1416,14 @@ def processQuotaUtilization(service):
                             events[eventIndex]["refresh"] = eventResilience
 
                 else:
-                    message = f'Unknown quota matching condition type "{key}".'
+                    message = f'Unknown quota matching condition type "{key}" found for cluster {clusterName}.'
                     logger.warning(message)
     #
     # After processing the records, see if any events need to be removed.
     i = len(events) - 1
     while i >= 0:
         if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]}')
+            logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
             del events[i]
             changedEvents = True
         else:
@@ -1425,7 +1451,7 @@ def processVserver(service):
         if err.response['Error']['Code'] == "NoSuchKey":
             events = []
         else:
-            raise err
+            raise Exception(err)
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
@@ -1471,7 +1497,7 @@ def processVserver(service):
             else:
                 url = None
 
-        logger.debug(f'Found {len(records)} vservers to check.')
+        logger.debug(f'Found {len(records)} vservers to check on cluster {clusterName}.')
         for record in records:
             if record["state"].lower() != "running":
                 uniqueIdentifier = str(record["uuid"]) + "_" + vserverStateKey
@@ -1581,7 +1607,7 @@ def processVserver(service):
     i = len(events) - 1
     while i >= 0:
         if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]}')
+            logger.debug(f'Deleting event: {events[i]["message"]} for cluster {clusterName}')
             del events[i]
             changedEvents = True
         else:
@@ -1611,7 +1637,7 @@ def getServiceIndex(targetService, conditions):
 # This function builds a default matching conditions dictionary based on the
 # environment variables passed in.
 ################################################################################
-def buildDefaultMatchingConditions():
+def buildDefaultMatchingConditions(event):
     #
     # Define global variables so we don't have to pass them to all the functions.
     global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
@@ -1627,7 +1653,7 @@ def buildDefaultMatchingConditions():
     ]}
     #
     # Now, add rules based on the environment variables.
-    for name, value in os.environ.items():
+    for name, value in event.items() if event.get('OntapAdminServer') is not None else os.environ.items():
         if name == "initialVersionChangeAlert":
             if value == "true":
                 conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"versionChange": True})
@@ -1733,14 +1759,15 @@ def buildDefaultMatchingConditions():
 ################################################################################
 # This function is used to read in all the configuration parameters from the
 # various places:
+#   Lambda Event
 #   Environment Variables
 #   Config File
 #   Calculated
 ################################################################################
-def readInConfig():
+def readInConfig(event):
     #
     # Define global variables so we don't have to pass them to all the functions.
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client, snsClient, http, headers, logger, clusterName
     #
     # Define a dictionary with all the required variables so we can
     # easily add them and check for their existence.
@@ -1758,7 +1785,10 @@ def readInConfig():
         "syslogIP": None,
         "cloudWatchLogGroupArn": None,
         "awsAccountId": None,
-        "webhookEndpoint": None
+        "webhookEndpoint": None,
+        "webhookSeverity": "INFO",
+        "secretUsernameKey": None,
+        "secretPasswordKey": None
         }
 
     filenameVariables = {
@@ -1774,17 +1804,16 @@ def readInConfig():
 
     config = {
         "snsTopicArn": None,
-        "secretArn": None,
-        "secretUsernameKey": None,
-        "secretPasswordKey": None
+        "secretArn": None
         }
     config.update(filenameVariables)
     config.update(optionalVariables)
     config.update(requiredEnvVariables)
     #
-    # Get the required, and any additional, paramaters from the environment.
+    # Get the required, and any additional, paramaters from the environment or event.
+    logger.debug("Being called from a Lambda function." if event.get('OntapAdminServer') is not None else "Being called from a timer or standalone.")
     for var in config:
-        config[var] = os.environ.get(var)
+        config[var] = event.get(var) if event.get('OntapAdminServer') is not None else os.environ.get(var)
     #
     # Since the CloudFormation template will set the environment variables
     # to an empty string if someone doesn't provide a value, reset the
@@ -1803,6 +1832,10 @@ def readInConfig():
         if config[var] is None:
             raise Exception (f'\n\nMissing required environment variable "{var}".')
     #
+    # At this point we an set the clusterName to the OntapAdminServer value. It will
+    # be overwritten in the "checkSystem()" function.
+    clusterName = config["OntapAdminServer"]
+    #
     # Open a client to the s3 service.
     s3Client = boto3.client('s3', config["s3BucketRegion"])
     #
@@ -1816,10 +1849,10 @@ def readInConfig():
         lines = s3Client.get_object(Key=config["configFilename"], Bucket=config["s3BucketName"])['Body'].iter_lines()
     except botocore.exceptions.ClientError as err:
         if err.response['Error']['Code'] != "NoSuchKey":
-            raise err
+            raise Exception(err)
         else:
             if config["configFilename"] != defaultConfigFilename:
-                logger.warning(f"Warning, did not find file '{config['configFilename']}' in s3 bucket '{config['s3BucketName']}' in region '{config['s3BucketRegion']}'.")
+                logger.warning(f"Warning, did not find file '{config['configFilename']}' in s3 bucket '{config['s3BucketName']}' in region '{config['s3BucketRegion']}' for cluster {clusterName}.")
     else:
         #
         # While iterating through the file, get rid of any "export ", comments, blank lines, or anything else that isn't key=value.
@@ -1835,7 +1868,7 @@ def readInConfig():
             key = key.strip()
             value = value.strip()
             if len(value) == 0:
-                logger.warning(f"Warning, empty value for key '{key}'. Ignored.")
+                logger.warning(f"Warning, empty value for key '{key}' on cluster {clusterName} .")
             else:
                 #
                 # Preserve any environment variables settings.
@@ -1843,7 +1876,7 @@ def readInConfig():
                     if config[key] is None:
                         config[key] = value
                 else:
-                    logger.warning(f"Warning, unknown config parameter '{key}'.")
+                    logger.warning(f"Warning, unknown config parameter '{key}' found on cluster {clusterName}.")
     #
     # Now, fill in the filenames for any that aren't already defined.
     for filename in filenameVariables:
@@ -1862,6 +1895,12 @@ def readInConfig():
     if config.get("cloudWatchLogGroupArn") is not None and config["cloudWatchLogsEndPointHostname"] is None:
         cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
         config["cloudWatchLogsEndPointHostname"] = f'logs.{cloudWatchRegion}.amazonaws.com'
+
+    if config.get("secretPasswordKey") is None:
+        config["secretPasswordKey"] = "password"
+
+    if config.get("secretUsernameKey") is None:
+        config["secretUsernameKey"] = "username"
     #
     # Now, check that all the configuration parameters have been set.
     for key in config:
@@ -1877,7 +1916,8 @@ def lambda_handler(event, context):
     global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, cloudWatchClient, clusterTimezone
     #
     # Set up logging.
-    logger = logging.getLogger("mon_fsxn_service")
+    logging.basicConfig()
+    logger = logging.getLogger("MOS_Monitoring")
     if lambdaFunction:
         logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
     else: # Assume we are running in a test environment.
@@ -1891,7 +1931,7 @@ def lambda_handler(event, context):
         logger.addHandler(loggerscreen)
     #
     # Read in the configuraiton.
-    readInConfig()   # This defines the s3Client variable.
+    readInConfig(event)   # This defines the s3Client variable.
     #
     # Set up the logger to log to a file and to syslog.
     if config["syslogIP"] is not None:
@@ -1936,11 +1976,11 @@ def lambda_handler(event, context):
     secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
     secrets = json.loads(secretsInfo['SecretString'])
     if secrets.get(config['secretUsernameKey']) is None:
-        logger.critical(f'Error, "{config["secretUsernameKey"]}" not found in secret "{config["secretArn"]}".')
+        logger.critical(f'Error, "{config["secretUsernameKey"]}" not found in secret "{config["secretArn"]}" for cluster {config["OntapAdminServer"]}.')
         return
 
     if secrets.get(config['secretPasswordKey']) is None:
-        logger.critical(f'Error, "{config["secretPasswordKey"]}" not found in secret "{config["secretArn"]}".')
+        logger.critical(f'Error, "{config["secretPasswordKey"]}" not found in secret "{config["secretArn"]}" for cluster {config["OntapAdminServer"]}.')
         return
 
     username = secrets[config['secretUsernameKey']]
@@ -1970,13 +2010,13 @@ def lambda_handler(event, context):
         matchingConditions = json.loads(data["Body"].read().decode('UTF-8'))
     except botocore.exceptions.ClientError as err:
         if err.response['Error']['Code'] != "NoSuchKey":
-            logger.error(f'Error, could not retrieve configuration file {config["conditionsFilename"]} from: s3://{config["s3BucketName"]}.\nBelow is additional information:')
-            raise err
+            logger.error(f'Error, could not retrieve configuration file {config["conditionsFilename"]} from: s3://{config["s3BucketName"]} for cluster {config["OntapAdminServer"]}.\nBelow is additional information:')
+            raise Exception(err)
         else:
-            matchingConditions = buildDefaultMatchingConditions()
+            matchingConditions = buildDefaultMatchingConditions(event)
             s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'))
     except json.decoder.JSONDecodeError as err:
-        logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}". The error message from the decoder:\n{err}\n')
+        logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}" for cluster {config["OntapAdminServer"]}. The error message from the decoder:\n{err}\n')
         return
 
     if(checkSystem()):
@@ -1996,7 +2036,7 @@ def lambda_handler(event, context):
             elif service["name"].lower() == "vserver":
                 processVserver(service)
             else:
-                logger.warning(f'Unknown service "{service["name"]}".')
+                logger.warning(f'Unknown service "{service["name"]}" found cluster cluster {clusterName}.')
     return
 
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
