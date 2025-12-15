@@ -787,8 +787,9 @@ Resources:
         - Name: "FunctionName"
           Value: !Sub "MOS-controller-${AWS::StackName}"
       Statistic: "Maximum"
-      Period: 300
+      Period: 900
       EvaluationPeriods: 1
+      DatapointsToAlarm: 1
       TreatMissingData: "ignore"
       Threshold: 0.5
       ComparisonOperator: "GreaterThanThreshold"
@@ -811,8 +812,9 @@ Resources:
         - Name: "FunctionName"
           Value: !Sub "MOS-controller-${AWS::StackName}"
       Statistic: "Maximum"
-      Period: 300
+      Period: 900
       EvaluationPeriods: 1
+      DatapointsToAlarm: 1
       TreatMissingData: "ignore"
       Threshold: 0.5
       ComparisonOperator: "GreaterThanThreshold"
