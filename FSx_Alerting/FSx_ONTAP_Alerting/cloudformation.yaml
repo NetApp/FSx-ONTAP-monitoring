@@ -736,8 +736,9 @@ Resources:
         - Name: "FunctionName"
           Value: !Sub "monitor-ontap-services-${AWS::StackName}"
       Statistic: "Maximum"
-      Period: 300
-      EvaluationPeriods: 1
+      Period: 900
+      EvaluationPeriods: 4
+      DatapointsToAlarm: 2
       TreatMissingData: "ignore"
       Threshold: 0.5
       ComparisonOperator: "GreaterThanThreshold"
@@ -760,8 +761,9 @@ Resources:
         - Name: "FunctionName"
           Value: !Sub "monitor-ontap-services-${AWS::StackName}"
       Statistic: "Maximum"
-      Period: 300
-      EvaluationPeriods: 1
+      Period: 900
+      EvaluationPeriods: 4
+      DatapointsToAlarm: 2
       TreatMissingData: "ignore"
       Threshold: 0.5
       ComparisonOperator: "GreaterThanThreshold"
