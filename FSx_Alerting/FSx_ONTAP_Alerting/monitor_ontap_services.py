@@ -219,7 +219,7 @@ def checkSystem():
         s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
     #
     # If the cluster is done, return false so the program can exit cleanly.
-    return(fsxStatus["systemHealth"])
+    return fsxStatus["systemHealth"] == 0
 
 ################################################################################
 # This function checks the following things:

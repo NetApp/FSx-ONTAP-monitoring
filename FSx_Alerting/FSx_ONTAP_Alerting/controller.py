@@ -30,8 +30,8 @@ def lambda_handler(event, context):
     logger = logging.getLogger("MOS_Controller")
     logger.setLevel(logging.DEBUG)
     #
-    # Take a sneak peek at the snsTopicArn so messages can be sent if any of the other
-    # enviornment variables are missing.
+    # Take a sneak peek at the snsTopicArn environment variable so messages can be sent
+    # to it if any of the other enviornment variables are missing.
     snsClient = None
     if os.environ.get('snsTopicArn') is not None:
         snsTopicArn = os.environ.get('snsTopicArn')
@@ -42,7 +42,7 @@ def lambda_handler(event, context):
     # Don't really need to send some of these to the monitoring function, but it
     # doesn't hurt to do so.
     payload = {}
-    for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName', 'snsTopicArn', 'monitorInvocationType', 'FSxNStatusFilename']:
+    for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName', 'snsTopicArn']:
         if os.environ.get(var) is None:
             err = f"Error, the Monitor ONTAP Service controller is missing a required environment variable {var}."
             logger.error(err)
@@ -64,22 +64,7 @@ def lambda_handler(event, context):
         snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
         raise Exception(err)  # This is a crtical error, so send up a flare.
     #
-    # Get the previous status.
-    changedEvents = False
-    try:
-        data = s3Client.get_object(Key=payload['FSxNStatusFilename'], Bucket=payload["s3BucketName"])
-    except botocore.exceptions.ClientError as err:
-        # If the error is that the object doesn't exist, then this must be the
-        # first time this script has run against thie filesystem so create an
-        # initial status structure.
-        if err.response['Error']['Code'] == "NoSuchKey":
-            FSxNStatus = {}
-            changedEvents = True
-        else:
-            raise Exception(f"Error, the Monitor of ONTAP Services controller could not retrieve the previous state of the FSxNs object '{payload['FSxNStatusFilename']} from S3 bucket {payload['s3BucketName']}: {err}")
-    else:
-        FSxNStatus = json.loads(data['Body'].read().decode('utf-8'))
-
+    # Invoke the monitoring Lambda function for each FSxN in the list.
     lambda_client = boto3.client('lambda')
     lineNum = 0
     for fsxn in FSxNList:
@@ -89,7 +74,7 @@ def lambda_handler(event, context):
         # Skip comments, empty and invalid lines.
         if parts[0][0:1] == "#" or parts[0][0:1] == "":
             continue
-        if len(parts) < 3:
+        if len(parts) < 2:
             logger.warning(f"Skipping invalid fsxn entry on line {lineNum}.")
             continue
 
@@ -98,8 +83,11 @@ def lambda_handler(event, context):
         payload['secretArn'] = parts[1]
 
         for param in parts[2:]:
-            key, value = param.split('=')
-            payload[key.strip()] = value.strip()
+            try:
+                key, value = param.split('=')
+                payload[key.strip()] = value.strip()
+            except ValueError:
+                logger.warning(f"Skipping invalid parameter '{param}' for {OntapAdminServer} on line {lineNum}. No '=' found.")
         #
         # Include all the "initial" variables in case the Lambda function has to create an initial conditions file.
         for key, value in os.environ.items():
@@ -110,40 +98,13 @@ def lambda_handler(event, context):
         try:
             response = lambda_client.invoke(
                 FunctionName=payload['MOSLambdaFunctionName'],
-                InvocationType='Event' if payload['monitorInvocationType'].lower() == 'asynchronous' else 'RequestResponse',
+                InvocationType='Event',
                 Payload=json.dumps(payload)
             )
-            if response.get('FunctionError') is None:
-                logger.info(f"Invoked MOS Lambda for {OntapAdminServer} was successful.")
-                if FSxNStatus.get(OntapAdminServer) is None:
-                    FSxNStatus[OntapAdminServer] = {'NumberOfFailedInvokes': 0}
-                    changedEvents = True
-                else:
-                    if FSxNStatus[OntapAdminServer]['NumberOfFailedInvokes'] != 0:
-                        FSxNStatus[OntapAdminServer]['NumberOfFailedInvokes'] = 0
-                        changedEvents = True
-            else:
-                err = f"The monitoring function failed while processing {OntapAdminServer}: {response['Payload'].read().decode('utf-8')}"
-                logger.error(err)
-                if FSxNStatus.get(OntapAdminServer) is None:
-                    FSxNStatus[OntapAdminServer] = {'NumberOfFailedInvokes': 1}
-                    changedEvents = True
-                else:
-                    if (FSxNStatus[OntapAdminServer].get('NumberOfFailedInvokes')+1) == maxAllowedFailures:
-                        FSxNStatus[OntapAdminServer]['NumberOfFailedInvokes'] += 1
-                        changedEvents = True
-                        snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
-                    elif FSxNStatus[OntapAdminServer]['NumberOfFailedInvokes'] < maxAllowedFailures:
-                        FSxNStatus[OntapAdminServer]['NumberOfFailedInvokes'] += 1
-                        changedEvents = True
+            logger.info(f"Invoked Monitoring Lambda function for {OntapAdminServer}.")
         except botocore.exceptions.ClientError as e:
-            snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
-            logger.error(f"Error invoking MOS Monitoring Lambda function for {OntapAdminServer}: {e}")
-
-    if changedEvents:
-        #
-        # Write the updated status back to S3.
-        s3Client.put_object( Bucket=payload['s3BucketName'], Key=payload['FSxNStatusFilename'], Body=json.dumps(FSxNStatus).encode('utf-8'))
+            snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error: Failed to invoke monitoring function", Message=e)
+            logger.error(f"Error invoking Monitoring Lambda function for {OntapAdminServer}: {e}")
 
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
     lambda_handler({}, {})
