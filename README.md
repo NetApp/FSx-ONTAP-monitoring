@@ -11,7 +11,7 @@ This repository contains utilities for monitoring, alerting and auditing of FSx 
 
 * [Automatically Add CloudWatch Alarms for FSx Resources](FSx_Alerting/Auto-Add-CloudWatch-Alarms)
 * [Alert on FSx for ONTAP resources](FSx_Alerting/FSx_ONTAP_Alerting)
-* [CloudWatch Dashboard for FSx for ONTAP](CloudWatch-Dashboard-FSx)
+* [CloudWatch Monitoring FSx](CloudWatch-Monitoring-FSx)
 * [Grafana Dashboards for FSx for ONTAP](Grafana-Prometheus-FSx)
 * [Ingest Administrative audit logs into CloudWatch](FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch)
 * [Ingest NAS audit logs into CloudWatch](FSx-Audit-Logs/Ingest-NAS-Audit-Logs-CloudWatch)
