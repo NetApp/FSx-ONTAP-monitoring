@@ -32,7 +32,7 @@ fi
 sed -e '1,\(# BEGIN CONTROLLER CODE(d' cloudformation.yaml > $tmpfile2
 sed -e '\(# END CONTROLLER CODE(,$d' $tmpfile2 > $tmpfile1
 # String the BEGIN and END lines and compare to controller.py
-sed -e 1,2d -e \$d controller.py > $tmpfile2
+sed -e 1,2d -e '$d' controller.py > $tmpfile2
 if diff -w $tmpfile1 $tmpfile2 > /dev/null; then
   echo "No changes to the controller code."
   controllerCodeChanged=0

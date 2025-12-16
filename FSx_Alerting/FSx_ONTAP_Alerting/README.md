@@ -39,7 +39,7 @@ to use, the targets to send alerts to, etc.)
 
 Once the monitoring program has been invoked it will use the ONTAP APIs to obtain the required information 
 from the FSxN file system. It will compare this information against the conditions that have been
-specified in the conditions file (more information about the conditions file can be found int
+specified in the conditions file (more information about the conditions file can be found in
 the [Matching Conditions File](#matching-conditions-file) below). If any conditions have been
 met it will send an alert to any of the specified targets (SNS Topic, syslog server, webhook endpoint,
 CloudWatch Log Stream). The program stores all the conditions that are currently being met in an object in an
@@ -93,7 +93,7 @@ The CloudFormation template will do the following:
 - Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
 To install the program using the CloudFormation template, you will need to do the following:
-1. Download the CloudFormation template from this repository by right-clicking on [cloudforation.yaml](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/cloudformation.yaml) and selecting "Save Link as." If that doesn't work, you click on
+1. Download the CloudFormation template from this repository by right-clicking on [cloudformation.yaml](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/cloudformation.yaml) and selecting "Save Link as." If that doesn't work, you click on
     the [cloudformation.yaml](./cloudformation.yaml) file in the repository, then click on
     the download icon next to the "Raw" button at the top right of the page. That should
     cause your browser to download the file to your local computer.
@@ -120,12 +120,12 @@ To install the program using the CloudFormation template, you will need to do th
 |ControllerRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role](#create-an-aws-role) section below. If left blank a role will be created for you.|
 |MonitoringRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role](#create-an-aws-role) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda_layer.zip found in your S3 bucket.|
-|maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endoints](#create-any-needed-aws-service-endpoints) section below for more information.|
+|maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
 |memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your FSxN file system.|
-|CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endoints](#create-any-needed-aws-service-endpoints) for more information.|
-|CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endoints](#create-any-needed-aws-service-endpoints) for more information.|
-|CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endoints](#create-any-needed-aws-service-endpoints) for more information.|
-|CreateS3Endpoint|Set to "true" if you want to create an S3 endpoint. **NOTE:** If a S3 Gateway Endpoint already exist for the specified VPC the endpoint creation will fail, causing the entire CloudFormation stack to fail. Note that this will be a "Gateway" type endpoint, since they are free to use. Please read the [Create Any Needed AWS Service Endoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateS3Endpoint|Set to "true" if you want to create an S3 endpoint. **NOTE:** If a S3 Gateway Endpoint already exist for the specified VPC the endpoint creation will fail, causing the entire CloudFormation stack to fail. Note that this will be a "Gateway" type endpoint, since they are free to use. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
 |RoutetableIds|The route table IDs to update to use the S3 endpoint. Since the S3 endpoint is of type `Gateway` route tables have to be updated to use it. This parameter is only needed if you are creating an S3 endpoint.|
 |VpcId|The ID of a VPC where the subnets provided above are located. Required if you are creating an endpoint, not needed otherwise.|
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
@@ -312,7 +312,7 @@ Once you have created the function you will be able to:
 - Increase the total run time to at least 20 seconds. You might have to raise that if you have a lot
     of components in your FSxN file system. However, if you have to raise it to more than a couple minutes
     and the function still times out, then it could be an issue with the endpoint causing the calls to the
-    AWS services to hang. See the [Create Any Needed AWS Service Endoints](#create-any-needed-aws-service-endpoints) section above
+    AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section above
     for more information.
 
 Secondly create the controller Lambda function by going to the AWS Lambda service and creating a new function with:

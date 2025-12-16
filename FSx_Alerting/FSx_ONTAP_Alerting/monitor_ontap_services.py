@@ -1138,7 +1138,7 @@ def sendWebHook(message, severity):
     try:
         response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
         if response.status == 200:
-            logger.info("Webhook sent successfully for {clusterName}.")
+            logger.info(f"Webhook sent successfully for {clusterName}.")
         else:
             logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}. This was on the behalf of cluster {clusterName}.")
     except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
@@ -1148,7 +1148,7 @@ def sendWebHook(message, severity):
         snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
 
 ################################################################################
-# This function converts a serverity string to a number value.
+# This function converts a severity string to a number value.
 ################################################################################
 def severityToNumber(severity):
     lseverity = severity.lower()
@@ -2036,7 +2036,7 @@ def lambda_handler(event, context):
             elif service["name"].lower() == "vserver":
                 processVserver(service)
             else:
-                logger.warning(f'Unknown service "{service["name"]}" found cluster cluster {clusterName}.')
+                logger.warning(f'Unknown service "{service["name"]}" found for cluster {clusterName}.')
     return
 
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:

@@ -31,7 +31,7 @@ def lambda_handler(event, context):
     logger.setLevel(logging.DEBUG)
     #
     # Take a sneak peek at the snsTopicArn environment variable so messages can be sent
-    # to it if any of the other enviornment variables are missing.
+    # to it if any of the other environment variables are missing.
     snsClient = None
     if os.environ.get('snsTopicArn') is not None:
         snsTopicArn = os.environ.get('snsTopicArn')
@@ -48,7 +48,7 @@ def lambda_handler(event, context):
             logger.error(err)
             if snsClient is not None:
                 snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
-            raise Exception(err)  # This is a crtical error, so send up a flare.
+            raise Exception(err)  # This is a critical error, so send up a flare.
         else:
             payload[var] = os.environ[var]
     #
@@ -62,7 +62,7 @@ def lambda_handler(event, context):
         err = f"Error, the Monitor ONTAP Service controller was unable to fetching FSxN list from S3: {e}"
         logger.error(err)
         snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
-        raise Exception(err)  # This is a crtical error, so send up a flare.
+        raise Exception(err)  # This is a critical error, so send up a flare.
     #
     # Invoke the monitoring Lambda function for each FSxN in the list.
     lambda_client = boto3.client('lambda')

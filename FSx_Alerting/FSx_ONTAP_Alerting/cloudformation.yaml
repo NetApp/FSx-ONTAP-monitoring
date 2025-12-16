@@ -238,7 +238,7 @@ Parameters:
     Default: ""
 
   monitoringRoleArn:
-    Description: "The ARN of the role to use for the Mornitoring Lambda function. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
+    Description: "The ARN of the role to use for the Monitoring Lambda function. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
     Type: String
     Default: ""
 
@@ -640,7 +640,7 @@ Resources:
               logger.setLevel(logging.DEBUG)
               #
               # Take a sneak peek at the snsTopicArn environment variable so messages can be sent
-              # to it if any of the other enviornment variables are missing.
+              # to it if any of the other environment variables are missing.
               snsClient = None
               if os.environ.get('snsTopicArn') is not None:
                   snsTopicArn = os.environ.get('snsTopicArn')
@@ -657,7 +657,7 @@ Resources:
                       logger.error(err)
                       if snsClient is not None:
                           snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
-                      raise Exception(err)  # This is a crtical error, so send up a flare.
+                      raise Exception(err)  # This is a critical error, so send up a flare.
                   else:
                       payload[var] = os.environ[var]
               #
@@ -671,7 +671,7 @@ Resources:
                   err = f"Error, the Monitor ONTAP Service controller was unable to fetching FSxN list from S3: {e}"
                   logger.error(err)
                   snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
-                  raise Exception(err)  # This is a crtical error, so send up a flare.
+                  raise Exception(err)  # This is a critical error, so send up a flare.
               #
               # Invoke the monitoring Lambda function for each FSxN in the list.
               lambda_client = boto3.client('lambda')
@@ -934,8 +934,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v4.15
-          # Date: 2025-12-15-15:45:35
+          # Version: v4.16
+          # Date: 2025-12-15-19:11:57
           ################################################################################
           
           import json
@@ -2054,7 +2054,7 @@ Resources:
               try:
                   response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
                   if response.status == 200:
-                      logger.info("Webhook sent successfully for {clusterName}.")
+                      logger.info(f"Webhook sent successfully for {clusterName}.")
                   else:
                       logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}. This was on the behalf of cluster {clusterName}.")
               except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
@@ -2064,7 +2064,7 @@ Resources:
                   snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
           
           ################################################################################
-          # This function converts a serverity string to a number value.
+          # This function converts a severity string to a number value.
           ################################################################################
           def severityToNumber(severity):
               lseverity = severity.lower()
@@ -2952,7 +2952,7 @@ Resources:
                       elif service["name"].lower() == "vserver":
                           processVserver(service)
                       else:
-                          logger.warning(f'Unknown service "{service["name"]}" found cluster cluster {clusterName}.')
+                          logger.warning(f'Unknown service "{service["name"]}" found for cluster {clusterName}.')
               return
           
           if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:

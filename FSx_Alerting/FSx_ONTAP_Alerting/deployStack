@@ -59,7 +59,7 @@ while getopts "hR:b:F:S:s:g:t:a:v:w:r:x:l:W:m:M:f:" opt; do
     a) secretArnPattern="$OPTARG" ;;
     v) checkInterval="$OPTARG" ;;
     w) watchdog="$(echo $OPTARG | tr '[A-Z]' '[a-z]')" ;;
-    r) mointoringRoleArn="$OPTARG" ;;
+    r) monitoringRoleArn="$OPTARG" ;;
     x) controllerRoleArn="$OPTARG" ;;
     l) lambdaLayerArn="$OPTARG" ;;
     W) webhookEndpoint="$OPTARG" ;;
@@ -131,7 +131,7 @@ aws cloudformation create-stack --region $region --stack-name $stackName --templ
   ParameterKey=watchdogRoleArn,ParameterValue="$watchdogRoleArn" \
   ParameterKey=checkInterval,ParameterValue="$checkInterval" \
   ParameterKey=lambdaLayerArn,ParameterValue="$lambdaLayerArn" \
-  ParameterKey=monitoringRoleArn,ParameterValue="$monitoringRroleArn" \
-  ParameterKey=controllerRoleArn,ParameterValue="$controllerRroleArn" \
+  ParameterKey=monitoringRoleArn,ParameterValue="$monitoringRoleArn" \
+  ParameterKey=controllerRoleArn,ParameterValue="$controllerRoleArn" \
   ParameterKey=maxRunTime,ParameterValue="$maxRunTime" \
   ParameterKey=memorySize,ParameterValue="$memorySize"
