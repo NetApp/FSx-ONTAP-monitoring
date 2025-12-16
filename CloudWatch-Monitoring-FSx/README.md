@@ -7,6 +7,7 @@ This sample provides a CloudFormation template to deploy a monitoring solution. 
 - Capture of EMS message from FSxN file systems and store them into CloudWatch Logs LogStream.
 
 ### Deployment Modes
+There are three deployment modes available to suit different monitoring needs:
 
 #### Full Stack Mode
 "FSx Metrics, FSx Alerts, EMS Logs"
@@ -200,17 +201,23 @@ can be either the same VPC where the file systems are located, or a different VP
 systems.
 4. Security Group IDs - The IDs of the Security Groups that will be associated with the Lambda function when it runs. These Security 
 Groups must allow connectivity to the file systems over TCP port 443. It needs no inbound rules.
+5. Deployment Mode - Select one of the three deployment modes: "Fsx Metrics, FSx Alerts, EMS Logs", "FSx Metrics, FSx Alerts", or "FSx EMS Logs".
 5. Create FSx Service Endpoint - A boolean flag indicating whether you plan to create a FSxService VPC endpoint inside the VPC. Set 
 this to true if you want to create the endpoint, or false if you don't. The decision to create this endpoint depends on whether you already have this type of endpoint in the subnet where the Lambda function is to run. If you already have one, set this to false; otherwise, set it to true.	
 6. Create Secrets Manager Endpoint - A boolean flag indicating whether you plan to create a Secrets Manager VPC endpoint inside the 
 VPC. Set this to true if you want to create the endpoint, or false if you don't. The decision to create this endpoint depends on whether you already have this type of endpoint in the subnet where the Lambda function is to run. If you already have one, set this to false; otherwise, set it to true.
 7. Create CloudWatch Endpoint - A boolean flag indicating whether you plan to create a CloudWatch VPC endpoint inside the VPC. Set 
 this to true if you want to create the endpoint, or false if you don't. The decision to create this endpoint depends on whether you already have this type of endpoint in the subnet where the Lambda function is to run. If you already have one, set this to false; otherwise, set it to true.
-8. Secret Manager FSx Admin Passwords ARN - Optional - The ARN of the AWS Secrets Manager secret containing the fsx credentials.
+8. Lambda Role ARN - Optional - The ARN of the IAM role that the Lambda function will use when it runs. If not provided, a new role with the required permissions will be created.
+9. Scheduler Role ARN - Optional - The ARN of the IAM role that the scheduler will use to trigger the Lambda function. If not provided, a new role with the required permissions will be created.
+10. Secret Manager FSx Admin Passwords ARN - The ARN of the AWS Secrets Manager secret containing the fsx credentials.
 This ARN is required for certain functionalities, such as snapmirror metrics collection. 
 If not provided, some features may not operate correctly. This secret should contain key-value pairs as described in Prerequisites section above.
-9. SNS Topic ARN for CloudWatch alarms - Optional - The ARN of the SNS topic to which CloudWatch alarms will be sent. If not provided, alarms will not be notified to any SNS topic.
-10. Send usage data to NetApp - A boolean flag indicating whether you agree to send anonymous usage data to NetApp. This data helps us improve our solutions. No personal or sensitive information is collected.
+11. SNS Topic ARN for CloudWatch alarms - Optional - The ARN of the SNS topic to which CloudWatch alarms will be sent. If not provided, alarms will not be notified to any SNS topic.
+11. EMS Collection Interval (minutes) - The interval, in minutes, at which EMS messages will be collected from the file systems. The default value is 5 minutes.
+11. EMS CloudWatch Log Group Name - The name of the CloudWatch Logs log group where EMS messages will be stored. The default value is "fsx-ems-logs".
+11. Create EMS Log Group - A boolean flag indicating whether to create the CloudWatch Logs log group for EMS messages. Set this to true to create the log group, or false if you plan to create it manually beforehand.
+12. Send usage data to NetApp - A boolean flag indicating whether you agree to send anonymous usage data to NetApp. This data helps us improve our solutions. No personal or sensitive information is collected.
 
 ## Alarms Configuration
 The Lambda function is responsible for creating alarms based on the thresholds set via environment variables. These environment variables can be set from the AWS console, under the Configuration tab of the dashboard Lambda function. You can find the specific Lambda function by its name “FSxNDashboard-<CloudFormation-Stack-Name>.
