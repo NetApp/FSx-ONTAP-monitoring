@@ -20,6 +20,7 @@ import re
 import datetime
 import os
 import json
+import logging
 from urllib3.util import Retry
 import boto3
 import botocore
@@ -255,7 +256,7 @@ def getMsEpoch(dateStr):
 # This puts the CloudWatch events into the CloudWatch log stream.
 ################################################################################
 def putEventInCloudWatch(cwEvents, logStreamName):
-    global cwLogsClient, config
+    global cwLogsClient, config, logger
     #
     # Ensure the logstream exists.
     try:
@@ -266,9 +267,9 @@ def putEventInCloudWatch(cwEvents, logStreamName):
     response = cwLogsClient.put_log_events(logGroupName=config['logGroupName'], logStreamName=logStreamName, logEvents=cwEvents)
     if response.get('rejectedLogEventsInfo') != None:
         if response['rejectedLogEventsInfo'].get('tooNewLogEventStartIndex') is not None:
-            print(f"Warning: Too new log event start index: {response['rejectedLogEventsInfo']['tooNewLogEventStartIndex']}")
+            logger.warning(f"Too new log event start index: {response['rejectedLogEventsInfo']['tooNewLogEventStartIndex']}")
         if response['rejectedLogEventsInfo'].get('tooOldLogEventEndIndex') is not None:
-            print(f"Warning: Too old log event end index: {response['rejectedLogEventsInfo']['tooOldLogEventEndIndex']}")
+            logger.warning(f"Too old log event end index: {response['rejectedLogEventsInfo']['tooOldLogEventEndIndex']}")
 
 ################################################################################
 # This function scans for FSxNs and populates the fsxNs global variable
@@ -280,13 +281,19 @@ def scanFsxNs(fsxClient):
     # Get a list of FSxNs in the region.
     fsxResponse = fsxClient.describe_file_systems()
     for fsx in fsxResponse['FileSystems']:
-        fsxNs.append({"name": fsx['FileSystemId'], "IP": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0]})
+        try:
+            fsxNs.append({"name": fsx['FileSystemId'], "IP": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0]})
+        except KeyError: # Skip any that don't have their IP address assigned yet.
+            pass
     #
     # Make sure to get all of them since the response is paginated.
     while fsxResponse.get('NextToken') is not None:
         fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
         for fsx in fsxResponse['FileSystems']:
-            fsxNs.append({"name": fsx['FileSystemId'], "IP": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0]})
+            try:
+                fsxNs.append({"name": fsx['FileSystemId'], "IP": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0]})
+            except KeyError: # Skip any that don't have their IP address assigned yet.
+                pass
 
 ################################################################################
 # This function checks that all the required configuration variables are set.
@@ -411,7 +418,22 @@ def checkConfig():
 # and then processes all the FSxNs.
 ################################################################################
 def lambda_handler(event, context):     # pylint: disable=W0613
-    global http, cwLogsClient, config, s3Client, secretARNs, fsxNs
+    global http, cwLogsClient, config, s3Client, secretARNs, fsxNs, logger
+    #
+    # Set up logging.
+    logging.basicConfig()
+    logger = logging.getLogger("ingest_admin_logs")
+    if lambdaFunction:
+        logger.setLevel(logging.INFO)       # Anything at this level and above this gets logged.
+    else: # Assume we are running in a test environment.
+        logger.setLevel(logging.DEBUG)      # Anything at this level and above this gets logged.
+        formatter = logging.Formatter(
+                fmt="%(name)s:%(funcName)s - Level:%(levelname)s - Message:%(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        loggerscreen = logging.StreamHandler()
+        loggerscreen.setFormatter(formatter)
+        logger.addHandler(loggerscreen)
     #
     # Check that we have all the configuration variables we need.
     checkConfig()
@@ -423,29 +445,6 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     #
     # Create a CloudWatch client.
     cwLogsClient = boto3.client('logs', config['logGroupRegion'])
-    #
-    #############################################################################
-    # The following code block is an example of how to use a custom CA bundle
-    # so that you don't have to ignore SSL certificate errors.
-    #
-    # To get the CA bundle, you can use the following command:
-    # openssl s_client --showcerts --connect <IP>:443 < /dev/null
-    #
-    # Where <IP> is the IP address of the FSxN management port.
-    #
-    # The idea is to copy the CA bundle into the S3 bucket, then read it from
-    # there and pass the file to the urllib function.
-    #
-    # Copy the ca_bundle from the s3 bucket.
-    #cert_file = '/tmp/aws_ca_root.pem'
-    #f = open(cert_file, 'wt')
-    #response = s3Client.get_object(Bucket=config['s3BucketName'], Key="aws_ca_root")
-    #for line in response['Body'].iter_lines():
-    #    line = line.decode('utf-8')
-    #    f.write(line + '\n')
-    #f.close()
-    #http = urllib3.PoolManager(cert_reqs='CERT_REQUIRED', retries=retries, ca_certs=cert_file)
-    #############################################################################
     #
     # Disable warning about connecting to servers with self-signed SSL certificates.
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -464,18 +463,18 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     #
     # Discovery all the FSxNs. Including the ones in other accounts.
     if config['scanCurrentAccount'] != "no":
-        print("DEBUG: Scanning regions for FSxNs for the current account.")
+        logger.debug("Scanning regions for FSxNs for the current account.")
         for region in config['regions']:
             if region in fsxRegions:
-                print(f"DEBUG:    {region}")
+                logger.debug(f"    {region}")
                 fsxClient = boto3.client('fsx', region_name=region)
                 scanFsxNs(fsxClient)
 
     for accountRole in config['accountRoles']:
-        print(f"DEBUG: Scanning regions for FSxNs for accountRole {accountRole}")
+        logger.debug(f"Scanning regions for FSxNs for accountRole {accountRole}")
         for region in config['regions']:
             if region in fsxRegions:
-                print(f"DEBUG:    {region}")
+                logger.debug(f"    {region}")
                 sts_client = boto3.client('sts', region_name=region)
 
                 assumed_role_object = sts_client.assume_role(
@@ -491,9 +490,9 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                          aws_session_token=credentials['SessionToken'])
                 scanFsxNs(fsxClient)
 
-    print(f"DEBUG: Found {len(fsxNs)} FSxNs")
+    logger.debug(f"Found {len(fsxNs)} FSxNs")
     if len(fsxNs) == 0:
-        print("Error: No FSxNs found. Exiting.")
+        logger.error("No FSxNs found. Exiting.")
         return
     #
     # Get the last processed events stats file.
@@ -514,7 +513,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     for fsxn in fsxNs:
         fsId = fsxn['name']
         fsIP = fsxn['IP']
-        print(f"DEBUG: Checking {fsId}")
+        logger.debug(f"Checking {fsId}")
         #
         # Get the credentials.
         if secretARNs.get(fsId) is None and config['defaultSecretARN'] is not None:
@@ -528,16 +527,16 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 secretsInfo = secretsClient.get_secret_value(SecretId=secretARNs[fsId])
                 secret = json.loads(secretsInfo['SecretString'])
                 if secret.get('username') is None or secret.get('password') is None:
-                    print(f"Warning: The 'username' or 'password' keys were not found in the secret for '{fsId}' in the secretARN '{secretARNs[fsId]}'.")
+                    logger.warning(f"The 'username' or 'password' keys were not found in the secret for '{fsId}' in the secretARN '{secretARNs[fsId]}'.")
                     continue
                 username = secret['username']
                 password = secret['password']
                 secretsClient.close() # Since each secret could be in a different region.
             except botocore.exceptions.ClientError as err:
-                print(f"Warning: Unable to retrieve the credentials for '{fsId}' using the secretARN '{secretARNs[fsId]}'. {err}")
+                logger.warning(f"Unable to retrieve the credentials for '{fsId}' using the secretARN '{secretARNs[fsId]}'. {err}")
                 continue
         else:
-            print(f'Warning: No secret ARN was found for {fsId}.')
+            logger.warning(f'No secret ARN was found for {fsId}.')
             continue
         #
         # Create a header with the basic authentication.
@@ -560,14 +559,14 @@ def lambda_handler(event, context):     # pylint: disable=W0613
             try:
                 response = http.request('GET', f"https://{fsIP}{endpoint}", headers=headersQuery, timeout=15.0)
             except urllib3.exceptions.MaxRetryError as err:
-                print(f"Warning: Unable to connect to {fsIP}({fsId}) at {endpoint}. {err}")
+                logger.warning(f"Unable to connect to {fsIP}({fsId}) at {endpoint}. {err}")
                 break # Break out "while endpoint is not None" loop.
             except urllib3.exceptions.ConnectTimeoutError as err:
-                print(f"Warning: Timeout connecting to {fsIP}({fsId}) at {endpoint}. {err}")
+                logger.warning(f"Timeout connecting to {fsIP}({fsId}) at {endpoint}. {err}")
                 break # Break out "while endpoint is not None" loop.
             if response.status == 200:
                 data = json.loads(response.data.decode('utf-8'))
-                print(f'DEBUG: Received {len(data["records"])} records from {fsIP}({fsId}).')
+                logger.debug(f'Received {len(data["records"])} records from {fsIP}({fsId}).')
                 for record in data['records']:
                     timestamp = getMsEpoch(record['timestamp'])
                     #
@@ -591,7 +590,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 #
                 # If we have any events, then put them in CloudWatch.
                 if len(auditEvents) > 0:
-                    print(f"DEBUG: Adding {len(auditEvents)} events for {fsId} with index {lastIndex} and timestamp {lastAscTimestamp}")
+                    logger.debug(f"Adding {len(auditEvents)} events for {fsId} with index {lastIndex} and timestamp {lastAscTimestamp}")
                     putEventInCloudWatch(auditEvents, f"{fsId}-{datetime.datetime.now().strftime('%Y-%m-%d')}")
                     lastProcessed['timestamp'] = timestamp
                     lastProcessed['ascTimestamp'] = lastAscTimestamp
@@ -602,9 +601,11 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 # Check to see if there are any more.
                 endpoint = data['_links']['next']['href'] if 'next' in data['_links'] else None
             else:
-                print(f"Warning: API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
+                logger.debug(f"API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
                 break # Break out "while endpoint is not None" loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
+lambdaFunction = True
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
+    lambdaFunction = False
     lambda_handler(None, None)
