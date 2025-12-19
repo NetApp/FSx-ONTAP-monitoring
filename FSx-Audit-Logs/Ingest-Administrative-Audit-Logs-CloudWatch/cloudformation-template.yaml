@@ -947,7 +947,7 @@ Resources:
           # and then processes all the FSxNs.
           ################################################################################
           def lambda_handler(event, context):     # pylint: disable=W0613
-              global http, cwLogsClient, config, s3Client, secretARNs, fsxNs, logger
+              global http, cwLogsClient, config, s3Client, secretARNs, fsxNs, logger, lambdaFunction
               #
               # Set up logging.
               logging.basicConfig()
@@ -1130,7 +1130,7 @@ Resources:
                           # Check to see if there are any more.
                           endpoint = data['_links']['next']['href'] if 'next' in data['_links'] else None
                       else:
-                          logger.debug(f"API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
+                          logger.warning(f"API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
                           break # Break out "while endpoint is not None" loop.
           #
           # If this script is not running as a Lambda function, then call the lambda_handler function.
