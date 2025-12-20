@@ -3,7 +3,7 @@
 ################################################################################
 # This script is used to ingest all the administrative audit logs events
 # from all the FSx for ONTAP File Systems.
-# 
+#
 # It will create a log stream for each FSxN file system it finds.
 # It will attempt to process every FSxN file system within the specified
 # regions. If the regions variable is empty, it will process all regions.
@@ -24,6 +24,7 @@ import logging
 from urllib3.util import Retry
 import boto3
 import botocore
+from botocore.config import Config as BotoConfig
 
 ################################################################################
 # You can configure this script by either setting the following variables in
@@ -96,15 +97,15 @@ import botocore
 #
 # *NOTE*: If fsxnSecretARNsFile is set, then these variables will be ignored.
 #
-# fileSystem1ID = 
+# fileSystem1ID =
 # fileSystem1SecretARN =
-# fileSystem2ID = 
+# fileSystem2ID =
 # fileSystem2SecretARN =
-# fileSystem3ID = 
+# fileSystem3ID =
 # fileSystem3SecretARN =
-# fileSystem4ID = 
+# fileSystem4ID =
 # fileSystem4SecretARN =
-# fileSystem5ID = 
+# fileSystem5ID =
 # fileSystem5SecretARN =
 #
 ################################################################################
@@ -276,9 +277,10 @@ def putEventInCloudWatch(cwEvents, logStreamName):
 # with the name and the IP address of the FSxNs management ports.
 ################################################################################
 def scanFsxNs(fsxClient):
-    global fsxNs
+    global fsxNs, logger
     #
     # Get a list of FSxNs in the region.
+    logger.debug("Getting FSxNs")
     fsxResponse = fsxClient.describe_file_systems()
     for fsx in fsxResponse['FileSystems']:
         try:
@@ -288,6 +290,7 @@ def scanFsxNs(fsxClient):
     #
     # Make sure to get all of them since the response is paginated.
     while fsxResponse.get('NextToken') is not None:
+        logger.debug("Getting more FSxNs")
         fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
         for fsx in fsxResponse['FileSystems']:
             try:
@@ -301,7 +304,7 @@ def scanFsxNs(fsxClient):
 # configuration variables.
 ################################################################################
 def checkConfig():
-    global config, s3Client, secretARNs, regions
+    global config, s3Client, secretARNs, regions, boto3Config
     #
     # When defining the dictionary, initialize them to any variables that are set at the top of the program.
     config = {
@@ -371,7 +374,7 @@ def checkConfig():
             raise Exception(f"{item} is not set.")
     #
     # Create a S3 client.
-    s3Client = boto3.client('s3', region_name=config['s3BucketRegion'])
+    s3Client = boto3.client('s3', region_name=config['s3BucketRegion'], config=boto3Config)
     #
     # Define the secretsARNs dictionary if it hasn't already been defined.
     if 'secretARNs' not in globals():
@@ -418,7 +421,7 @@ def checkConfig():
 # and then processes all the FSxNs.
 ################################################################################
 def lambda_handler(event, context):     # pylint: disable=W0613
-    global http, cwLogsClient, config, s3Client, secretARNs, fsxNs, logger, lambdaFunction
+    global http, cwLogsClient, config, s3Client, secretARNs, fsxNs, logger, lambdaFunction, boto3Config
     #
     # Set up logging.
     logging.basicConfig()
@@ -434,6 +437,12 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         loggerscreen = logging.StreamHandler()
         loggerscreen.setFormatter(formatter)
         logger.addHandler(loggerscreen)
+
+    boto3Config = BotoConfig(
+        connect_timeout=10,
+        read_timeout=10,
+        retries={'mode': 'adaptive', 'total_max_attempts': 3}
+    )
     #
     # Check that we have all the configuration variables we need.
     checkConfig()
@@ -444,7 +453,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     # NOTE: The s3 client is created in the checkConfig function.
     #
     # Create a CloudWatch client.
-    cwLogsClient = boto3.client('logs', config['logGroupRegion'])
+    cwLogsClient = boto3.client('logs', region_name=config['logGroupRegion'], config=boto3Config)
     #
     # Disable warning about connecting to servers with self-signed SSL certificates.
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -454,20 +463,22 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     # If regions hasn't already been defined, get the list of all the AWS
     # regions that support FSx for ONTAP.
     if len(config['regions']) == 0:  # pylint: disable=E0601
-        ec2Client = boto3.client('ec2')
+        ec2Client = boto3.client('ec2', config=boto3Config)
+        logger.debug(f"Getting Regions")
         ec2Regions = ec2Client.describe_regions()['Regions']
         for region in ec2Regions:
             config['regions'] += [region['RegionName']]
+    logger.debug(f"Getting regions that support fsx")
     fsxRegions = boto3.Session().get_available_regions('fsx')
-    fsxNs = []   # Holds the name and IP addresses of the FSxNs management ports.
     #
     # Discovery all the FSxNs. Including the ones in other accounts.
+    fsxNs = []   # Holds the name and IP addresses of the FSxNs management ports.
     if config['scanCurrentAccount'] != "no":
         logger.debug("Scanning regions for FSxNs for the current account.")
         for region in config['regions']:
             if region in fsxRegions:
                 logger.debug(f"    {region}")
-                fsxClient = boto3.client('fsx', region_name=region)
+                fsxClient = boto3.client('fsx', region_name=region, config=boto3Config)
                 scanFsxNs(fsxClient)
 
     for accountRole in config['accountRoles']:
@@ -475,7 +486,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         for region in config['regions']:
             if region in fsxRegions:
                 logger.debug(f"    {region}")
-                sts_client = boto3.client('sts', region_name=region)
+                sts_client = boto3.client('sts', region_name=region, config=boto3Config)
 
                 assumed_role_object = sts_client.assume_role(
                         RoleArn=accountRole,
@@ -487,16 +498,18 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                          region_name=region,
                                          aws_access_key_id=credentials['AccessKeyId'],
                                          aws_secret_access_key=credentials['SecretAccessKey'],
-                                         aws_session_token=credentials['SessionToken'])
+                                         aws_session_token=credentials['SessionToken'],
+                                         config=boto3Config)
                 scanFsxNs(fsxClient)
 
-    logger.debug(f"Found {len(fsxNs)} FSxNs")
+    logger.debug(f"Found {len(fsxNs)} FSxNs.")
     if len(fsxNs) == 0:
         logger.error("No FSxNs found. Exiting.")
         return
     #
     # Get the last processed events stats file.
     try:
+        logger.debug(f"Getting last processed events stats file.")
         response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['statsName'])
     except botocore.exceptions.ClientError as err:
         #
@@ -523,7 +536,8 @@ def lambda_handler(event, context):     # pylint: disable=W0613
             #
             # Get the username and password of the ONTAP/FSxN system.
             try:
-                secretsClient = session.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3])
+                secretsClient = session.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3], config=boto3Config)
+                logger.debug(f"Getting secret for {fsId}")
                 secretsInfo = secretsClient.get_secret_value(SecretId=secretARNs[fsId])
                 secret = json.loads(secretsInfo['SecretString'])
                 if secret.get('username') is None or secret.get('password') is None:
@@ -557,6 +571,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         while endpoint is not None:
             auditEvents = []
             try:
+                logger.debug(f"Connecting to {fsIP}({fsId}) at {endpoint}")
                 response = http.request('GET', f"https://{fsIP}{endpoint}", headers=headersQuery, timeout=15.0)
             except urllib3.exceptions.MaxRetryError as err:
                 logger.warning(f"Unable to connect to {fsIP}({fsId}) at {endpoint}. {err}")
@@ -596,6 +611,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                     lastProcessed['ascTimestamp'] = lastAscTimestamp
                     lastProcessed['index'] = lastIndex
                     lastProcessedStats[fsId] = lastProcessed
+                    logger.debug(f"Saving last processed stats file.")
                     s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastProcessedStats).encode('UTF-8'))
                 #
                 # Check to see if there are any more.
