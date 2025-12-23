@@ -44,13 +44,14 @@ To use the CloudFormation template perform the following steps:
     - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultVolumeThreshold` - This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume (see below for more information).
+    - `defaultVolumeFilesThreshold` - This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume (see below for more information).
     - `checkInterval` - This is the interval in minutes that the program will run.
     - `alarmPrefixString` - This defines the string that will be prepended to every CloudWatch alarm name that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.
     - `regions` - This is a comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system. Note that no checking is performed to ensure that the regions you provide are valid.
 6. Click `Next`. There aren't any recommended changes to make to any of the proceeding pages, so just click `Next` again.
 7. On the final page, check the box that says `I acknowledge that AWS CloudFormation might create IAM resources with custom names.` and then click `Submit`.
 
-If you prefer, you can run this Python program on any UNIX based computer that has Python installed. See the "Running on a computer" section below for more information.
+If you prefer, you can run this as a stand alone Python program. See the "Running on a computer" section below for more information.
 
 ### Configuring the program
 If you use the CloudFormation template to deploy the program, it will create the appropriate environment variables for you.
@@ -72,6 +73,7 @@ Here is the list of variables, and what they define:
 |defaultCPUThreshold | This will define the default CPU utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-C number|
 |defaultSSDThreshold | This will define the default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-S number|
 |defaultVolumeThreshold | This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-V number|
+|defaultVolumeFilesThreshold | This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-f number|
 |alarmPrefixCPU | This defines the string that will be put in front of the name of every CPU utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
 |alarmPrefixSSD | This defines the string that will be put in front of the name of every SSD utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
 |alarmPrefixVolume | This defines the string that will be put in front of the name of every volume utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
@@ -89,6 +91,7 @@ variable. Here is the list of tags and where they should be located:
 |Tag|Description|Location|
 |:---|:------|:---|
 |alarm\_threshold | Sets the volume utilization threshold. | Volume |
+|files\_threshold | Sets the volume files utilization threshold. | Volume |
 |cpu\_alarm\_threshold| Sets the CPU utilization threshold. | File System |
 |ssd\_alarm\_threshold| Sets the SSD utilization threshold. | File System |
 
@@ -106,7 +109,7 @@ Once you have Python and boto3 installed, you can run the program by executing t
 ```bash
 python3 auto_add_cw_alarms.py
 ```
-This will run the program based on all the variables set at the top. If you want to change the behavior without
+This will run the program based on all the variables set at the top of the program. If you want to change the behavior without
 having to edit the program, you can either use the Command Line Option specified in the table above or you can
 set the appropriate environment variable. Note that you can give a `-h` (or `--help`) command line option
 and the program will display a list of all the available options.
@@ -125,7 +128,7 @@ the detailed steps required to install the program as a Lambda function.
 1. Download the `auto_add_cw_alarms.py` file from this repo.
 2. Create a new Lambda function in the AWS console by going to the Lambda services page and clicking on the `Create function` button.
 3. Choose `Author from scratch` and give the function a name. For example `auto_add_cw_alarms`.
-4. Choose the latest version of Python (currently Python 3.11) as the runtime and click on `Create function`.
+4. Choose the latest version of Python (currently Python 3.13) as the runtime and click on `Create function`.
 5. In the function code section, copy and paste the contents of the `auto_add_cw_alarms.py` file into the code editor.
 6. Click on the `Deploy` button to save the function.
 7. Click on the Configuration tag and then the "General configuration" sub tab and set the "Timeout" to be at least 3 minutes.
@@ -136,6 +139,7 @@ the detailed steps required to install the program as a Lambda function.
     - `defaultCPUThreshold` - This will define a default CPU utilization threshold.
     - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold.
     - `defaultVolumeThreshold` - This will define the default Volume utilization threshold.
+    - `defaultVolumeFilesThreshold` - This will define the default Volume files utilization threshold.
     - `alarmPrefixString` - This defines the string that will be prepended to every CloudWatch alarm name that the program creates.
     - `regions` - This is an optional comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system.
 
@@ -220,7 +224,7 @@ This will remove the Lambda function, the EventBridge schedule, and the roles th
 not use the CloudFormation template, you will have to do these steps yourself.
 
 Once you have removed the program, you can remove all the CloudWatch alarms that were created by the program by running
-the following command:
+the following command from a Unix based operating system. An AWS Cloudwhare works prefect for this task:
 
 ```bash
 region=us-west-2

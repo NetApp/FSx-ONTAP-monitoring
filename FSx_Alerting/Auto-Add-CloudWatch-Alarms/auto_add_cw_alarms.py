@@ -61,6 +61,10 @@ defaultSSDThreshold=90
 # Setting it to 100 will disable the creation of the alarm.
 defaultVolumeThreshold=80
 #
+# Define the default volume files utilization threshold before sending the alarm.
+# Setting it to 100 will disable the creation of the alarm.
+defaultVolumeFilesThreshold=80
+#
 #
 ################################################################################
 # You can't change the following variables from the command line or environment
@@ -81,6 +85,9 @@ basePrefix = os.environ.get('basePrefix', "FSx-ONTAP-Auto")
 #
 # Define the prefix for the volume utilization alarm name for the CloudWatch alarms.
 alarmPrefixVolume=f"{basePrefix}-Volume_Utilization_for_volume_"
+#
+# Define the prefix for the volume files utilization alarm name for the CloudWatch alarms.
+alarmFilesPrefixVolume=f"{basePrefix}-Volume_Files_Utilization_for_volume_"
 #
 # Define the prefix for the CPU utilization alarm name for the CloudWatch alarms.
 alarmPrefixCPU=f"{basePrefix}-CPU_Utilization_for_fs_"
@@ -149,6 +156,28 @@ def add_cpu_alarm(cw, fsId, alarmName, alarmDescription, threshold, region):
         print(f'Would have added CPU alarm for {fsId} with name {alarmName} with thresold of {threshold} in {region} with action {action}.')
 
 ################################################################################
+# This function adds the Volume files utilization CloudWatch alarm.
+################################################################################
+def add_volume_files_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold, region):
+    action = 'arn:aws:sns:' + region + ':' + accountId + ':' + SNStopic
+    if not dryRun:
+        cw.put_metric_alarm(
+            ActionsEnabled=True,
+            AlarmName=alarmName,
+            AlarmActions=[action],
+            AlarmDescription=alarmDescription,
+            EvaluationPeriods=1,
+            DatapointsToAlarm=1,
+            Threshold=threshold,
+            ComparisonOperator='GreaterThanThreshold',
+            Metrics=[{"Id":"e1","Label":"Utilization","ReturnData":True,"Expression":"m2/m1*100"},\
+                     {"Id":"m2","ReturnData":False,"MetricStat":{"Metric":{"Namespace":"AWS/FSx","MetricName":"FilesUsed","Dimensions":[{"Name":"VolumeId","Value": volumeId},{"Name":"FileSystemId","Value":fsId}]},"Period":300,"Stat":"Average"}},\
+                     {"Id":"m1","ReturnData":False,"MetricStat":{"Metric":{"Namespace":"AWS/FSx","MetricName":"FilesCapacity","Dimensions":[{"Name":"VolumeId","Value": volumeId},{"Name":"FileSystemId","Value":fsId}]},"Period":300,"Stat":"Average"}}]
+        )
+    else:
+        print(f'Would have added files capacity utilization alarm for {volumeId} {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}.')
+
+################################################################################
 # This function adds the Volume utilization CloudWatch alarm.
 ################################################################################
 def add_volume_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold, region):
@@ -168,7 +197,7 @@ def add_volume_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold,
                      {"Id":"m1","ReturnData":False,"MetricStat":{"Metric":{"Namespace":"AWS/FSx","MetricName":"StorageCapacity","Dimensions":[{"Name":"VolumeId","Value": volumeId},{"Name":"FileSystemId","Value":fsId}]},"Period":300,"Stat":"Average"}}]
         )
     else:
-        print(f'Would have added volume alarm for {volumeId} {fsId} with name {alarmName} with thresold of {threshold} in {region} with action {action}.')
+        print(f'Would have added volume capacity utilization alarm for {volumeId} {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}.')
 
 
 ################################################################################
@@ -208,11 +237,9 @@ def contains_fs(fsId, fss):
     return False
 
 ################################################################################
-# This function returns the value assigned to the "alarm_threshold" tag
-# associated with the arn passed in. If none is found, it returns the default
-# threshold set above.
+# This function gets the tags for a volume.
 ################################################################################
-def getAlarmThresholdTagValue(fsx, arn):
+def getVolumeTags(fsx, arn):
     #
     # If there are a lot of volumes, we could get hit by the AWS rate limit,
     # so we will sleep for a short period of time and then retry. We will
@@ -225,14 +252,14 @@ def getAlarmThresholdTagValue(fsx, arn):
     # we try to get the tags for the volume.
     while True:
         try:
-            tags = fsx.list_tags_for_resource(ResourceARN=arn)
-            for tag in tags['Tags']:
-                if(tag['Key'].lower() == "alarm_threshold"):
-                    return(tag['Value'])
-            return(defaultVolumeThreshold)
+            response = fsx.list_tags_for_resource(ResourceARN=arn)
+            if 'Tags' in response:
+                return(response['Tags'])
+            else:
+                return([])
         except botocore.exceptions.ClientError as e:
             if e.response['Error']['Code'] == 'ResourceNotFound':
-                return(100) # Return 100 so we don't try to create an alarm.
+                return([])
 
             if e.response['Error']['Code'] == 'TooManyRequestsException' or e.response['Error']['Code'] == 'ThrottlingException':
                 sleep = sleep * 2
@@ -245,15 +272,23 @@ def getAlarmThresholdTagValue(fsx, arn):
                 raise e
 
 ################################################################################
+################################################################################
+def getAlarmThresholdTagValue(tags, targetTag):
+    for tag in tags:
+        if tag['Key'].lower() == targetTag.lower():
+            return(tag['Value'])
+    return defaultVolumeThreshold if targetTag.lower() == "alarm_threshold" else defaultVolumeFilesThreshold
+
+################################################################################
 # This function returns the value assigned to the "CPU_alarm_threshold" tag
 # that is in the array of tags passed in. if it doesn't find that tag it
 # returns the default threshold set above.
 ################################################################################
 def getCPUAlarmThresholdTagValue(tags):
     for tag in tags:
-        if(tag['Key'].lower() == "cpu_alarm_threshold"):
-            return(tag['Value'])
-    return(defaultCPUThreshold)
+        if tag['Key'].lower() == "cpu_alarm_threshold":
+            return tag['Value']
+    return defaultCPUThreshold
 
 ################################################################################
 # This function returns the value assigned to the "CPU_alarm_threshold" tag
@@ -262,9 +297,9 @@ def getCPUAlarmThresholdTagValue(tags):
 ################################################################################
 def getSSDAlarmThresholdTagValue(tags):
     for tag in tags:
-        if(tag['Key'].lower() == "ssd_alarm_threshold"):
-            return(tag['Value'])
-    return(defaultSSDThreshold)
+        if tag['Key'].lower() == "ssd_alarm_threshold":
+            return tag['Value']
+    return defaultSSDThreshold
 
 ################################################################################
 # This function returns the file system id that the passed in alarm is
@@ -453,13 +488,13 @@ def lambda_handler(event, context):
         if region in fsxRegions:
             print(f'Scanning {region}')
             try:
-                fsx = boto3.client('fsx', region_name=region, config=boto3Config)
-                cw = boto3.client('cloudwatch', region_name=region, config=boto3Config)
+                fsxClient = boto3.client('fsx', region_name=region, config=boto3Config)
+                cwClient = boto3.client('cloudwatch', region_name=region, config=boto3Config)
                 #
                 # Get all the file systems, volumes and alarm in the region.
-                fss     = getFss(fsx)
-                volumes = getVolumes(fsx)
-                alarms  = getAlarms(cw)
+                fss     = getFss(fsxClient)
+                volumes = getVolumes(fsxClient)
+                alarms  = getAlarms(cwClient)
                 #
                 # Scan for filesystems without CPU Utilization Alarm.
                 for fs in fss:
@@ -474,7 +509,7 @@ def lambda_handler(event, context):
                             if(not contains_alarm(alarmName, alarms) and onlyFilesystemId == None or
                                not contains_alarm(alarmName, alarms) and onlyFilesystemId != None and onlyFilesystemId == fsId):
                                 print(f'Adding CPU Alarm for {fs["FileSystemId"]}')
-                                add_cpu_alarm(cw, fsId, alarmName, alarmDescription, threshold, region)
+                                add_cpu_alarm(cwClient, fsId, alarmName, alarmDescription, threshold, region)
                 #
                 # Scan for CPU alarms without a FSxN filesystem.
                 for alarm in alarms:
@@ -484,7 +519,7 @@ def lambda_handler(event, context):
                         if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
                            not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
                             print("Deleting alarm: " + alarmName + " in region " + region)
-                            delete_alarm(cw, alarmName)
+                            delete_alarm(cwClient, alarmName)
                 #
                 # Scan for filesystems without SSD Utilization Alarm.
                 for fs in fss:
@@ -499,7 +534,7 @@ def lambda_handler(event, context):
                             if(not contains_alarm(alarmName, alarms) and onlyFilesystemId == None or
                                not contains_alarm(alarmName, alarms) and onlyFilesystemId != None and onlyFilesystemId == fsId):
                                 print(f'Adding SSD Alarm for {fsId}')
-                                add_ssd_alarm(cw, fs['FileSystemId'], alarmName, alarmDescription, threshold, region)
+                                add_ssd_alarm(cwClient, fs['FileSystemId'], alarmName, alarmDescription, threshold, region)
                 #
                 # Scan for SSD alarms without a FSxN filesystem.
                 for alarm in alarms:
@@ -509,7 +544,7 @@ def lambda_handler(event, context):
                         if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
                            not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
                             print("Deleteing alarm: " + alarmName + " in region " + region)
-                            delete_alarm(cw, alarmName)
+                            delete_alarm(cwClient, alarmName)
                 #
                 # Scan for volumes without alarms.
                 for volume in volumes:
@@ -518,9 +553,9 @@ def lambda_handler(event, context):
                         volumeName = volume['Name']
                         volumeARN = volume['ResourceARN']
                         fsId = volume['FileSystemId']
+                        volumeTags = getVolumeTags(fsxClient, volumeARN)
 
-                        threshold = int(getAlarmThresholdTagValue(fsx, volumeARN))
-
+                        threshold = int(getAlarmThresholdTagValue(volumeTags, "alarm_threshold"))
                         if(threshold != 100):   # No alarm if the value is set to 100.
                             alarmName = alarmPrefixVolume + volumeId
                             fsName = fsId.replace('fs-', 'FsxId')
@@ -528,7 +563,17 @@ def lambda_handler(event, context):
                             if(not contains_alarm(alarmName, alarms) and onlyFilesystemId == None or
                                not contains_alarm(alarmName, alarms) and onlyFilesystemId != None and onlyFilesystemId == fsId):
                                 print(f'Adding volume utilization alarm for {volumeName} in region {region}.')
-                                add_volume_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold, region)
+                                add_volume_alarm(cwClient, volumeId, alarmName, alarmDescription, fsId, threshold, region)
+
+                        threshold = int(getAlarmThresholdTagValue(volumeTags, "files_threshold"))
+                        if(threshold != 100):   # No alarm if the value is set to 100.
+                            alarmName = alarmFilesPrefixVolume + volumeId
+                            fsName = fsId.replace('fs-', 'FsxId')
+                            alarmDescription = f"Volume files utilization alarm for volumeId {volumeId}{customerId}, File System Name: {fsName}, Volume Name: {volumeName} in region {region}."
+                            if(not contains_alarm(alarmName, alarms) and onlyFilesystemId == None or
+                               not contains_alarm(alarmName, alarms) and onlyFilesystemId != None and onlyFilesystemId == fsId):
+                                print(f'Adding volume files utilization alarm for {volumeName} in region {region}.')
+                                add_volume_files_alarm(cwClient, volumeId, alarmName, alarmDescription, fsId, threshold, region)
                 #
                 # Scan for volume alarms without volumes.
                 for alarm in alarms:
@@ -538,7 +583,14 @@ def lambda_handler(event, context):
                         if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
                            not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
                             print("Deleteing alarm: " + alarmName + " in region " + region)
-                            delete_alarm(cw, alarmName)
+                            delete_alarm(cwClient, alarmName)
+
+                    if(alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume):
+                        volumeId = alarmName[len(alarmFilesPrefixVolume):]
+                        if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
+                           not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
+                            print("Deleteing alarm: " + alarmName + " in region " + region)
+                            delete_alarm(cwClient, alarmName)
 
             except botocore.exceptions.ClientError as e:
                 if e.response['Error']['Code'] == 'ServiceUnavailableException':
@@ -557,7 +609,7 @@ def lambda_handler(event, context):
 # This function is used to print out the usage of the script.
 ################################################################################
 def usage():
-    print('Usage: auto_add_cw_alarms [-h|--help] [-d|--dryRun] [[-c|--customerID customerID] [[-a|--accountID aws_account_id] [[-s|--SNSTopic SNS_Topic_Name] [[-r|--region region] [[-C|--CPUThreshold threshold] [[-S|--SSDThreshold threshold] [[-V|--VolumeThreshold threshold] [-F|--FileSystemID FileSystemID]')
+    print('Usage: auto_add_cw_alarms [-h|--help] [-d|--dryRun] [[-c|--customerID customerID] [[-a|--accountID aws_account_id] [[-s|--SNSTopic SNS_Topic_Name] [[-r|--region region] [[-C|--CPUThreshold threshold] [[-S|--SSDThreshold threshold] [[-V|--VolumeThreshold threshold] [-f|--FilesThreshold threshold] [-F|--FileSystemID FileSystemID]')
 
 ################################################################################
 # Main logic starts here.
@@ -575,6 +627,7 @@ onlyFilesystemId = None
 defaultCPUThreshold    = int(os.environ.get('defaultCPUThreshold',    defaultCPUThreshold))
 defaultSSDThreshold    = int(os.environ.get('defaultSSDThreshold',    defaultSSDThreshold))
 defaultVolumeThreshold = int(os.environ.get('defaultVolumeThreshold', defaultVolumeThreshold))
+defaultVolumeFilesThreshold  = int(os.environ.get('defaultVolumeFilesThreshold',  defaultVolumeFilesThreshold))
 regionsEnv = os.environ.get('regions', '')
 if regionsEnv != '':
     regions = regionsEnv.split(',')
@@ -582,9 +635,9 @@ if regionsEnv != '':
 # Check to see if we are bring run from a command line or a Lmabda function.
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
     argumentList = sys.argv[1:]
-    options = "hc:a:s:dr:C:S:V:F:"
+    options = "hc:a:s:dr:C:S:V:f:F:"
 
-    longOptions = ["help", "customerID=", "accountID=", "SNSTopic=", "dryRun", "region=", "CPUThreshold=", "SSDThreshold=", "VolumeThreshold=", "FileSystemID="]
+    longOptions = ["help", "customerID=", "accountID=", "SNSTopic=", "dryRun", "region=", "CPUThreshold=", "SSDThreshold=", "VolumeThreshold=", "FilesThreshold=", "FileSystemID="]
     skip = False
     try:
         arguments, values = getopt.getopt(argumentList, options, longOptions)
@@ -605,6 +658,8 @@ if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
                 defaultSSDThreshold = int(currentValue)
             elif currentArgument in ("-V", "--VolumeThreshold"):
                 defaultVolumeThreshold = int(currentValue)
+            elif currentArgument in ("-f", "--FilesThreshold"):
+                defaultVolumeFilesThreshold = int(currentValue)
             elif currentArgument in ("-d", "--dryRun"):
                 dryRun = True
             elif currentArgument in ("-r", "--region"):
