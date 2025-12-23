@@ -543,7 +543,7 @@ def lambda_handler(event, context):
                         fsId = alarmName[len(alarmPrefixSSD):]
                         if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
                            not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
-                            print("Deleteing alarm: " + alarmName + " in region " + region)
+                            print("Deleting alarm: " + alarmName + " in region " + region)
                             delete_alarm(cwClient, alarmName)
                 #
                 # Scan for volumes without alarms.
@@ -582,14 +582,14 @@ def lambda_handler(event, context):
                         volumeId = alarmName[len(alarmPrefixVolume):]
                         if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
                            not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                            print("Deleteing alarm: " + alarmName + " in region " + region)
+                            print("Deleting alarm: " + alarmName + " in region " + region)
                             delete_alarm(cwClient, alarmName)
 
                     if(alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume):
                         volumeId = alarmName[len(alarmFilesPrefixVolume):]
                         if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
                            not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                            print("Deleteing alarm: " + alarmName + " in region " + region)
+                            print("Deleting alarm: " + alarmName + " in region " + region)
                             delete_alarm(cwClient, alarmName)
 
             except botocore.exceptions.ClientError as e:
@@ -632,7 +632,7 @@ regionsEnv = os.environ.get('regions', '')
 if regionsEnv != '':
     regions = regionsEnv.split(',')
 #
-# Check to see if we are bring run from a command line or a Lmabda function.
+# Check to see if we are being run from a command line or a Lambda function.
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
     argumentList = sys.argv[1:]
     options = "hc:a:s:dr:C:S:V:f:F:"

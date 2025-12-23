@@ -199,8 +199,8 @@ Resources:
           # Lastly, you can create an override for the SSD alarm, by creating a tag
           # with the name "SSD_Alarm_Threshold" on the file system resource.
           #
-          # Version: v2.1
-          # Date: 2025-12-22-18:24:55
+          # Version: v2.2
+          # Date: 2025-12-23-16:07:14
           #
           ################################################################################
           #
@@ -715,7 +715,7 @@ Resources:
                                   fsId = alarmName[len(alarmPrefixSSD):]
                                   if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
                                      not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
-                                      print("Deleteing alarm: " + alarmName + " in region " + region)
+                                      print("Deleting alarm: " + alarmName + " in region " + region)
                                       delete_alarm(cwClient, alarmName)
                           #
                           # Scan for volumes without alarms.
@@ -754,14 +754,14 @@ Resources:
                                   volumeId = alarmName[len(alarmPrefixVolume):]
                                   if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
                                      not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                                      print("Deleteing alarm: " + alarmName + " in region " + region)
+                                      print("Deleting alarm: " + alarmName + " in region " + region)
                                       delete_alarm(cwClient, alarmName)
           
                               if(alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume):
                                   volumeId = alarmName[len(alarmFilesPrefixVolume):]
                                   if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
                                      not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                                      print("Deleteing alarm: " + alarmName + " in region " + region)
+                                      print("Deleting alarm: " + alarmName + " in region " + region)
                                       delete_alarm(cwClient, alarmName)
           
                       except botocore.exceptions.ClientError as e:
@@ -804,7 +804,7 @@ Resources:
           if regionsEnv != '':
               regions = regionsEnv.split(',')
           #
-          # Check to see if we are bring run from a command line or a Lmabda function.
+          # Check to see if we are being run from a command line or a Lambda function.
           if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
               argumentList = sys.argv[1:]
               options = "hc:a:s:dr:C:S:V:f:F:"

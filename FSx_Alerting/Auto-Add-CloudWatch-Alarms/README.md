@@ -224,7 +224,7 @@ This will remove the Lambda function, the EventBridge schedule, and the roles th
 not use the CloudFormation template, you will have to do these steps yourself.
 
 Once you have removed the program, you can remove all the CloudWatch alarms that were created by the program by running
-the following command from a Unix based operating system. An AWS Cloudwhare works prefect for this task:
+the following command from a Unix based operating system. An AWS Cloudshell works perfect for this task:
 
 ```bash
 region=us-west-2
