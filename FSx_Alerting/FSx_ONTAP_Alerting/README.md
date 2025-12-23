@@ -268,7 +268,7 @@ If you do need to deploy AWS service endpoints, keep the following in mind:
 - For interface type endpoints, a network interface will be created in the VPC's subnet to allow access.
   To transparently access the service via the VPC endpoint, AWS will update its
   DNS entry for the service endpoint to point to the IP address of the VPC interface endpoint. This is only
-  done if the "Private DNS names" option is enabled for the endpoint and "DNS Hostnames" is enabled for the subnet.
+  done if the "Private DNS names" option is enabled for the endpoint and "DNS Hostnames" is enabled for the VPC.
   If those two options aren't possible, and/or you aren't using AWS's DNS resolver, then you can set the
   following configuration parameters to override the hostname that the program
   uses for the specified AWS service endpoints. You will want to set the parameter to the DNS hostname for the
