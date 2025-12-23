@@ -384,7 +384,6 @@ def checkConfig():
         # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
         if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
             try:
-                logger.debug(f"Retieving {fsxnSecretsARNsFile=} from {config['s3BucketName']}.")
                 response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
             except botocore.exceptions.ClientError as err:
                 raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
