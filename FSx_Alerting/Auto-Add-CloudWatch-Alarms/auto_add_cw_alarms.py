@@ -129,7 +129,7 @@ def add_ssd_alarm(cw, fsId, alarmName, alarmDescription, threshold, region):
             Dimensions=[{'Name': 'FileSystemId', 'Value': fsId}, {'Name': 'StorageTier', 'Value': 'SSD'}, {'Name': 'DataType', 'Value': 'All'}]
         )
     else:
-        print(f'Would have added SSD alarm for {fsId} with name {alarmName} with thresold of {threshold} in {region} with action {action}')
+        print(f'Would have added SSD alarm for {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}')
 
 ################################################################################
 # This function adds the CPU Utilization CloudWatch alarm.
@@ -153,7 +153,7 @@ def add_cpu_alarm(cw, fsId, alarmName, alarmDescription, threshold, region):
             Dimensions=[{'Name': 'FileSystemId', 'Value': fsId}]
         )
     else:
-        print(f'Would have added CPU alarm for {fsId} with name {alarmName} with thresold of {threshold} in {region} with action {action}.')
+        print(f'Would have added CPU alarm for {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}.')
 
 ################################################################################
 # This function adds the Volume files utilization CloudWatch alarm.

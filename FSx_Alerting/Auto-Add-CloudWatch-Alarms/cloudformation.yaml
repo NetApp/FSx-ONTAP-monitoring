@@ -199,8 +199,8 @@ Resources:
           # Lastly, you can create an override for the SSD alarm, by creating a tag
           # with the name "SSD_Alarm_Threshold" on the file system resource.
           #
-          # Version: v2.2
-          # Date: 2025-12-23-16:07:14
+          # Version: v2.3
+          # Date: 2025-12-23-16:10:50
           #
           ################################################################################
           #
@@ -301,7 +301,7 @@ Resources:
                       Dimensions=[{'Name': 'FileSystemId', 'Value': fsId}, {'Name': 'StorageTier', 'Value': 'SSD'}, {'Name': 'DataType', 'Value': 'All'}]
                   )
               else:
-                  print(f'Would have added SSD alarm for {fsId} with name {alarmName} with thresold of {threshold} in {region} with action {action}')
+                  print(f'Would have added SSD alarm for {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}')
           
           ################################################################################
           # This function adds the CPU Utilization CloudWatch alarm.
@@ -325,7 +325,7 @@ Resources:
                       Dimensions=[{'Name': 'FileSystemId', 'Value': fsId}]
                   )
               else:
-                  print(f'Would have added CPU alarm for {fsId} with name {alarmName} with thresold of {threshold} in {region} with action {action}.')
+                  print(f'Would have added CPU alarm for {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}.')
           
           ################################################################################
           # This function adds the Volume files utilization CloudWatch alarm.
