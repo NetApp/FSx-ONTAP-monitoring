@@ -265,6 +265,7 @@ def putEventInCloudWatch(cwEvents, logStreamName):
     except cwLogsClient.exceptions.ResourceAlreadyExistsException:
         pass
 
+    logger.debug(f"Putting {len(cwEvents)} events into CloudWatch")
     response = cwLogsClient.put_log_events(logGroupName=config['logGroupName'], logStreamName=logStreamName, logEvents=cwEvents)
     if response.get('rejectedLogEventsInfo') != None:
         if response['rejectedLogEventsInfo'].get('tooNewLogEventStartIndex') is not None:
@@ -304,7 +305,7 @@ def scanFsxNs(fsxClient):
 # configuration variables.
 ################################################################################
 def checkConfig():
-    global config, s3Client, secretARNs, regions, boto3Config
+    global config, s3Client, secretARNs, regions, boto3Config, logger
     #
     # When defining the dictionary, initialize them to any variables that are set at the top of the program.
     config = {
@@ -383,6 +384,7 @@ def checkConfig():
         # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
         if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
             try:
+                logger.debug(f"Retieving {fsxnSecretsARNsFile=} from {config['s3BucketName']}.")
                 response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
             except botocore.exceptions.ClientError as err:
                 raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
@@ -447,9 +449,6 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     # Check that we have all the configuration variables we need.
     checkConfig()
     #
-    # Create a Secrets Manager client.
-    session = boto3.session.Session()
-    #
     # NOTE: The s3 client is created in the checkConfig function.
     #
     # Create a CloudWatch client.
@@ -464,11 +463,9 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     # regions that support FSx for ONTAP.
     if len(config['regions']) == 0:  # pylint: disable=E0601
         ec2Client = boto3.client('ec2', config=boto3Config)
-        logger.debug(f"Getting Regions")
         ec2Regions = ec2Client.describe_regions()['Regions']
         for region in ec2Regions:
             config['regions'] += [region['RegionName']]
-    logger.debug(f"Getting regions that support fsx")
     fsxRegions = boto3.Session().get_available_regions('fsx')
     #
     # Discovery all the FSxNs. Including the ones in other accounts.
@@ -501,6 +498,8 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                          aws_session_token=credentials['SessionToken'],
                                          config=boto3Config)
                 scanFsxNs(fsxClient)
+                fsxClient.close()
+                sts_client.close()                
 
     logger.debug(f"Found {len(fsxNs)} FSxNs.")
     if len(fsxNs) == 0:
@@ -536,8 +535,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
             #
             # Get the username and password of the ONTAP/FSxN system.
             try:
-                secretsClient = session.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3], config=boto3Config)
-                logger.debug(f"Getting secret for {fsId}")
+                secretsClient = boto3.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3], config=boto3Config)
                 secretsInfo = secretsClient.get_secret_value(SecretId=secretARNs[fsId])
                 secret = json.loads(secretsInfo['SecretString'])
                 if secret.get('username') is None or secret.get('password') is None:
@@ -611,13 +609,12 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                     lastProcessed['ascTimestamp'] = lastAscTimestamp
                     lastProcessed['index'] = lastIndex
                     lastProcessedStats[fsId] = lastProcessed
-                    logger.debug(f"Saving last processed stats file.")
                     s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastProcessedStats).encode('UTF-8'))
                 #
                 # Check to see if there are any more.
                 endpoint = data['_links']['next']['href'] if 'next' in data['_links'] else None
             else:
-                logger.warning(f"API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
+                logger.error(f"API call to https://{fsIP}{endpoint} failed. HTTP status code: {response.status}.")
                 break # Break out "while endpoint is not None" loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
