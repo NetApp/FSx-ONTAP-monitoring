@@ -199,8 +199,8 @@ Resources:
           # Lastly, you can create an override for the SSD alarm, by creating a tag
           # with the name "SSD_Alarm_Threshold" on the file system resource.
           #
-          # Version: v2.3
-          # Date: 2025-12-23-16:10:50
+          # Version: v2.4
+          # Date: 2025-12-23-17:10:05
           #
           ################################################################################
           #
@@ -314,8 +314,8 @@ Resources:
                       ActionsEnabled=True,
                       AlarmActions=[action],
                       AlarmDescription=alarmDescription,
-                      EvaluationPeriods=1,
-                      DatapointsToAlarm=1,
+                      EvaluationPeriods=3,
+                      DatapointsToAlarm=2,
                       Threshold=threshold,
                       ComparisonOperator='GreaterThanThreshold',
                       MetricName="CPUUtilization",
