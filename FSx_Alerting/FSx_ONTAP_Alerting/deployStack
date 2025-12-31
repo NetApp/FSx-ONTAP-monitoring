@@ -9,25 +9,23 @@
 ################################################################################
 usage () {
   cat <<EOF >&2
-Usage: $(basename $0) -o <ontapServer> [-R region] -b <bucket> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArn> [-c <matchingConditionsFile>] [-r <roleArn>] [-i <accountId>] [-w <true|false>] [-x <watchdogRoleArn>] [-v checkInterval] [-l <lambdaLayerArn>] [-W webhookEndpoint] [-f cloudformationUrl] [-m maxRunTime] [-M memorySize]
-    -o <ontapServer> The name of the ONTAP system to monitor
+Usage: $(basename $0) [-R Region>] -b <s3Bucket> -F <FSxNListFilename> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArnPattern> [-v <checkInterval>] [-w <true|false>] [-r <monitoringRoleArn>] [-x <controlRoleArn>] [-l <lambdaLayerArn>] [-m maxRunTime] [-M memorySize] [-f <cloudformationUrl>]
     -R <region> The AWS region where the AWS resources are located. Optional, defaults to the region configured in the AWS CLI.
     -b <bucket> The S3 bucket where the CloudFormation template is stored
+    -F <FSxNListFilename> The name of the file in the S3 bucket that containing the list of FSxN systems to monitor.
     -s <subnets> Comma-separated list of subnet IDs (not ARNs).
     -g <securityGroup> The security group ID to use (not ARN). Just needs to allow outbound over TCP port 443.
     -t <snsTopicArn> The ARN of the SNS topic for notifications.
-    -a <secretArn> The ARN of the Secrets Manager secret for credentials.
-    -c <matchingConnditionsFile> The matching conditions file (optional).
-    -i <accountId> The account ID that will be added to the cluster name for identification puproses. (optional).
-    -r <roleArn> The Arn of the role to use for the Monitoring Lambda function (optional).
-    -w <true|false> Create a watchdog alarm (optional, default is true).
-    -x <watchdogRoleArn> The ARN of the role to use for the watchdog Lambda function (optional).
+    -a <secretArnPattern> The secrets ARN pattern that will match all the serects that the monitoring function will use to for FSxN credentials.
     -v <checkInterval> The interval in minutes to check the ONTAP system (optional, the default is 15 minutes).
+    -w <true|false> Create CloudWatch watchdog alarms (optional, default is true).
+    -r <moniotoringRoleArn> The Arn of the role to use for the Monitoring Lambda function (optional).
+    -x <controllerRoleArn> The Arn of the role to use for the Controller Lambda function (optional).
     -l <lambdaLayerArn> The ARN of the Lambda layer to use (optional).
     -W <webhookEndpoint> The endpoint to send notifications to (optional).
-    -f <cloudformationUrl> The URL of the CloudFormation template (optional). Should be in the form of: https://s3.<AWSregion>.amazonaws.com/<bucketName>/cloudformation.yaml
     -m <maxRunTime> The maximum run time for the monitoring function in seconds (optional). Must be between 60 and 900. Defaults to 60.
     -M <memorySize> The amount of memory to allocate to the monitoring function in MB (optional). Must be between 128 and 10240. Defaults to 128.
+    -f <cloudformationUrl> The URL of the CloudFormation template (optional). Should be in the form of: https://s3.<AWSregion>.amazonaws.com/<bucketName>/cloudformation.yaml
 EOF
   exit 1
 }
@@ -49,31 +47,30 @@ if [ -z "$region" ]; then
   region="$AWS_REGION"
 fi
 
-while getopts "ho:b:s:g:t:a:c:i:r:w:x:v:l:R:W:f:m:M:" opt; do
+while getopts "hR:b:F:S:s:g:t:a:v:w:r:x:l:W:m:M:f:" opt; do
   case $opt in
-    o) ontapServer="$OPTARG" ;;
+    R) region="$OPTARG" ;;
     b) bucket="$OPTARG" ;;
-    c) matchingConditionsFile="$OPTARG" ;;
+    F) FSxNListFilename="$OPTARG" ;;
+    S) FSxNStatusFilename="$OPTARG" ;;
     s) subnets="'$OPTARG'" ;;
     g) securityGroup="$OPTARG" ;;
     t) snsTopicArn="$OPTARG" ;;
-    a) secretArn="$OPTARG" ;;
-    i) accountId="$OPTARG" ;;
-    r) roleArn="$OPTARG" ;;
-    w) watchdog="$(echo $OPTARG | tr '[A-Z]' '[a-z]')" ;;
-    x) watchdogRoleArn="$OPTARG" ;;
+    a) secretArnPattern="$OPTARG" ;;
     v) checkInterval="$OPTARG" ;;
+    w) watchdog="$(echo $OPTARG | tr '[A-Z]' '[a-z]')" ;;
+    r) monitoringRoleArn="$OPTARG" ;;
+    x) controllerRoleArn="$OPTARG" ;;
     l) lambdaLayerArn="$OPTARG" ;;
-    R) region="$OPTARG" ;;
     W) webhookEndpoint="$OPTARG" ;;
-    f) cloudformationUrl="$OPTARG" ;;
     m) maxRunTime="$OPTARG" ;;
     M) memorySize="$OPTARG" ;;
+    f) cloudformationUrl="$OPTARG" ;;
     *) usage ;;
   esac
 done
 
-if [[ -z "$ontapServer" || -z "$bucket" || -z "$subnets" || -z "$securityGroup" || -z "$snsTopicArn" || -z "$secretArn" ]]; then
+if [ -z "$FSxNListFilename" -o -z "$bucket" -o -z "$subnets" -o -z "$securityGroup" -o -z "$snsTopicArn" -o -z "$secretArnPattern" ]; then
   echo "Error: Missing required arguments." >&2
   usage
 fi
@@ -83,20 +80,19 @@ if [ -z "$region" ]; then
   exit 1
 fi
 
-if [[ $watchdog != "true" && $watchdog != "false" ]]; then
+if [ $watchdog != "true" -a $watchdog != "false" ]; then
   echo "Error: Invalid value for -w option. Use 'true' or 'false'." >&2
   usage
 fi
 #
 # Create a CloudFormation stack name that isn't too long.
-stackName=MOS-$(echo $ontapServer | tr  -s '.' '-')
-stackName=${stackName:0:29}
+stackName=MOS-multi-$$
 
-if [ ! -z "$matchingConditionsFile" ]; then
-  if aws s3 --region $region cp $matchingConditionsFile s3://$bucket/${ontapServer}-conditions; then
+if [ -r "$FSxNListFilename" ]; then
+  if aws s3 --region $region cp $FSxNListFilename s3://$bucket; then
     :
   else
-    echo "Error, could not copy matching conditions file to S3 bucket." >&2
+    echo "Error, could not copy FSxNList file '$FSxNListFilename' to S3 bucket." >&2
     echo "Exiting..." >&2
     exit 1
   fi
@@ -125,19 +121,17 @@ fi
 # Deploy the stack
 aws cloudformation create-stack --region $region --stack-name $stackName --template-url $cloudformationUrl \
   --capabilities CAPABILITY_NAMED_IAM --parameters \
-  ParameterKey=OntapAdminSever,ParameterValue=$ontapServer \
+  ParameterKey=s3BucketName,ParameterValue=$bucket \
+  ParameterKey=FSxNListFilename,ParameterValue=$FSxNListFilename \
   ParameterKey=subNetIds,ParameterValue="$subnets" \
   ParameterKey=securityGroupIds,ParameterValue=$securityGroup \
   ParameterKey=snsTopicArn,ParameterValue=$snsTopicArn \
-  ParameterKey=secretArn,ParameterValue=$secretArn \
-  ParameterKey=s3BucketName,ParameterValue=$bucket \
-  ParameterKey=accountId,ParameterValue=$accountId  \
   ParameterKey=createWatchdogAlarm,ParameterValue="$watchdog" \
   ParameterKey=implementWatchdogAsLambda,ParameterValue="$implementWatchdogAsLambda" \
   ParameterKey=watchdogRoleArn,ParameterValue="$watchdogRoleArn" \
   ParameterKey=checkInterval,ParameterValue="$checkInterval" \
   ParameterKey=lambdaLayerArn,ParameterValue="$lambdaLayerArn" \
-  ParameterKey=LambdaRoleArn,ParameterValue="$roleArn" \
-  ParameterKey=webhookEndpoint,ParameterValue="$webhookEndpoint" \
+  ParameterKey=monitoringRoleArn,ParameterValue="$monitoringRoleArn" \
+  ParameterKey=controllerRoleArn,ParameterValue="$controllerRoleArn" \
   ParameterKey=maxRunTime,ParameterValue="$maxRunTime" \
   ParameterKey=memorySize,ParameterValue="$memorySize"
