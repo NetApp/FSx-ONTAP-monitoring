@@ -376,6 +376,7 @@
                                     "Effect": "Allow",
                                     "Action": [
                                         "fsx:DescribeFileSystems",
+                                        "fsx:DescribeVolumes",
                                         "fsx:DescribeSnapshots",
                                         "fsx:DescribeBackups",
                                         "fsx:ListTagsForResource"
