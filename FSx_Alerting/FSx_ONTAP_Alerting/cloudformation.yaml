@@ -1,29 +1,26 @@
 Description: "Deploy monitor-ontap-services."
 #
-# This just formats the page that prompts for the parameters when using the AWS Console to deploy your stack.
+# This section just formats the page that prompts for the parameters when using the AWS Console to deploy your stack.
 Metadata: 
   AWS::CloudFormation::Interface: 
     ParameterGroups:
       - Label: 
           default: "Configuration Parameters"
         Parameters: 
-          - OntapAdminSever
           - s3BucketName
+          - FSxNListFilename
           - subNetIds
           - securityGroupIds
           - snsTopicArn
           - cloudWatchLogGroupArn
-          - secretArn
-          - secretUsernameKey
-          - secretPasswordKey
+          - secretArnPattern
           - checkInterval
           - createWatchdogAlarm
           - implementWatchdogAsLambda
           - watchdogRoleArn
-          - LambdaRoleArn
+          - controllerRoleArn
+          - monitoringRoleArn
           - lambdaLayerArn
-          - accountId
-          - webhookEndpoint
           - maxRunTime
           - memorySize
       - Label:
@@ -63,8 +60,8 @@ Metadata:
           - vserverCIFSProtocolStateAlert
 
     ParameterLabels:
-      OntapAdminSever:
-        default: "FSxN Management IP or Hostname"
+      FSxNListFilename:
+        default: "The file in the S3 bucket that contains the list of FSxNs to monitor."
       s3BucketName:
         default: "S3 Bucket Name"
       subNetIds:
@@ -73,32 +70,24 @@ Metadata:
         default: "Security Group IDs"
       snsTopicArn:
         default: "SNS Topic ARN"
-      cloudWatchLogGroupArn:
-        default: "CloudWatch Log Group ARN"
-      secretArn:
-        default: "Secrets Manager Secret ARN"
-      secretUsernameKey:
-        default: "Secret Username Key"
-      secretPasswordKey:
-        default: "Secret Password Key"
+      secretArnPattern:
+        default: "SecretsManager secret ARN pattern for FSxN credentials"
       checkInterval:
         default: "Check Interval (minutes)"
       createWatchdogAlarm:
-        default: "Create Watchdog Alarm"
+        default: "Create Watchdog Alarms"
       implementWatchdogAsLambda:
         default: "Implement Watchdog as Lambda Function"
       watchdogRoleArn:
         default: "Watchdog Role ARN"
       lambdaLayerArn:
         default: "Lambda Layer ARN"
-      LambdaRoleArn:
-        default: "Lambda Role ARN"
-      accountId:
-        default: "Account ID"
-      webhookEndpoint:
-        default: "Webhook Endpoint"
+      controllerRoleArn:
+        default: "Controller Role ARN"
+      monitoringRoleArn:
+        default: "Monitoring Role ARN"
       maxRunTime:
-        default: "Maximum Lambda Execution Time (seconds)"
+        default: "Maximum Monitoring Lambda Execution Time (seconds)"
       memorySize:
         default: "The amount of memory to allocate to the Lambda function (MB)"
       createSecretsManagerEndpoint:
@@ -161,8 +150,8 @@ Metadata:
         default: "Vserver CIFS Protocol State Alert"
 
 Parameters:
-  OntapAdminSever:
-    Description: "The DNS name, or IP address, of the management endpoint of the FSxN file system to be monitored."
+  FSxNListFilename:
+    Description: "The file in the S3 bucket that contains the list of FSxNs to monitor. The format of the file is specified in the README file on the GitHub repo where this program is maintained."
     Type: String
 
   s3BucketName:
@@ -182,27 +171,13 @@ Parameters:
     Description: "The ARN of the SNS topic where you want alerts sent to."
     Type: String
 
-  cloudWatchLogGroupArn:
-    Description: "The ARN of the CloudWatch log group to send alerts to. If left blank, alerts will not be sent to CloudWatch. Note that the log group must already exist. Also note that the ARN should end with ':*'."
+  secretArnPattern:
+    Description: "The ARN pattern of the SecretsManager secrets that holds the FSxN credentials that the monitoring program will use."
     Type: String
-    Default: ""
-
-  secretArn:
-    Description: "The ARN of the Secrets Manager secret that holds the FSxN credentials to use."
-    Type: String
-
-  secretUsernameKey:
-    Description: "The key in the secret that holds the username."
-    Type: String
-    Default: "username"
-
-  secretPasswordKey:
-    Description: "The key in the secret that holds the password."
-    Type: String
-    Default: "password"
+    Default: "arn:aws:secretsmanager:*:*:secret:FSxSecret*"
 
   createWatchdogAlarm:
-    Description: "Create a CloudWatch alarm to monitor the Lambda function. It will alert you if the monitoring Lambda function fails to run successfully."
+    Description: "Create CloudWatch alarms that monitor the Lambda functions. They will alert you if either the controller or monitoring Lambda function fails to run successfully."
     Type: String
     Default: "true"
     AllowedValues: ["true", "false"]
@@ -257,8 +232,13 @@ Parameters:
     Type: CommaDelimitedList
     Default: ""
 
-  LambdaRoleArn:
-    Description: "The ARN of the role to use for the Lambda function. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
+  controllerRoleArn:
+    Description: "The ARN of the role to use for the Controller Lambda function. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
+    Type: String
+    Default: ""
+
+  monitoringRoleArn:
+    Description: "The ARN of the role to use for the Monitoring Lambda function. This is only needed if you want to provide an existing role, otherwise an appropriate one will be created for you."
     Type: String
     Default: ""
 
@@ -267,25 +247,15 @@ Parameters:
     Type: String
     Default: ""
 
-  accountId:
-    Description: "An account ID you want added to the FSxN file system name in alerts. This purely for documentation purposes and serves no other purpose."
-    Type: String
-    Default: ""
-
-  webhookEndpoint:
-    Description: "The webhook endpoint to send alerts to."
-    Type: String
-    Default: ""
-
   maxRunTime:
-    Description: "The maximum time, in seconds, the Lambda function is allowed to run before being terminated. Must be between 60 and 900 seconds."
+    Description: "The maximum time, in seconds, the monitoring Lambda function is allowed to run before being terminated. Must be between 60 and 900 seconds."
     Type: Number
     Default: 60
     MinValue: 60
     MaxValue: 900
 
   memorySize:
-    Description: "The amount of memory to allocate to the Lambda function, in MB. Must be between 128 and 10240 MB."
+    Description: "The amount of memory to allocate to the Lambda function, in MB. Must be between 128 and 10240 MB. Note that higher memory also means more CPU resources."
     Type: Number
     Default: 128
     MinValue: 128
@@ -435,10 +405,12 @@ Conditions:
   CreateCloudWatchLogsEndpoint: !Equals [!Ref createCloudWatchLogsEndpoint, "true"]
   CreateWatchdogAlarmAsLambda: !And [!Equals [!Ref createWatchdogAlarm, "true"], !Equals [!Ref implementWatchdogAsLambda, "true"]]
   CreateWatchdogAlarmAsCloudWatch: !And [!Equals [!Ref createWatchdogAlarm, "true"], !Equals [!Ref implementWatchdogAsLambda, "false"]]
+  CreateControllerWatchdogAlarmAsLambda: !And [!Equals [!Ref createWatchdogAlarm, "true"], !Equals [!Ref implementWatchdogAsLambda, "true"]]
+  CreateControllerWatchdogAlarmAsCloudWatch: !And [!Equals [!Ref createWatchdogAlarm, "true"], !Equals [!Ref implementWatchdogAsLambda, "false"]]
   CreateWatchdogRole: !And [!Equals [!Ref watchdogRoleArn, ""], !Equals [!Ref implementWatchdogAsLambda, "true"]]
-  CreateLambdaRoleWithCW: !And [!Equals [!Ref LambdaRoleArn, ""], !Not [!Equals [!Ref cloudWatchLogGroupArn, ""]]]
-  CreateLambdaRoleWithoutCW: !And [!Equals [!Ref LambdaRoleArn, ""], !Equals [!Ref cloudWatchLogGroupArn, ""]]
+  CreateMonitoringRole: !Equals [!Ref monitoringRoleArn, ""]
   CreateLambdaLayer: !Equals [!Ref lambdaLayerArn, ""]
+  CreateControllerRole: !Equals [!Ref controllerRoleArn, ""]
 
 Resources:
   SecretManagerEndpoint:
@@ -484,7 +456,7 @@ Resources:
       RouteTableIds: !Ref routeTableIds
   #
   # Role used by the watchdog Lambda function to publish to the SNS topic.
-  LambdaRoleWatchdog:
+  watchdogRole:
     Type: "AWS::IAM::Role"
     Condition: CreateWatchdogRole
     Properties:
@@ -508,8 +480,9 @@ Resources:
       ManagedPolicyArns:
         - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
   #
-  # This allows the Watchdog CloudWatch alarm to invoke the Lambda function.
-  resourceBasedPermission:
+  # This allows the Monitoring Watchdog CloudWatch alarm to invoke the watchdog Lambda function.
+  # Only needed if the watchdog alarm is implemented as a Lambda function.
+  resourceBasedPermissionMonitoring:
     Type: "AWS::Lambda::Permission"
     Condition: CreateWatchdogAlarmAsLambda
     Properties:
@@ -518,17 +491,28 @@ Resources:
       Principal: "lambda.alarms.cloudwatch.amazonaws.com"
       SourceArn: !GetAtt watchdogAlarmToLambda.Arn
   #
-  # Use a Lambda function to publish to an SNS topic so it can reside in a different region.
+  # This allows the Controller Watchdog CloudWatch alarm to invoke the watchdog Lambda function.
+  # Only needed if the watchdog alarm is implemented as a Lambda function.
+  resourceBasedPermissionController:
+    Type: "AWS::Lambda::Permission"
+    Condition: CreateControllerWatchdogAlarmAsLambda
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
+      Principal: "lambda.alarms.cloudwatch.amazonaws.com"
+      SourceArn: !GetAtt watchdogControllerAlarmToLambda.Arn
+  #
+  # This Lambda function is used to publish to an SNS topic so it can reside in a different region.
   watchdogLambdaFunction: 
     Type: "AWS::Lambda::Function"
-    Condition: CreateWatchdogAlarmAsLambda
+    Condition: CreateControllerWatchdogAlarmAsLambda
     Properties:
       FunctionName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
       PackageType: "Zip"
-      Runtime: "python3.12"
+      Runtime: "python3.13"
       Handler: "index.lambda_handler"
       Timeout: 10
-      Role: !If [CreateWatchdogRole, !GetAtt LambdaRoleWatchdog.Arn, !Ref watchdogRoleArn]
+      Role: !If [CreateWatchdogRole, !GetAtt watchdogRole.Arn, !Ref watchdogRoleArn]
       Environment:
         Variables:
           snsTopicArn: !Ref snsTopicArn
@@ -546,65 +530,14 @@ Resources:
                       Subject  = 'Error! Monitoring ONTAP services has failed to execute',
                       Message  = f'Error! Lambda function {event["alarmData"]["alarmName"].replace("-watchdog-", "")} failed to execute properly.'
                   )
+
   #
-  # This is the CloudWatch alarm that will trigger when the monitor-ontap-services
-  # Lambda function fails to run successfully. It will invoke the watchdogLambdaFunction
-  # to send a message to the SNS topic.
-  # Only this alarm, or the watchdogAlarmToSNS, will be created depending on the
-  # implementWatchdogAsLambda parameter.
-  watchdogAlarmToLambda:
-    Type: "AWS::CloudWatch::Alarm"
-    Condition: CreateWatchdogAlarmAsLambda
-    Properties:
-      AlarmName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
-      AlarmDescription: !Sub "Watchdog alarm for the monitor-ontap-services-${AWS::StackName} Lambda function."
-      Namespace: "AWS/Lambda"
-      MetricName: "Errors"
-      Dimensions:
-        - Name: "FunctionName"
-          Value: !Sub "monitor-ontap-services-${AWS::StackName}"
-      Statistic: "Maximum"
-      Period: 300
-      EvaluationPeriods: 1
-      TreatMissingData: "ignore"
-      Threshold: 0.5
-      ComparisonOperator: "GreaterThanThreshold"
-      AlarmActions:
-        - !GetAtt watchdogLambdaFunction.Arn
-  #
-  # This is the CloudWatch alarm that will trigger when the monitor-ontap-services
-  # Lambda function fails to run successfully. It will send an SNS message to the SNS topic.
-  # Only this alarm, or the watchdogAlarmToLambda, will be created depending on the
-  # implementWatchdogAsLambda parameter.
-  watchdogAlarmToSNS:
-    Type: "AWS::CloudWatch::Alarm"
-    Condition: CreateWatchdogAlarmAsCloudWatch
-    Properties:
-      AlarmName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
-      AlarmDescription: !Sub "Watchdog alarm for the monitor-ontap-services-${AWS::StackName} Lambda function."
-      Namespace: "AWS/Lambda"
-      MetricName: "Errors"
-      Dimensions:
-        - Name: "FunctionName"
-          Value: !Sub "monitor-ontap-services-${AWS::StackName}"
-      Statistic: "Maximum"
-      Period: 300
-      EvaluationPeriods: 1
-      TreatMissingData: "ignore"
-      Threshold: 0.5
-      ComparisonOperator: "GreaterThanThreshold"
-      AlarmActions:
-        - !Ref snsTopicArn
-  #
-  # This is the role that will be assigned to the monitoring Lambda function if
-  # the user doesn't want to send events to a CloudWatch log group. It will not
-  # create if the user has provide a role ARN. Either this role, or the LambdaRoleWithCW
-  # will be created depending on the createCloudWatchLogGroupArn parameter.
-  LambdaRoleWithoutCW:
+  # Role used by the controller Lambda function.
+  controllerRole:
     Type: "AWS::IAM::Role"
-    Condition: CreateLambdaRoleWithoutCW
+    Condition: CreateControllerRole
     Properties:
-      RoleName: !Sub "mon-ontap-services-${AWS::StackName}"
+      RoleName: !Sub "MOS-controller-${AWS::StackName}"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -614,130 +547,42 @@ Resources:
             Action: "sts:AssumeRole"
 
       ManagedPolicyArns:
-        - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 
       Policies:
-        - PolicyName: "LambdaPolicy"
+        - PolicyName: "ControllerPolicy"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: "Allow"
                 Action:
-                  - "secretsManager:GetSecretValue"
-                  - "sns:Publish"
+                  - "lambda:InvokeFunction"
                   - "s3:GetObject"
                   - "s3:PutObject"
                   - "s3:ListBucket"
+                  - "sns:Publish"
                 Resource:
-                  - !Ref secretArn
-                  - !Ref snsTopicArn
-                  - !Sub "arn:aws:s3:::${s3BucketName}"
+                  - !GetAtt monitoringLambdaFunction.Arn
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
-  #
-  # This is the role that will be assigned to the monitoring Lambda function if
-  # the user doesn't want to send events to a CloudWatch log group. It will not
-  # create if the user has provide a role ARN. Either this role, or the LambdaRoleWithCW
-  # will be created depending on the createCloudWatchLogGroupArn parameter.
-  LambdaRoleWithCW:
-    Type: "AWS::IAM::Role"
-    Condition: CreateLambdaRoleWithCW
-    Properties:
-      RoleName: !Sub "mon-ontap-services-${AWS::StackName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service: "lambda.amazonaws.com"
-            Action: "sts:AssumeRole"
-
-      ManagedPolicyArns:
-        - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
-
-      Policies:
-        - PolicyName: "LambdaPolicy"
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: "Allow"
-                Action:
-                  - "secretsManager:GetSecretValue"
-                  - "sns:Publish"
-                  - "logs:PutLogEvents"
-                  - "logs:DescribeLogStreams"
-                  - "logs:CreateLogStream"
-                  - "s3:GetObject"
-                  - "s3:PutObject"
-                  - "s3:ListBucket"
-                Resource: 
-                  - !Ref secretArn
-                  - !Ref snsTopicArn
                   - !Sub "arn:aws:s3:::${s3BucketName}"
-                  - !Sub "arn:aws:s3:::${s3BucketName}/*"
-                  - !Ref cloudWatchLogGroupArn
-  #
-  # Instead of creating a EventBridge schedule, create an EventBridge rule triggered by a schedule.
-  # This way a separate role doesn't have to be created, just a Lambda permission to allow
-  # EventBridge to invoke the Lambda function.
-  LambdaEventRule:
-    Type: "AWS::Events::Rule"
-    Properties:
-      Description: "Event rule to trigger the monitor-ontap-services Lambda function."
-      Name: !Sub "monitor-ontap-services-event-rule-${AWS::StackName}"
-      ScheduleExpression: !Sub "rate(${checkInterval} minutes)"
-      State: "ENABLED"
-      Targets:
-        - Arn: !GetAtt LambdaFunction.Arn
-          Id: "MonitorOntapServicesTarget"
+                  - !Ref snsTopicArn
 
-  LambdaPermissionEventRule:
-    Type: "AWS::Lambda::Permission"
-    Properties:
-      Action: "lambda:InvokeFunction"
-      FunctionName: !GetAtt LambdaFunction.Arn
-      Principal: "events.amazonaws.com"
-      SourceArn: !GetAtt LambdaEventRule.Arn
-
-  LambdaLayer:
-    Type: "AWS::Lambda::LayerVersion"
-    Condition: CreateLambdaLayer
-    Properties:
-      LayerName: !Sub "MOS-${AWS::StackName}"
-      Content:
-        S3Bucket: !Ref s3BucketName
-        S3Key: "lambda_layer.zip"
-      CompatibleRuntimes:
-        - "python3.12"
-
-  LambdaFunction:
+  controllerLambdaFunction:
     Type: "AWS::Lambda::Function"
     Properties:
-      FunctionName: !Sub "monitor-ontap-services-${AWS::StackName}"
-      Role: !If [CreateLambdaRoleWithCW, !GetAtt LambdaRoleWithCW.Arn, !If [CreateLambdaRoleWithoutCW, !GetAtt LambdaRoleWithoutCW.Arn, !Ref LambdaRoleArn]]
-      VpcConfig:
-        SecurityGroupIds: !Ref securityGroupIds
-        SubnetIds: !Ref subNetIds
+      FunctionName: !Sub "MOS-controller-${AWS::StackName}"
       PackageType: "Zip"
-      Runtime: "python3.12"
-      Layers:
-        - !If [CreateLambdaLayer, !GetAtt LambdaLayer.LayerVersionArn, !Ref lambdaLayerArn]
+      Runtime: "python3.13"
       Handler: "index.lambda_handler"
-      Timeout: !Ref maxRunTime
-      MemorySize: !Ref memorySize
+      Timeout: 60
+      Role: !If [CreateControllerRole, !GetAtt controllerRole.Arn, !Ref controllerRoleArn]
       Environment:
         Variables:
           s3BucketRegion: !Ref AWS::Region
           s3BucketName: !Ref s3BucketName
-          OntapAdminServer: !Ref OntapAdminSever
-          secretArn: !Ref secretArn
-          secretUsernameKey: !Ref secretUsernameKey
-          secretPasswordKey: !Ref secretPasswordKey
+          FSxNList: !Ref FSxNListFilename
           snsTopicArn: !Ref snsTopicArn
-          sendSnsFunctionName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
-          cloudWatchLogGroupArn: !Ref cloudWatchLogGroupArn
-          awsAccountId: !Ref accountId
-          webhookEndpoint: !Ref webhookEndpoint
-
+          MOSLambdaFunctionName: !Sub "monitor-ontap-services-${AWS::StackName}"
           initialVersionChangeAlert: !Ref versionChangeAlert
           initialFailoverAlert: !Ref failoverAlert
           initialEmsEventsAlert: !Ref emsEventsAlert
@@ -762,6 +607,313 @@ Resources:
           initialVserverCIFSProtocolStateAlert: !Ref vserverCIFSProtocolStateAlert
       Code:
         ZipFile: |
+          #!/usr/bin/env python3
+          # BEGIN CONTROLLER CODE. DO NOT DELETE THIS LINE.
+          #
+          # This function is used to trigger the monitoring function with the appropriate
+          # parameters. It reads in a list of FSxNs to monitor from the S3 bucket and
+          # invokes the monitoring Lambda function for each one of them.
+          #
+          # The format of the FSxN list file is as follows:
+          # hostname,secret_ARN,parameter=value,...
+          #
+          # Where parameter is any of the optional configuration parameters supported by
+          # the monitoring function.
+          #
+          # Blank lines and lines starting with a '#' are ignored allowing you to add
+          # comments or disable a system without having to delete the entry.
+          ################################################################################
+          
+          import json
+          import boto3
+          import botocore
+          import os
+          import logging
+          
+          def lambda_handler(event, context):
+              #
+              # Maximum number of allowed consecutive failed invokes before sending an alert.
+              maxAllowedFailures = 2
+          
+              logging.basicConfig()
+              logger = logging.getLogger("MOS_Controller")
+              logger.setLevel(logging.DEBUG)
+              #
+              # Take a sneak peek at the snsTopicArn environment variable so messages can be sent
+              # to it if any of the other environment variables are missing.
+              snsClient = None
+              if os.environ.get('snsTopicArn') is not None:
+                  snsTopicArn = os.environ.get('snsTopicArn')
+                  snsRegion = snsTopicArn.split(':')[3]
+                  snsClient = boto3.client('sns', region_name=snsRegion)
+              #
+              # Check for required environment variables and store them in the payload variable.
+              # Don't really need to send some of these to the monitoring function, but it
+              # doesn't hurt to do so.
+              payload = {}
+              for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName', 'snsTopicArn']:
+                  if os.environ.get(var) is None:
+                      err = f"Error, the Monitor ONTAP Service controller is missing a required environment variable {var}."
+                      logger.error(err)
+                      if snsClient is not None:
+                          snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
+                      raise Exception(err)  # This is a critical error, so send up a flare.
+                  else:
+                      payload[var] = os.environ[var]
+              #
+              # Read the FSxN list from S3.
+              s3Client = boto3.client('s3', region_name=payload['s3BucketRegion'])
+              try:
+                  response = s3Client.get_object(Bucket=payload['s3BucketName'], Key=payload['FSxNList'])
+                  FSxNListContent = response['Body'].read().decode('utf-8')
+                  FSxNList = FSxNListContent.split('\n')
+              except botocore.exceptions.ClientError as e:
+                  err = f"Error, the Monitor ONTAP Service controller was unable to fetching FSxN list from S3: {e}"
+                  logger.error(err)
+                  snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
+                  raise Exception(err)  # This is a critical error, so send up a flare.
+              #
+              # Invoke the monitoring Lambda function for each FSxN in the list.
+              lambda_client = boto3.client('lambda')
+              lineNum = 0
+              for fsxn in FSxNList:
+                  lineNum += 1
+                  parts = [x.strip() for x in fsxn.split(',')]
+                  #
+                  # Skip comments, empty and invalid lines.
+                  if parts[0][0:1] == "#" or parts[0][0:1] == "":
+                      continue
+                  if len(parts) < 2:
+                      logger.warning(f"Skipping invalid fsxn entry on line {lineNum}.")
+                      continue
+          
+                  OntapAdminServer = parts[0]
+                  payload['OntapAdminServer'] = OntapAdminServer
+                  payload['secretArn'] = parts[1]
+          
+                  for param in parts[2:]:
+                      try:
+                          key, value = param.split('=')
+                          payload[key.strip()] = value.strip()
+                      except ValueError:
+                          logger.warning(f"Skipping invalid parameter '{param}' for {OntapAdminServer} on line {lineNum}. No '=' found.")
+                  #
+                  # Include all the "initial" variables in case the Lambda function has to create an initial conditions file.
+                  for key, value in os.environ.items():
+                      if key.startswith('initial'):
+                          payload[key] = value
+                  #
+                  # Invoke the MOS Lambda function.
+                  try:
+                      response = lambda_client.invoke(
+                          FunctionName=payload['MOSLambdaFunctionName'],
+                          InvocationType='Event',
+                          Payload=json.dumps(payload)
+                      )
+                      logger.info(f"Invoked Monitoring Lambda function for {OntapAdminServer}.")
+                  except botocore.exceptions.ClientError as e:
+                      snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error: Failed to invoke monitoring function", Message=e)
+                      logger.error(f"Error invoking Monitoring Lambda function for {OntapAdminServer}: {e}")
+          
+          if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
+              lambda_handler({}, {})
+          # END CONTROLLER CODE. DO NOT DELETE THIS LINE.
+  #
+  # This is the CloudWatch alarm that will trigger when the monitoring
+  # Lambda function fails to run successfully. It will invoke the watchdogLambdaFunction
+  # to send a message to the SNS topic.
+  # Only this alarm, or the watchdogAlarmToSNS, will be created depending on the
+  # implementWatchdogAsLambda parameter.
+  watchdogAlarmToLambda:
+    Type: "AWS::CloudWatch::Alarm"
+    Condition: CreateWatchdogAlarmAsLambda
+    Properties:
+      AlarmName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
+      AlarmDescription: !Sub "Watchdog alarm for the monitor-ontap-services-${AWS::StackName} Lambda function."
+      Namespace: "AWS/Lambda"
+      MetricName: "Errors"
+      Dimensions:
+        - Name: "FunctionName"
+          Value: !Sub "monitor-ontap-services-${AWS::StackName}"
+      Statistic: "Maximum"
+      Period: 900
+      EvaluationPeriods: 4
+      DatapointsToAlarm: 2
+      TreatMissingData: "ignore"
+      Threshold: 0.5
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !GetAtt watchdogLambdaFunction.Arn
+  #
+  # This is the CloudWatch alarm that will trigger when the monitoring
+  # Lambda function fails to run successfully. It will send an SNS message to the SNS topic.
+  # Only this alarm, or the watchdogAlarmToLambda, will be created depending on the
+  # implementWatchdogAsLambda parameter.
+  watchdogAlarmToSNSMonitoring:
+    Type: "AWS::CloudWatch::Alarm"
+    Condition: CreateWatchdogAlarmAsCloudWatch
+    Properties:
+      AlarmName: !Sub "monitor-ontap-services-watchdog-${AWS::StackName}"
+      AlarmDescription: !Sub "Watchdog alarm for the monitor-ontap-services-${AWS::StackName} Lambda function."
+      Namespace: "AWS/Lambda"
+      MetricName: "Errors"
+      Dimensions:
+        - Name: "FunctionName"
+          Value: !Sub "monitor-ontap-services-${AWS::StackName}"
+      Statistic: "Maximum"
+      Period: 900
+      EvaluationPeriods: 4
+      DatapointsToAlarm: 2
+      TreatMissingData: "ignore"
+      Threshold: 0.5
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !Ref snsTopicArn
+  #
+  # This is the CloudWatch alarm that will trigger when the controller
+  # Lambda function fails to run successfully. It will invoke the watchdogLambdaFunction
+  # to send a message to the SNS topic.
+  # Only this alarm, or the watchdogAlarmToSNS, will be created depending on the
+  # implementWatchdogAsLambda parameter.
+  watchdogControllerAlarmToLambda:
+    Type: "AWS::CloudWatch::Alarm"
+    Condition: CreateControllerWatchdogAlarmAsLambda
+    Properties:
+      AlarmName: !Sub "MOS-controller-watchdog-${AWS::StackName}"
+      AlarmDescription: !Sub "Watchdog alarm for the MOS-contoller-${AWS::StackName} Lambda function."
+      Namespace: "AWS/Lambda"
+      MetricName: "Errors"
+      Dimensions:
+        - Name: "FunctionName"
+          Value: !Sub "MOS-controller-${AWS::StackName}"
+      Statistic: "Maximum"
+      Period: 900
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      TreatMissingData: "ignore"
+      Threshold: 0.5
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !GetAtt watchdogLambdaFunction.Arn
+  #
+  # This is the CloudWatch alarm that will trigger when the controller
+  # Lambda function fails to run successfully. It will send an SNS message to the SNS topic.
+  # Only this alarm, or the watchdogAlarmToLambda, will be created depending on the
+  # implementWatchdogAsLambda parameter.
+  watchdogAlarmToSNSController:
+    Type: "AWS::CloudWatch::Alarm"
+    Condition: CreateControllerWatchdogAlarmAsCloudWatch
+    Properties:
+      AlarmName: !Sub "MOS-Controller-watchdog-${AWS::StackName}"
+      AlarmDescription: !Sub "Watchdog alarm for the MOS-controller-${AWS::StackName} Lambda function."
+      Namespace: "AWS/Lambda"
+      MetricName: "Errors"
+      Dimensions:
+        - Name: "FunctionName"
+          Value: !Sub "MOS-controller-${AWS::StackName}"
+      Statistic: "Maximum"
+      Period: 900
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+      TreatMissingData: "ignore"
+      Threshold: 0.5
+      ComparisonOperator: "GreaterThanThreshold"
+      AlarmActions:
+        - !Ref snsTopicArn
+  #
+  # This is the role that will be assigned to the monitoring Lambda function if
+  # the user doesn't want to send events to a CloudWatch log group. It will not
+  # create if the user has provide a role ARN. Either this role, or the LambdaRoleWithCW
+  # will be created depending on the createCloudWatchLogGroupArn parameter.
+  monitoringRole:
+    Type: "AWS::IAM::Role"
+    Condition: CreateMonitoringRole
+    Properties:
+      RoleName: !Sub "mon-ontap-services-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "lambda.amazonaws.com"
+            Action: "sts:AssumeRole"
+
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
+
+      Policies:
+        - PolicyName: "LambdaPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:DescribeLogStreams"
+                Resource:
+                  - "*"
+              - Effect: "Allow"
+                Action:
+                  - "secretsManager:GetSecretValue"
+                  - "sns:Publish"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:ListBucket"
+                Resource: 
+                  - !Ref secretArnPattern
+                  - !Ref snsTopicArn
+                  - !Sub "arn:aws:s3:::${s3BucketName}"
+                  - !Sub "arn:aws:s3:::${s3BucketName}/*"
+  #
+  # Instead of creating a EventBridge schedule, create an EventBridge rule triggered by a schedule.
+  # This way a separate role doesn't have to be created, just a Lambda permission to allow
+  # EventBridge to invoke the Lambda function.
+  LambdaEventRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Description: "Event rule to trigger the monitor ontap services controller Lambda function."
+      Name: !Sub "MOS-controller-event-rule-${AWS::StackName}"
+      ScheduleExpression: !Sub "rate(${checkInterval} minutes)"
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt controllerLambdaFunction.Arn
+          Id: "MonitorOntapServicesTarget"
+
+  LambdaPermissionEventRule:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt controllerLambdaFunction.Arn
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt LambdaEventRule.Arn
+
+  LambdaLayer:
+    Type: "AWS::Lambda::LayerVersion"
+    Condition: CreateLambdaLayer
+    Properties:
+      LayerName: !Sub "MOS-${AWS::StackName}"
+      Content:
+        S3Bucket: !Ref s3BucketName
+        S3Key: "lambda_layer.zip"
+      CompatibleRuntimes:
+        - "python3.12"
+
+  monitoringLambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      FunctionName: !Sub "monitor-ontap-services-${AWS::StackName}"
+      Role: !If [CreateMonitoringRole, !GetAtt monitoringRole.Arn, !Ref monitoringRoleArn]
+      VpcConfig:
+        SecurityGroupIds: !Ref securityGroupIds
+        SubnetIds: !Ref subNetIds
+      PackageType: "Zip"
+      Runtime: "python3.12"
+      Layers:
+        - !If [CreateLambdaLayer, !GetAtt LambdaLayer.LayerVersionArn, !Ref lambdaLayerArn]
+      Handler: "index.lambda_handler"
+      Timeout: !Ref maxRunTime
+      MemorySize: !Ref memorySize
+      Code:
+        ZipFile: |
           #!/bin/python3
           ################################################################################
           # THIS SOFTWARE IS PROVIDED BY NETAPP "AS IS" AND ANY EXPRESS OR IMPLIED
@@ -782,8 +934,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v3.13
-          # Date: 2025-11-12-12:14:20
+          # Version: v4.16
+          # Date: 2025-12-15-19:11:57
           ################################################################################
           
           import json
@@ -821,6 +973,8 @@ Resources:
           ################################################################################
           def getNumber(string, start):
           
+              global logger, clusterName
+          
               if len(string) <= start:
                   return (0, start)
               #
@@ -838,7 +992,7 @@ Resources:
               elif string[end:endp1] == "M":
                   num=num*60
               elif string[end:endp1] != "S":
-                  logger.warning(f'Unknown lag time specifier "{string[end:endp1]}".')
+                  logger.warning(f'Unknown lag time specifier "{string[end:endp1]} found on cluster {clusterName}".')
           
               return (num, endp1)
           
@@ -916,14 +1070,14 @@ Resources:
                   # initial status structure.
                   if err.response['Error']['Code'] == "NoSuchKey":
                       fsxStatus = {
-                          "systemHealth": True,
+                          "systemHealth": 0,
                           "version" : initialVersion,
                           "numberNodes" : 2,
                           "downInterfaces" : []
                       }
                       changedEvents = True
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   fsxStatus = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -934,8 +1088,8 @@ Resources:
                   endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
                   response = http.request('GET', endpoint, headers=headers, timeout=5.0)
                   if response.status == 200:
-                      if not fsxStatus["systemHealth"]:
-                          fsxStatus["systemHealth"] = True
+                      if fsxStatus["systemHealth"] != 0:
+                          fsxStatus["systemHealth"] = 0
                           changedEvents = True
           
                       data = json.loads(response.data)
@@ -959,7 +1113,8 @@ Resources:
                       badHTTPStatus = True
                       raise Exception(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
               except:
-                  if fsxStatus["systemHealth"]:
+                  logger.debug(f'Failed to issue API against {config["OntapAdminServer"]}.', exc_info=True)
+                  if fsxStatus["systemHealth"] == 1:  # 1 == second failure.
                       if config["awsAccountId"] != None:
                           clusterName = f'{config["OntapAdminServer"]}({config["awsAccountId"]})'
                       else:
@@ -969,14 +1124,18 @@ Resources:
                       else:
                           message = f'CRITICAL: Failed to issue API against {clusterName}. Cluster could be down.'
                       sendAlert(message, "CRITICAL")
-                      fsxStatus["systemHealth"] = False
+                      fsxStatus["systemHealth"] += 1
+                      changedEvents = True
+          
+                  if fsxStatus["systemHealth"] == 0:
+                      fsxStatus["systemHealth"] += 1
                       changedEvents = True
           
               if changedEvents:
                   s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
               #
               # If the cluster is done, return false so the program can exit cleanly.
-              return(fsxStatus["systemHealth"])
+              return fsxStatus["systemHealth"] == 0
           
           ################################################################################
           # This function checks the following things:
@@ -1017,7 +1176,7 @@ Resources:
                               if response.status == 200:
                                   data = json.loads(response.data)
                                   if data["num_records"] != fsxStatus["numberNodes"]:
-                                      message = f'Alert: The number of nodes on cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.'
+                                      message = f'Alert: The number of nodes in cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.\nNote, this is likely a planned failover event to upgrade the O/S, or to change the throughput capacity.'
                                       sendAlert(message, "INFO")
                                       fsxStatus["numberNodes"] = data["num_records"]
                                       changedEvents = True
@@ -1060,7 +1219,7 @@ Resources:
                                   i = len(fsxStatus["downInterfaces"]) - 1
                                   while i >= 0:
                                       if fsxStatus["downInterfaces"][i]["refresh"] <= 0:
-                                          logger.debug(f'Deleting interface: {fsxStatus["downInterfaces"][i]["index"]}')
+                                          logger.debug(f'Deleting interface: {fsxStatus["downInterfaces"][i]["index"]} Cluster={clusterName}')
                                           del fsxStatus["downInterfaces"][i]
                                           changedEvents = True
                                       else:
@@ -1070,7 +1229,7 @@ Resources:
                               else:
                                   logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
                       else:
-                          logger.warning(f'Unknown System Health alert type: "{key}".')
+                          logger.warning(f'Unknown System Health alert type: "{key}" found on cluster {clusterName}.')
           
               if changedEvents:
                   s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
@@ -1091,7 +1250,7 @@ Resources:
                   if err.response['Error']['Code'] == "NoSuchKey":
                       events = []
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   events = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -1119,7 +1278,7 @@ Resources:
               #
               # Process the events to see if there are any new ones.
               print(f'Received {len(records)} EMS records.')
-              logger.debug(f'Received {len(records)} EMS records.')
+              logger.debug(f'Received {len(records)} EMS records from cluster {clusterName}.')
               for record in records:
                   for rule in service["rules"]:
                       messageFilter = rule.get("filter")
@@ -1170,7 +1329,7 @@ Resources:
               i = len(events) - 1
               while i >= 0:
                   if events[i]["refresh"] <= 0:
-                      logger.debug(f'Deleting event: {events[i]["time"]} : {events[i]["message"]}')
+                      logger.debug(f'Deleting event: {events[i]["time"]} : {events[i]["message"]} Cluster={clusterName}')
                       del events[i]
                       changedEvents = True
                   else:
@@ -1348,7 +1507,7 @@ Resources:
                   if err.response['Error']['Code'] == "NoSuchKey":
                       events = []
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   events = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -1366,7 +1525,7 @@ Resources:
                   if err.response['Error']['Code'] == "NoSuchKey":
                       smRelationships = []
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   smRelationships = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -1401,7 +1560,7 @@ Resources:
                           stalledTransferSeconds = rule[key]
                           stalledTransferSecondsKey = key
                       else:
-                          logger.warning(f'Unknown snapmirror alert type: "{key}".')
+                          logger.warning(f'Unknown snapmirror alert type: "{key}" found on cluster {clusterName}.')
               #
               # Run the API call to get the current state of all the snapmirror relationships.
               url = f'/api/snapmirror/relationships?fields=*&return_timeout=15'
@@ -1421,7 +1580,7 @@ Resources:
                   else:
                       url = None
           
-              logger.debug(f'Found {len(records)} SnapMirror relationships.')
+              logger.debug(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}.')
               for record in records:
                   #
                   # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
@@ -1569,7 +1728,7 @@ Resources:
                           id="Old format"
                       else:
                           id = relationshipId
-                      logger.debug(f'Deleting smRelationship: {id}')
+                      logger.debug(f'Deleting smRelationship: {id} cluster={clusterName}')
                       del smRelationships[i]
                       updateRelationships = True
           
@@ -1583,7 +1742,7 @@ Resources:
               i = len(events) - 1
               while i >= 0:
                   if events[i]["refresh"] <= 0:
-                      logger.debug(f'Deleting event: {events[i]["message"]}')
+                      logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
                       del events[i]
                       changedEvents = True
                   else:
@@ -1612,7 +1771,7 @@ Resources:
                   if err.response['Error']['Code'] == "NoSuchKey":
                       events = []
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   events = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -1670,7 +1829,7 @@ Resources:
                       else:
                           url = None
           
-              logger.debug(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check.')
+              logger.debug(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}.')
               #
               # If there are no volumes or aggregates, there is nothing to do.
               if len(volumeRecords) == 0 and len(aggrRecords) == 0:
@@ -1788,7 +1947,7 @@ Resources:
                           # Run the API call to get the snapshot information.
                           snapshotRecords = []
                           for volume in volumeRecords:
-                              if volume["flexcache_endpoint_type"].lower() != "cache": # Skip over FlexCache volumes
+                              if volume["flexcache_endpoint_type"].lower() != "cache" and volume["style"].lower() != "flexgroup_constituent":
                                   url = f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'
                                   while url is not None:
                                       endpoint = f'https://{config["OntapAdminServer"]}{url}'
@@ -1803,7 +1962,7 @@ Resources:
                                               url = data["_links"]["next"]["href"]
                                           else:
                                               url = None
-                          logger.debug(f'Found {len(snapshotRecords)} snapshots.')
+                          logger.debug(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}.')
                           for snapshot in snapshotRecords:
                               if snapshot.get("create_time") is not None:
                                   #
@@ -1833,14 +1992,14 @@ Resources:
                                               changedEvents = True
                                           events[eventIndex]["refresh"] = eventResilience
                       else:
-                          message = f'Unknown storage alert type: "{key}".'
+                          message = f'Unknown storage alert type: "{key}" found for cluster {clusterName}.'
                           logger.warning(message)
               #
               # After processing the records, see if any events need to be removed.
               i = len(events) - 1
               while i >= 0:
                   if events[i]["refresh"] <= 0:
-                      logger.debug(f'Deleting event: {events[i]["message"]}')
+                      logger.debug(f'Deleting event: {events[i]["message"]} on cluster {clusterName}')
                       del events[i]
                       changedEvents = True
                   else:
@@ -1895,14 +2054,32 @@ Resources:
               try:
                   response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
                   if response.status == 200:
-                      logger.info("Webhook sent successfully.")
+                      logger.info(f"Webhook sent successfully for {clusterName}.")
                   else:
-                      logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
+                      logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}. This was on the behalf of cluster {clusterName}.")
               except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
-                  message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']}."
+                  message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']} for cluster {clusterName}."
                   logger.critical(message)
                   subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
                   snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+          
+          ################################################################################
+          # This function converts a severity string to a number value.
+          ################################################################################
+          def severityToNumber(severity):
+              lseverity = severity.lower()
+              if lseverity == "critical":
+                  return 1
+              elif lseverity == "error":
+                  return 2
+              elif lseverity == "warning":
+                  return 3
+              elif lseverity == "info":
+                  return 4
+              elif lseverity == "debug":
+                  return 5
+              else:
+                  return 4
           
           ################################################################################
           # This function sends the message to the various alerting systems.
@@ -1946,26 +2123,27 @@ Resources:
                   logGroupName = config["cloudWatchLogGroupArn"].split(":")[-2] if config["cloudWatchLogGroupArn"].endswith(":*") else config["cloudWatchLogGroupArn"].split(":")[-1]
                   #
                   # Check to see if the log stream already exists.
-                  logStreams = cloudWatchClient.describe_log_streams(logGroupName=logGroupName, logStreamNamePrefix=logStreamName)
-                  if len(logStreams["logStreams"]) == 0:
-                      cloudWatchClient.create_log_stream(
+                  try:
+                      logStreams = cloudWatchClient.describe_log_streams(logGroupName=logGroupName, logStreamNamePrefix=logStreamName)
+                      if len(logStreams["logStreams"]) == 0:
+                          cloudWatchClient.create_log_stream(logGroupName=logGroupName, logStreamName=logStreamName)
+                      #
+                      # Send the message to CloudWatch.
+                      cloudWatchClient.put_log_events(
                           logGroupName=logGroupName,
-                          logStreamName=logStreamName)
-                  #
-                  # Send the message to CloudWatch.
-                  cloudWatchClient.put_log_events(
-                      logGroupName=logGroupName,
-                      logStreamName=logStreamName,
-                      logEvents=[
-                          {
-                              'timestamp': int(datetime.datetime.now().timestamp() * 1000),
-                              'message': message
-                          },
-                      ]
-                  )
+                          logStreamName=logStreamName,
+                          logEvents=[
+                              {
+                                  'timestamp': int(datetime.datetime.now().timestamp() * 1000),
+                                  'message': message
+                              }
+                          ]
+                      )
+                  except cloudWatchClient.exceptions.ResourceNotFoundException:
+                      logger.error(f'CloudWatch log group {logGroupName} not found for cluster {clusterName}.')
               #
               # Send to webhook if defined.
-              if config.get('webhookEndpoint') is not None:
+              if config.get('webhookEndpoint') is not None and severityToNumber(config['webhookSeverity']) >= severityToNumber(severity):
                   sendWebHook(message, severity)
           
           ################################################################################
@@ -1984,7 +2162,7 @@ Resources:
                   if err.response['Error']['Code'] == "NoSuchKey":
                       events = []
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   events = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -2012,7 +2190,7 @@ Resources:
                   else:
                       url = None
           
-              logger.debug(f'Found {len(records)} quota report records.')
+              logger.debug(f'Found {len(records)} quota report records cluster={clusterName}.')
               for record in records:
                   for rule in service["rules"]:
                       for key in rule.keys():
@@ -2154,14 +2332,14 @@ Resources:
                                       events[eventIndex]["refresh"] = eventResilience
           
                           else:
-                              message = f'Unknown quota matching condition type "{key}".'
+                              message = f'Unknown quota matching condition type "{key}" found for cluster {clusterName}.'
                               logger.warning(message)
               #
               # After processing the records, see if any events need to be removed.
               i = len(events) - 1
               while i >= 0:
                   if events[i]["refresh"] <= 0:
-                      logger.debug(f'Deleting event: {events[i]["message"]}')
+                      logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
                       del events[i]
                       changedEvents = True
                   else:
@@ -2189,7 +2367,7 @@ Resources:
                   if err.response['Error']['Code'] == "NoSuchKey":
                       events = []
                   else:
-                      raise err
+                      raise Exception(err)
               else:
                   events = json.loads(data["Body"].read().decode('UTF-8'))
               #
@@ -2235,7 +2413,7 @@ Resources:
                       else:
                           url = None
           
-                  logger.debug(f'Found {len(records)} vservers to check.')
+                  logger.debug(f'Found {len(records)} vservers to check on cluster {clusterName}.')
                   for record in records:
                       if record["state"].lower() != "running":
                           uniqueIdentifier = str(record["uuid"]) + "_" + vserverStateKey
@@ -2345,7 +2523,7 @@ Resources:
               i = len(events) - 1
               while i >= 0:
                   if events[i]["refresh"] <= 0:
-                      logger.debug(f'Deleting event: {events[i]["message"]}')
+                      logger.debug(f'Deleting event: {events[i]["message"]} for cluster {clusterName}')
                       del events[i]
                       changedEvents = True
                   else:
@@ -2375,7 +2553,7 @@ Resources:
           # This function builds a default matching conditions dictionary based on the
           # environment variables passed in.
           ################################################################################
-          def buildDefaultMatchingConditions():
+          def buildDefaultMatchingConditions(event):
               #
               # Define global variables so we don't have to pass them to all the functions.
               global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
@@ -2391,7 +2569,7 @@ Resources:
               ]}
               #
               # Now, add rules based on the environment variables.
-              for name, value in os.environ.items():
+              for name, value in event.items() if event.get('OntapAdminServer') is not None else os.environ.items():
                   if name == "initialVersionChangeAlert":
                       if value == "true":
                           conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"versionChange": True})
@@ -2497,14 +2675,15 @@ Resources:
           ################################################################################
           # This function is used to read in all the configuration parameters from the
           # various places:
+          #   Lambda Event
           #   Environment Variables
           #   Config File
           #   Calculated
           ################################################################################
-          def readInConfig():
+          def readInConfig(event):
               #
               # Define global variables so we don't have to pass them to all the functions.
-              global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+              global config, s3Client, snsClient, http, headers, logger, clusterName
               #
               # Define a dictionary with all the required variables so we can
               # easily add them and check for their existence.
@@ -2522,7 +2701,10 @@ Resources:
                   "syslogIP": None,
                   "cloudWatchLogGroupArn": None,
                   "awsAccountId": None,
-                  "webhookEndpoint": None
+                  "webhookEndpoint": None,
+                  "webhookSeverity": "INFO",
+                  "secretUsernameKey": None,
+                  "secretPasswordKey": None
                   }
           
               filenameVariables = {
@@ -2538,17 +2720,16 @@ Resources:
           
               config = {
                   "snsTopicArn": None,
-                  "secretArn": None,
-                  "secretUsernameKey": None,
-                  "secretPasswordKey": None
+                  "secretArn": None
                   }
               config.update(filenameVariables)
               config.update(optionalVariables)
               config.update(requiredEnvVariables)
               #
-              # Get the required, and any additional, paramaters from the environment.
+              # Get the required, and any additional, paramaters from the environment or event.
+              logger.debug("Being called from a Lambda function." if event.get('OntapAdminServer') is not None else "Being called from a timer or standalone.")
               for var in config:
-                  config[var] = os.environ.get(var)
+                  config[var] = event.get(var) if event.get('OntapAdminServer') is not None else os.environ.get(var)
               #
               # Since the CloudFormation template will set the environment variables
               # to an empty string if someone doesn't provide a value, reset the
@@ -2567,6 +2748,10 @@ Resources:
                   if config[var] is None:
                       raise Exception (f'\n\nMissing required environment variable "{var}".')
               #
+              # At this point we an set the clusterName to the OntapAdminServer value. It will
+              # be overwritten in the "checkSystem()" function.
+              clusterName = config["OntapAdminServer"]
+              #
               # Open a client to the s3 service.
               s3Client = boto3.client('s3', config["s3BucketRegion"])
               #
@@ -2580,10 +2765,10 @@ Resources:
                   lines = s3Client.get_object(Key=config["configFilename"], Bucket=config["s3BucketName"])['Body'].iter_lines()
               except botocore.exceptions.ClientError as err:
                   if err.response['Error']['Code'] != "NoSuchKey":
-                      raise err
+                      raise Exception(err)
                   else:
                       if config["configFilename"] != defaultConfigFilename:
-                          logger.warning(f"Warning, did not find file '{config['configFilename']}' in s3 bucket '{config['s3BucketName']}' in region '{config['s3BucketRegion']}'.")
+                          logger.warning(f"Warning, did not find file '{config['configFilename']}' in s3 bucket '{config['s3BucketName']}' in region '{config['s3BucketRegion']}' for cluster {clusterName}.")
               else:
                   #
                   # While iterating through the file, get rid of any "export ", comments, blank lines, or anything else that isn't key=value.
@@ -2599,7 +2784,7 @@ Resources:
                       key = key.strip()
                       value = value.strip()
                       if len(value) == 0:
-                          logger.warning(f"Warning, empty value for key '{key}'. Ignored.")
+                          logger.warning(f"Warning, empty value for key '{key}' on cluster {clusterName} .")
                       else:
                           #
                           # Preserve any environment variables settings.
@@ -2607,7 +2792,7 @@ Resources:
                               if config[key] is None:
                                   config[key] = value
                           else:
-                              logger.warning(f"Warning, unknown config parameter '{key}'.")
+                              logger.warning(f"Warning, unknown config parameter '{key}' found on cluster {clusterName}.")
               #
               # Now, fill in the filenames for any that aren't already defined.
               for filename in filenameVariables:
@@ -2626,6 +2811,12 @@ Resources:
               if config.get("cloudWatchLogGroupArn") is not None and config["cloudWatchLogsEndPointHostname"] is None:
                   cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
                   config["cloudWatchLogsEndPointHostname"] = f'logs.{cloudWatchRegion}.amazonaws.com'
+          
+              if config.get("secretPasswordKey") is None:
+                  config["secretPasswordKey"] = "password"
+          
+              if config.get("secretUsernameKey") is None:
+                  config["secretUsernameKey"] = "username"
               #
               # Now, check that all the configuration parameters have been set.
               for key in config:
@@ -2641,7 +2832,8 @@ Resources:
               global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, cloudWatchClient, clusterTimezone
               #
               # Set up logging.
-              logger = logging.getLogger("mon_fsxn_service")
+              logging.basicConfig()
+              logger = logging.getLogger("MOS_Monitoring")
               if lambdaFunction:
                   logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
               else: # Assume we are running in a test environment.
@@ -2655,7 +2847,7 @@ Resources:
                   logger.addHandler(loggerscreen)
               #
               # Read in the configuraiton.
-              readInConfig()   # This defines the s3Client variable.
+              readInConfig(event)   # This defines the s3Client variable.
               #
               # Set up the logger to log to a file and to syslog.
               if config["syslogIP"] is not None:
@@ -2700,11 +2892,11 @@ Resources:
               secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
               secrets = json.loads(secretsInfo['SecretString'])
               if secrets.get(config['secretUsernameKey']) is None:
-                  logger.critical(f'Error, "{config["secretUsernameKey"]}" not found in secret "{config["secretArn"]}".')
+                  logger.critical(f'Error, "{config["secretUsernameKey"]}" not found in secret "{config["secretArn"]}" for cluster {config["OntapAdminServer"]}.')
                   return
           
               if secrets.get(config['secretPasswordKey']) is None:
-                  logger.critical(f'Error, "{config["secretPasswordKey"]}" not found in secret "{config["secretArn"]}".')
+                  logger.critical(f'Error, "{config["secretPasswordKey"]}" not found in secret "{config["secretArn"]}" for cluster {config["OntapAdminServer"]}.')
                   return
           
               username = secrets[config['secretUsernameKey']]
@@ -2734,13 +2926,13 @@ Resources:
                   matchingConditions = json.loads(data["Body"].read().decode('UTF-8'))
               except botocore.exceptions.ClientError as err:
                   if err.response['Error']['Code'] != "NoSuchKey":
-                      logger.error(f'Error, could not retrieve configuration file {config["conditionsFilename"]} from: s3://{config["s3BucketName"]}.\nBelow is additional information:')
-                      raise err
+                      logger.error(f'Error, could not retrieve configuration file {config["conditionsFilename"]} from: s3://{config["s3BucketName"]} for cluster {config["OntapAdminServer"]}.\nBelow is additional information:')
+                      raise Exception(err)
                   else:
-                      matchingConditions = buildDefaultMatchingConditions()
+                      matchingConditions = buildDefaultMatchingConditions(event)
                       s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'))
               except json.decoder.JSONDecodeError as err:
-                  logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}". The error message from the decoder:\n{err}\n')
+                  logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}" for cluster {config["OntapAdminServer"]}. The error message from the decoder:\n{err}\n')
                   return
           
               if(checkSystem()):
@@ -2760,7 +2952,7 @@ Resources:
                       elif service["name"].lower() == "vserver":
                           processVserver(service)
                       else:
-                          logger.warning(f'Unknown service "{service["name"]}".')
+                          logger.warning(f'Unknown service "{service["name"]}" found for cluster {clusterName}.')
               return
           
           if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
