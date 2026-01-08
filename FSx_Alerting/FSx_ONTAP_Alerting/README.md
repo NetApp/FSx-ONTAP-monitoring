@@ -201,6 +201,7 @@ Below is the specific list of permissions needed.
 |ec2:UnassignPrivateIpAddresses | \* | So it can unassign the private IP address from the network interface when it is not needed anymore. |
 |ec2:DeleteNetworkInterface     | \* | Since it created a network interface, it needs to be able to delete it when not needed anymore. If you want to strict the scope of this permission, you can add a condition that it has to be within the same subnet.|
 |ec2:DescribeNetworkInterfaces  | \* | So it can check to see if a network interface already exists. |
+
 :bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
 
 #### Create an AWS Role for the Control program
@@ -212,6 +213,7 @@ and send SNS messages if the monitoring function fails (only if using synchronou
 |sns:Publish                    | The ARN to the SNS topic you wish to publish alerts to | To allow it to send messages (alerts) via SNS if it is unable to invoke the monitoring function.|
 |s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve FSxN List file. |
 |s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
+
 :bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
 
 #### Create an S3 Bucket
@@ -397,7 +399,7 @@ filename, then set the configFilename parameter to the name of your choosing.
 | configFilename | No      | OntapAdminServer + "-config" | Set to the filename (S3 object) that contains parameter assignments. It's okay if it doesn't exist, as long as there are environment variables for all the required parameters. |
 | conditionsFilename | No  | OntapAdminServer + "-conditions" | Set to the filename (S3 object) where you want the program to read the matching condition information from. |
 | snsTopicArn    | Yes     | None | Set to the ARN of the SNS topic you want the program to publish alert messages to. |
-| cloudWatchLogGroupArn    | None | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
+| cloudWatchLogGroupArn | No | None | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | syslogIP        | No     | None | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
 | webhookEndpoint | No     | None | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 | awsAccountId    | No     | None | Set to the AWS account ID where the FSxN file system is located. This is purely for documentation purposes and serves no other purpose.|
