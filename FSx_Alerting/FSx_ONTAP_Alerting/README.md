@@ -186,7 +186,7 @@ read and write objects in an s3 bucket, be able to publish SNS messages, and opt
 Below is the specific list of permissions needed.
 
 | Permission                    | Minimal Resources | Reason     |
-|:------------------------------|:------------------|:----------------|
+|:------------------------------|:-----------------:|:----------------|
 |secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials to the FSxNs you plan to monitor. | To be able to retrieve the FSxN administrator credentials.|
 |sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
 |s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
