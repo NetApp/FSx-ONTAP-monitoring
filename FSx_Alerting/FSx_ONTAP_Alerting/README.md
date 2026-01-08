@@ -85,7 +85,7 @@ The CloudFormation template will do the following:
     is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Controler program](#create-an-aws-role-for-the-controller-program) section below.
+    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create two Lambda functions with the Python code provided in this repository.
 - Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
@@ -121,8 +121,8 @@ To install the program using the CloudFormation template, you will need to do th
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
-|ControllerRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below. If left blank a role will be created for you.|
-|MonitoringRoleArn|The ARN of the role that the Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Controller program](#create-an-aws-role-for-the-controller-program) section below. If left blank a role will be created for you.|
+|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Controller program](#create-an-aws-role-for-the-controller-program) section below. If left blank a role will be created for you.|
+|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda_layer.zip found in your S3 bucket.|
 |maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
 |memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your FSxN file system.|
@@ -204,7 +204,7 @@ Below is the specific list of permissions needed.
 
 :bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
 
-#### Create an AWS Role for the Control program
+#### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
 and send SNS messages if the monitoring function fails (only if using synchronous invocation).
 | Permission                    | Minimal Resources | Reason     |
