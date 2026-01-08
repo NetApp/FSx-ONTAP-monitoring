@@ -558,7 +558,6 @@ Resources:
                 Action:
                   - "lambda:InvokeFunction"
                   - "s3:GetObject"
-                  - "s3:PutObject"
                   - "s3:ListBucket"
                   - "sns:Publish"
                 Resource:
@@ -821,10 +820,8 @@ Resources:
       AlarmActions:
         - !Ref snsTopicArn
   #
-  # This is the role that will be assigned to the monitoring Lambda function if
-  # the user doesn't want to send events to a CloudWatch log group. It will not
-  # create if the user has provide a role ARN. Either this role, or the LambdaRoleWithCW
-  # will be created depending on the createCloudWatchLogGroupArn parameter.
+  # This is the role that will be assigned to the monitoring Lambda.
+  # It will only be created if the user hasn't provide a monitoring role ARN.
   monitoringRole:
     Type: "AWS::IAM::Role"
     Condition: CreateMonitoringRole
