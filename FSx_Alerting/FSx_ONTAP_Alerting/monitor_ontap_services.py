@@ -168,6 +168,7 @@ def checkSystem():
     # Get the cluster name, ONTAP version and timezone from the FSxN.
     # This is also a way to test that the FSxN cluster is accessible.
     badHTTPStatus = False
+    logger.info(f"Checking cluster {config['OntapAdminServer']}.")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
@@ -1810,10 +1811,16 @@ def readInConfig(event):
     config.update(optionalVariables)
     config.update(requiredEnvVariables)
     #
-    # Get the required, and any additional, paramaters from the environment or event.
+    # Get the config values from the environment, or the event, if the evironmnet
+    # has a non-none value. Otherwise, preserve the default value set above.
     logger.debug("Being called from a Lambda function." if event.get('OntapAdminServer') is not None else "Being called from a timer or standalone.")
     for var in config:
-        config[var] = event.get(var) if event.get('OntapAdminServer') is not None else os.environ.get(var)
+        if event.get('OntapAdminServer') is None:  # If running "standalone" or from a timer
+            if os.environ.get(var) is not None:
+                config[var] = os.environ.get(var)
+        else:                                      # Running from the controller
+            if event.get(var) is not None:
+                config[var] = event.get(var)
     #
     # Since the CloudFormation template will set the environment variables
     # to an empty string if someone doesn't provide a value, reset the

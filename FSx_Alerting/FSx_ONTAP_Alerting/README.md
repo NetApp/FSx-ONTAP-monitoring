@@ -402,6 +402,7 @@ filename, then set the configFilename parameter to the name of your choosing.
 | cloudWatchLogGroupArn | No | None | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | syslogIP        | No     | None | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
 | webhookEndpoint | No     | None | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
+| webhookSeverity | No     | INFO | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
 | awsAccountId    | No     | None | Set to the AWS account ID where the FSxN file system is located. This is purely for documentation purposes and serves no other purpose.|
 | emsEventsFilename | No   | OntapAdminServer + "-emsEvents" | Set to the filename (S3 object) where you want the program to store the EMS events that it has alerted on. This file will be created as necessary. |
 | smEventsFilesname | No   | OntapAdminServer + "-smEvents" | Set to the filename (S3 object) where you want the program to store the SnapMirror that it has alerted on. This file will be created as necessary.  |
