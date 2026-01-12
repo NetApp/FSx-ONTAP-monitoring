@@ -52,7 +52,6 @@ The following is a brief description of each section of the dashboard:
 
 ### CloudWatch Alarms
 This solution automatically creates CloudWatch alarms for the following FSxN attributes:
-- CPU Utilization
 - Disk throughput utilization
 - Disk IOPS utilization
 - SSD storage capacity utilization
