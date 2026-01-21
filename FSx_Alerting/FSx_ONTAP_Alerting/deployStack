@@ -9,18 +9,18 @@
 ################################################################################
 usage () {
   cat <<EOF >&2
-Usage: $(basename $0) [-R Region>] -b <s3Bucket> -F <FSxNListFilename> -s <subnets> -g <securityGroup> -t <snsTopicArn> -a <secretArnPattern> [-v <checkInterval>] [-w <true|false>] [-r <monitoringRoleArn>] [-x <controlRoleArn>] [-l <lambdaLayerArn>] [-m maxRunTime] [-M memorySize] [-f <cloudformationUrl>]
+Usage: $(basename $0) [-R Region>] -b <s3Bucket> -F <FSxNListFilename> -s <subnets> -g <securityGroup> -t <snsTopicArn> [-a <secretArnPattern>] [-v <checkInterval>] [-w <true|false>] [-r <monitoringRoleArn>] [-x <controlRoleArn>] [-l <lambdaLayerArn>] [-m maxRunTime] [-M memorySize] [-f <cloudformationUrl>]
     -R <region> The AWS region where the AWS resources are located. Optional, defaults to the region configured in the AWS CLI.
     -b <bucket> The S3 bucket where the CloudFormation template is stored
     -F <FSxNListFilename> The name of the file in the S3 bucket that containing the list of FSxN systems to monitor.
     -s <subnets> Comma-separated list of subnet IDs (not ARNs).
     -g <securityGroup> The security group ID to use (not ARN). Just needs to allow outbound over TCP port 443.
     -t <snsTopicArn> The ARN of the SNS topic for notifications.
-    -a <secretArnPattern> The secrets ARN pattern that will match all the serects that the monitoring function will use to for FSxN credentials.
+    -a <secretArnPattern> An ARN pattern that will match all the secrets manager secrets that the monitoring function will use to authenticate to FSxNs with. Required if you are not providing a monitoring role.
     -v <checkInterval> The interval in minutes to check the ONTAP system (optional, the default is 15 minutes).
     -w <true|false> Create CloudWatch watchdog alarms (optional, default is true).
-    -r <moniotoringRoleArn> The Arn of the role to use for the Monitoring Lambda function (optional).
-    -x <controllerRoleArn> The Arn of the role to use for the Controller Lambda function (optional).
+    -r <monitoringRoleArn> The ARN of the role to use for the Monitoring Lambda function (optional).
+    -x <controllerRoleArn> The ARN of the role to use for the Controller Lambda function (optional).
     -l <lambdaLayerArn> The ARN of the Lambda layer to use (optional).
     -W <webhookEndpoint> The endpoint to send notifications to (optional).
     -m <maxRunTime> The maximum run time for the monitoring function in seconds (optional). Must be between 60 and 900. Defaults to 60.
@@ -69,9 +69,22 @@ while getopts "hR:b:F:S:s:g:t:a:v:w:r:x:l:W:m:M:f:" opt; do
     *) usage ;;
   esac
 done
+#
+# Check that the required arguments are provided.
+missingArgs="false"
+for var in FSxNListFilename bucket subnets securityGroup snsTopicArn; do
+  if [ -z "${!var}" ]; then
+    echo "Error: Missing required argument: $var" >&2
+    missingArgs="true"
+  fi
+done
 
-if [ -z "$FSxNListFilename" -o -z "$bucket" -o -z "$subnets" -o -z "$securityGroup" -o -z "$snsTopicArn" -o -z "$secretArnPattern" ]; then
-  echo "Error: Missing required arguments." >&2
+if [ -z "$secretArnPattern" -a -z "$monitoringRoleArn" ]; then
+  echo "Error: If not providing a monitoring role via the -r option, you must provide the secretArnPattern option." >&2
+  missingArgs="true"
+fi
+
+if [ "$missingArgs" == "true" ]; then
   usage
 fi
 

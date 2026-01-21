@@ -168,6 +168,7 @@ def checkSystem():
     # Get the cluster name, ONTAP version and timezone from the FSxN.
     # This is also a way to test that the FSxN cluster is accessible.
     badHTTPStatus = False
+    logger.info(f"Checking cluster {config['OntapAdminServer']}.")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
@@ -362,7 +363,7 @@ def processEMSEvents(service):
     #
     # Process the events to see if there are any new ones.
     print(f'Received {len(records)} EMS records.')
-    logger.debug(f'Received {len(records)} EMS records from cluster {clusterName}.')
+    logger.info(f'Received {len(records)} EMS records from cluster {clusterName}.')
     for record in records:
         for rule in service["rules"]:
             messageFilter = rule.get("filter")
@@ -664,7 +665,7 @@ def processSnapMirrorRelationships(service):
         else:
             url = None
 
-    logger.debug(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}.')
+    logger.info(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}.')
     for record in records:
         #
         # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
@@ -913,7 +914,7 @@ def processStorageUtilization(service):
             else:
                 url = None
 
-    logger.debug(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}.')
+    logger.info(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}.')
     #
     # If there are no volumes or aggregates, there is nothing to do.
     if len(volumeRecords) == 0 and len(aggrRecords) == 0:
@@ -1046,7 +1047,7 @@ def processStorageUtilization(service):
                                     url = data["_links"]["next"]["href"]
                                 else:
                                     url = None
-                logger.debug(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}.')
+                logger.info(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}.')
                 for snapshot in snapshotRecords:
                     if snapshot.get("create_time") is not None:
                         #
@@ -1274,7 +1275,7 @@ def processQuotaUtilization(service):
         else:
             url = None
 
-    logger.debug(f'Found {len(records)} quota report records cluster={clusterName}.')
+    logger.info(f'Found {len(records)} quota report records cluster={clusterName}.')
     for record in records:
         for rule in service["rules"]:
             for key in rule.keys():
@@ -1497,7 +1498,7 @@ def processVserver(service):
             else:
                 url = None
 
-        logger.debug(f'Found {len(records)} vservers to check on cluster {clusterName}.')
+        logger.info(f'Found {len(records)} vservers to check on cluster {clusterName}.')
         for record in records:
             if record["state"].lower() != "running":
                 uniqueIdentifier = str(record["uuid"]) + "_" + vserverStateKey
@@ -1810,10 +1811,16 @@ def readInConfig(event):
     config.update(optionalVariables)
     config.update(requiredEnvVariables)
     #
-    # Get the required, and any additional, paramaters from the environment or event.
+    # Get the config values from the environment, or the event, if the evironmnet
+    # has a non-none value. Otherwise, preserve the default value set above.
     logger.debug("Being called from a Lambda function." if event.get('OntapAdminServer') is not None else "Being called from a timer or standalone.")
     for var in config:
-        config[var] = event.get(var) if event.get('OntapAdminServer') is not None else os.environ.get(var)
+        if event.get('OntapAdminServer') is None:  # If running "standalone" or from a timer
+            if os.environ.get(var) is not None:
+                config[var] = os.environ.get(var)
+        else:                                      # Running from the controller
+            if event.get(var) is not None:
+                config[var] = event.get(var)
     #
     # Since the CloudFormation template will set the environment variables
     # to an empty string if someone doesn't provide a value, reset the
