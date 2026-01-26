@@ -7,10 +7,10 @@ name: "Update Cloudformation Template"
 on:
   pull_request:
     paths:
-      - 'Monitoring/monitor-ontap-services/monitor_ontap_services.py'
+      - 'FSx_Alerting/FSx_ONTAP_Alerting/monitor_ontap_services.py'
   push:
     paths:
-      - 'Monitoring/monitor-ontap-services/monitor_ontap_services.py'
+      - 'FSx_Alerting/FSx_ONTAP_Alerting/monitor_ontap_services.py'
     branches:
       - main
 
@@ -30,7 +30,7 @@ jobs:
 
       - name: Update the Cloudformation Template
         shell: bash
-        working-directory: Monitoring/monitor-ontap-services
+        working-directory: FSx_Alerting/FSx_ONTAP_Alerting
         run: ./updateMonOntapServiceCFTemplate
 
       - name: Commit the changes

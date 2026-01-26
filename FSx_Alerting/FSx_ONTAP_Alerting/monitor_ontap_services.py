@@ -35,6 +35,7 @@ from urllib3.util import Retry
 import botocore
 import boto3
 import hashlib
+import base64
 
 eventResilience = 4 # Times an event has to be missing before it is removed
                     # from the alert history.
@@ -365,15 +366,18 @@ def processEMSEvents(service):
     print(f'Received {len(records)} EMS records.')
     logger.info(f'Received {len(records)} EMS records from cluster {clusterName}.')
     for record in records:
+        if record.get("log_message") is None or record.get("index") is None or record.get("message") is None or record["message"].get("name") is None or record["message"].get("severity") is None:
+            logger.debug(f'Skipping incomplete EMS record: {json.dumps(record)}')
+            continue
         for rule in service["rules"]:
             messageFilter = rule.get("filter")
             if messageFilter == None or messageFilter == "":
                 messageFilter = "ThisShouldn'tMatchAnything"
 
             if (not re.search(messageFilter, record["log_message"]) and
-                re.search(rule["name"], record["message"]["name"]) and
-                re.search(rule["severity"], record["message"]["severity"]) and
-                re.search(rule["message"], record["log_message"])):
+                re.search(rule.get("name", ""), record["message"]["name"]) and
+                re.search(rule.get("severity", ""), record["message"]["severity"]) and
+                re.search(rule.get("message", ""), record["log_message"])):
                 eventIndex = eventExist (events, record["index"])
                 if eventIndex < 0:
                     message = f'{record["time"]} : {clusterName} {record["message"]["name"]}({record["message"]["severity"]}) - {record["log_message"]}'
@@ -1109,34 +1113,80 @@ def sendWebHook(message, severity):
     if config.get('webhookEndpoint') is None:
         return
     #
+    # Create a unique hash for the message.
+    message_hash = int(hashlib.sha256(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
+    #
     # Since the Moogsoft endpoint needs just the hostname for the configurationItem
     # strip off the account information that might have been added.
     x = clusterName.find("(")
     if x != -1:
-        hostname = clusterName[0:x]
+        cluster_name = clusterName[0:x]
     else:
-        hostname = clusterName
+        cluster_name = clusterName
     #
-    # The INC__identifier field needs to be unique for each message, so add
-    # a hash of the message to it.
-    messageHash = int(hashlib.sha256(message.encode("utf-8")).hexdigest(), 16) % (10 ** 8)
-    payload = {
-        "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
-        "INC__manager": "FSxONTAP",
-        "INC__severity": "3",
-        "INC__identifier": f"FSx ONTAP Monitoring Services alert for cluster {clusterName} - {messageHash}",
-        "INC__configurationItem": hostname,
-        "INC__fullMessageText": message
-    }
+    # If the webhookConfigFilename is defined, load the file from the S3 bucket.
+    if config.get('webhookConfigFilename') is not None:
+        try:
+            rawData = s3Client.get_object(Key=config["webhookConfigFilename"], Bucket=config["s3BucketName"])
+        except botocore.exceptions.ClientError as err:
+            message = f'Error: Exception occurred when loading webhook config file "{config["webhookConfigFilename"]}" from S3 bucket {config["s3BucketName"]} for cluster {clusterName}. Exception: {err}.'
+            logger.critical(message)
+            return
+        #
+        # Read in the payload template.
+        payload = rawData["Body"].read().decode('UTF-8')
+        #
+        # Make the account_id a local variable so it can be used in the payload replacement.
+        account_id = config.get("awsAccountId", "not_set")
+        #
+        # Replace the fields in the payload.
+        for fieldName in ["cluster_name", "severity", "account_id", "message", "message_hash"]:
+            payload = payload.replace("{" + fieldName + "}", str(locals()[fieldName]))
+    else:
+        #
+        # This is a default payload for Moogsoft.
+        payload = {
+            "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
+            "INC__manager": "FSxONTAP",
+            "INC__severity": "3",
+            "INC__identifier": f"FSx ONTAP Monitoring Services alert for cluster {clusterName} - {message_hash}",
+            "INC__configurationItem": cluster_name,
+            "INC__fullMessageText": message
+        }
+
     data = json.dumps(payload).encode('UTF-8')
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
     #
+    # Add authorization header if a secret ARN is defined.
+    if config.get("webhookSecretARN") is not None:
+        #
+        # Create a Secrets Manager client.
+        secretRegion = config["webhookSecretARN"].split(":")[3]
+        client = boto3.client(service_name='secretsmanager', region_name=secretRegion)
+        #
+        # Get the username and password from the secret.
+        secretsInfo = client.get_secret_value(SecretId=config["webhookSecretARN"])
+        client.close()
+        secrets = json.loads(secretsInfo['SecretString'])
+        if secrets.get(config['webhookSecretUsernameKey']) is None:
+            logger.critical(f'Error, "{config["webhookSecretUsernameKey"]}" not found in secret "{config["webhookSecretARN"]}" for webhook {config["webhookEndpoint"]} for cluster {config["OntapAdminServer"]}.')
+            return
+
+        if secrets.get(config['webhookSecretPasswordKey']) is None:
+            logger.critical(f'Error, "{config["webhookSecretPasswordKey"]}" not found in secret "{config["webhookSecretARN"]}" for webhook {config["webhookEndpoint"]} for cluster {config["OntapAdminServer"]}.')
+            return
+
+        username = secrets[config['webhookSecretUsernameKey']]
+        password = secrets[config['webhookSecretPasswordKey']]
+        headers["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
+    #
     # Note that the urllib3 library that AWS natively provides for their Lambda functions
     # is of the 1.* version, so we have to use the syntax for that version.
     try:
+        logger.debug(f'Sending webhook to {config["webhookEndpoint"]} with these headers {headers} and the following data: {data}')
         response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
         if response.status == 200:
             logger.info(f"Webhook sent successfully for {clusterName}.")
@@ -1788,8 +1838,12 @@ def readInConfig(event):
         "awsAccountId": None,
         "webhookEndpoint": None,
         "webhookSeverity": "INFO",
-        "secretUsernameKey": None,
-        "secretPasswordKey": None
+        "webhookConfigFilename": None,
+        "webhookSecretARN": None,
+        "webhookSecretUsernameKey": "username",
+        "webhookSecretPasswordKey": "password",
+        "secretUsernameKey": "username",
+        "secretPasswordKey": "password"
         }
 
     filenameVariables = {
@@ -1902,12 +1956,6 @@ def readInConfig(event):
     if config.get("cloudWatchLogGroupArn") is not None and config["cloudWatchLogsEndPointHostname"] is None:
         cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
         config["cloudWatchLogsEndPointHostname"] = f'logs.{cloudWatchRegion}.amazonaws.com'
-
-    if config.get("secretPasswordKey") is None:
-        config["secretPasswordKey"] = "password"
-
-    if config.get("secretUsernameKey") is None:
-        config["secretUsernameKey"] = "username"
     #
     # Now, check that all the configuration parameters have been set.
     for key in config:
@@ -1975,9 +2023,8 @@ def lambda_handler(event, context):
         logger.addHandler(handler)
     #
     # Create a Secrets Manager client.
-    session = boto3.session.Session()
     secretRegion = config["secretArn"].split(":")[3]
-    client = session.client(service_name='secretsmanager', region_name=secretRegion, endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
+    client = boto3.client(service_name='secretsmanager', region_name=secretRegion, endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
     #
     # Get the username and password of the ONTAP/FSxN system.
     secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
