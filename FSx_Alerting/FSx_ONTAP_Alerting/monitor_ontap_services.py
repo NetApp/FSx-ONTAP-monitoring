@@ -1161,26 +1161,26 @@ def sendWebHook(message, severity):
     }
     #
     # Add authorization header if a secret ARN is defined.
-    if config["webhookSecretARN"] is not None:
+    if config.get("webhookSecretARN") is not None:
         #
         # Create a Secrets Manager client.
         secretRegion = config["webhookSecretARN"].split(":")[3]
         client = boto3.client(service_name='secretsmanager', region_name=secretRegion)
         #
         # Get the username and password from the secret.
-        secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
+        secretsInfo = client.get_secret_value(SecretId=config["webhookSecretARN"])
         client.close()
         secrets = json.loads(secretsInfo['SecretString'])
         if secrets.get(config['webhookSecretUsernameKey']) is None:
-            logger.critical(f'Error, "{config["webhookSecretUsernameKey"]}" not found in secret "{config["webhookSecretArn"]}" for webhook {config["webhookEndpoint"]} for cluster {config["OntapAdminServer"]}.')
+            logger.critical(f'Error, "{config["webhookSecretUsernameKey"]}" not found in secret "{config["webhookSecretARN"]}" for webhook {config["webhookEndpoint"]} for cluster {config["OntapAdminServer"]}.')
             return
 
         if secrets.get(config['webhookSecretPasswordKey']) is None:
-            logger.critical(f'Error, "{config["webhookSecretPasswordKey"]}" not found in secret "{config["webhookSecretArn"]}" for webhook {config["wehbookEndpoint"]} for cluster {config["OntapAdminServer"]}.')
+            logger.critical(f'Error, "{config["webhookSecretPasswordKey"]}" not found in secret "{config["webhookSecretARN"]}" for webhook {config["webhookEndpoint"]} for cluster {config["OntapAdminServer"]}.')
             return
 
-        username = secrets[config['secretUsernameKey']]
-        password = secrets[config['secretPasswordKey']]
+        username = secrets[config['webhookSecretUsernameKey']]
+        password = secrets[config['webhookSecretPasswordKey']]
         headers["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
     #
     # Note that the urllib3 library that AWS natively provides for their Lambda functions
