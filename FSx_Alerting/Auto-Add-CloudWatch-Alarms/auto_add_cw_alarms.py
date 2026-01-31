@@ -484,13 +484,13 @@ def lambda_handler(event, context):
             regions += [region['RegionName']]
 
     fsxRegions = boto3.Session().get_available_regions('fsx')
-    cpuThresholds = {}
-    ssdThresholds = {}
-    volumeThresholds = {}
-    volumeFileThresholds = {}
     for region in regions:
         if region in fsxRegions:
             print(f'Scanning {region}')
+            cpuThresholds = {}
+            ssdThresholds = {}
+            volumeThresholds = {}
+            volumeFileThresholds = {}
             try:
                 fsxClient = boto3.client('fsx', region_name=region, config=boto3Config)
                 cwClient = boto3.client('cloudwatch', region_name=region, config=boto3Config)
