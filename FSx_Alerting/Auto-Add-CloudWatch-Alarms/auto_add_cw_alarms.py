@@ -484,6 +484,10 @@ def lambda_handler(event, context):
             regions += [region['RegionName']]
 
     fsxRegions = boto3.Session().get_available_regions('fsx')
+    cpuThresholds = {}
+    ssdThresholds = {}
+    volumeThresholds = {}
+    volumeFileThresholds = {}
     for region in regions:
         if region in fsxRegions:
             print(f'Scanning {region}')
@@ -500,8 +504,9 @@ def lambda_handler(event, context):
                 for fs in fss:
                     if(fs['FileSystemType'] == "ONTAP"):
                         threshold = int(getCPUAlarmThresholdTagValue(fs['Tags']))
+                        fsId = fs['FileSystemId']
+                        cpuThresholds[fsId] = threshold
                         if(threshold != 100):
-                            fsId = fs['FileSystemId']
                             fsName = fsId.replace('fs-', 'FsxId')
                             alarmName = alarmPrefixCPU + fsId
                             alarmDescription = f"CPU utilization alarm for file system {fsName}{customerId} in region {region}."
@@ -517,16 +522,18 @@ def lambda_handler(event, context):
                     if(alarmName[:len(alarmPrefixCPU)] == alarmPrefixCPU):
                         fsId = alarmName[len(alarmPrefixCPU):]
                         if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
-                           not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
+                           not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId or
+                           cpuThresholds.get(fsId) == 100):
                             print("Deleting alarm: " + alarmName + " in region " + region)
                             delete_alarm(cwClient, alarmName)
                 #
                 # Scan for filesystems without SSD Utilization Alarm.
                 for fs in fss:
                     if(fs['FileSystemType'] == "ONTAP"):
+                        fsId = fs['FileSystemId']
                         threshold = int(getSSDAlarmThresholdTagValue(fs['Tags']))
+                        ssdThresholds[fsId] = threshold
                         if(threshold != 100):
-                            fsId = fs['FileSystemId']
                             fsName = fsId.replace('fs-', 'FsxId')
                             alarmName = alarmPrefixSSD + fsId
                             alarmDescription = f"SSD utilization alarm for file system {fsName}{customerId} in region {region}."
@@ -542,11 +549,12 @@ def lambda_handler(event, context):
                     if(alarmName[:len(alarmPrefixSSD)] == alarmPrefixSSD):
                         fsId = alarmName[len(alarmPrefixSSD):]
                         if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
-                           not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
+                           not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId or
+                           ssdThresholds.get(fsId) == 100):
                             print("Deleting alarm: " + alarmName + " in region " + region)
                             delete_alarm(cwClient, alarmName)
                 #
-                # Scan for volumes without alarms.
+                # Scan for volumes without alarms.                
                 for volume in volumes:
                     if(volume['VolumeType'] == "ONTAP"):
                         volumeId = volume['VolumeId']
@@ -556,6 +564,7 @@ def lambda_handler(event, context):
                         volumeTags = getVolumeTags(fsxClient, volumeARN)
 
                         threshold = int(getAlarmThresholdTagValue(volumeTags, "alarm_threshold"))
+                        volumeThresholds[volumeId] = threshold
                         if(threshold != 100):   # No alarm if the value is set to 100.
                             alarmName = alarmPrefixVolume + volumeId
                             fsName = fsId.replace('fs-', 'FsxId')
@@ -566,6 +575,7 @@ def lambda_handler(event, context):
                                 add_volume_alarm(cwClient, volumeId, alarmName, alarmDescription, fsId, threshold, region)
 
                         threshold = int(getAlarmThresholdTagValue(volumeTags, "files_threshold"))
+                        volumeFileThresholds[volumeId] = threshold
                         if(threshold != 100):   # No alarm if the value is set to 100.
                             alarmName = alarmFilesPrefixVolume + volumeId
                             fsName = fsId.replace('fs-', 'FsxId')
@@ -578,18 +588,20 @@ def lambda_handler(event, context):
                 # Scan for volume alarms without volumes.
                 for alarm in alarms:
                     alarmName = alarm['AlarmName']
-                    if(alarmName[:len(alarmPrefixVolume)] == alarmPrefixVolume):
+                    if alarmName[:len(alarmPrefixVolume)] == alarmPrefixVolume:
                         volumeId = alarmName[len(alarmPrefixVolume):]
                         if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
-                           not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                            print("Deleting alarm: " + alarmName + " in region " + region)
+                           not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm) or
+                           volumeThresholds.get(volumeId) == 100):
+                            print(f"Deleting alarm: {alarmName} in region {region}")
                             delete_alarm(cwClient, alarmName)
 
-                    if(alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume):
+                    if alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume:
                         volumeId = alarmName[len(alarmFilesPrefixVolume):]
                         if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
-                           not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                            print("Deleting alarm: " + alarmName + " in region " + region)
+                           not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm) or
+                           volumeFileThresholds.get(volumeId) == 100):
+                            print(f"Deleting alarm: {alarmName} in region {region}")
                             delete_alarm(cwClient, alarmName)
 
             except botocore.exceptions.ClientError as e:
@@ -602,7 +614,6 @@ def lambda_handler(event, context):
             except botocore.exceptions.EndpointConnectionError as e:
                 print(f"Warning: Endpoint Connection fault while scanning {region}. Skipping")
                 continue
-
     return
 
 ################################################################################
