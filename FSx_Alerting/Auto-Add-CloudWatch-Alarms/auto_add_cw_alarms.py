@@ -554,7 +554,7 @@ def lambda_handler(event, context):
                             print("Deleting alarm: " + alarmName + " in region " + region)
                             delete_alarm(cwClient, alarmName)
                 #
-                # Scan for volumes without alarms.                
+                # Scan for volumes without alarms.
                 for volume in volumes:
                     if(volume['VolumeType'] == "ONTAP"):
                         volumeId = volume['VolumeId']
