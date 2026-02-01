@@ -1198,6 +1198,20 @@ def sendWebHook(message, severity):
         subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
         snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
 
+    if config.get("webhookEndpoint2") is not None:
+        try:
+            logger.debug(f'Sending webhook to {config["webhookEndpoint2"]} with these headers {headers} and the following data: {data}')
+            response = http.request('POST', config['webhookEndpoint2'], headers=headers, body=data, timeout=5)
+            if response.status == 200:
+                logger.info(f"Webhook sent successfully for {clusterName}.")
+            else:
+                logger.error(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}. This was on the behalf of cluster {clusterName}.")
+        except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
+            message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint2']} for cluster {clusterName}."
+            logger.critical(message)
+            subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
+            snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+
 ################################################################################
 # This function converts a severity string to a number value.
 ################################################################################
@@ -1837,6 +1851,7 @@ def readInConfig(event):
         "cloudWatchLogGroupArn": None,
         "awsAccountId": None,
         "webhookEndpoint": None,
+        "webhookEndpoint2": None,
         "webhookSeverity": "INFO",
         "webhookConfigFilename": None,
         "webhookSecretARN": None,
