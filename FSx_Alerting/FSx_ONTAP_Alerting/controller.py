@@ -41,7 +41,7 @@ def lambda_handler(event, context):
     # Check for required environment variables and store them in the payload variable.
     # Don't really need to send some of these to the monitoring function, but it
     # doesn't hurt to do so.
-    payload = {}
+    basePayload = {}
     for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName', 'snsTopicArn']:
         if os.environ.get(var) is None:
             err = f"Error, the Monitor ONTAP Service controller is missing a required environment variable {var}."
@@ -50,12 +50,12 @@ def lambda_handler(event, context):
                 snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
             raise Exception(err)  # This is a critical error, so send up a flare.
         else:
-            payload[var] = os.environ[var]
+            basePayload[var] = os.environ[var]
     #
     # Read the FSxN list from S3.
-    s3Client = boto3.client('s3', region_name=payload['s3BucketRegion'])
+    s3Client = boto3.client('s3', region_name=basePayload['s3BucketRegion'])
     try:
-        response = s3Client.get_object(Bucket=payload['s3BucketName'], Key=payload['FSxNList'])
+        response = s3Client.get_object(Bucket=basePayload['s3BucketName'], Key=basePayload['FSxNList'])
         FSxNListContent = response['Body'].read().decode('utf-8')
         FSxNList = FSxNListContent.split('\n')
     except botocore.exceptions.ClientError as e:
@@ -68,6 +68,7 @@ def lambda_handler(event, context):
     lambda_client = boto3.client('lambda')
     lineNum = 0
     for fsxn in FSxNList:
+        payload = basePayload.copy()
         lineNum += 1
         parts = [x.strip() for x in fsxn.split(',')]
         #

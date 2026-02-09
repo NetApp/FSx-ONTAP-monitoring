@@ -169,7 +169,7 @@ def checkSystem():
     # Get the cluster name, ONTAP version and timezone from the FSxN.
     # This is also a way to test that the FSxN cluster is accessible.
     badHTTPStatus = False
-    logger.info(f"Checking cluster {config['OntapAdminServer']}.")
+    logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
@@ -248,7 +248,7 @@ def checkSystemHealth(service):
             lkey = key.lower()
             if lkey == "versionchange":
                 if rule[key] and clusterVersion != fsxStatus["version"]:
-                    message = f'NOTICE: The ONTAP vesion changed on cluster {clusterName} from {fsxStatus["version"]} to {clusterVersion}.'
+                    message = f'NOTICE: The ONTAP version changed on cluster {clusterName} from {fsxStatus["version"]} to {clusterVersion}.'
                     sendAlert(message, "INFO")
                     fsxStatus["version"] = clusterVersion
                     changedEvents = True
