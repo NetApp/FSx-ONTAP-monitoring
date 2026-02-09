@@ -167,6 +167,7 @@ To install the program using Terraform, you will need to do the following:
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
 
 \* - Only required if you are deploying using the CloudFormation template.
+
 \*\* - Only required if you are deploying using Terraform.
 
 The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
