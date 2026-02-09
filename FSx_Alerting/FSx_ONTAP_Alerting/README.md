@@ -73,11 +73,12 @@ that you don't disable them.
     - A syslog server to receive event messages.
 
 ## Installation
-There are two ways to install this program. You can either perform all the steps shown in the
-[Manual Installation](#manual-installation) section below, or run the [CloudFormation template](cloudformation.yaml)
-that is provided in this repository. The manual installation is more involved, but it gives you
-more control and allows you to make changes to settings that aren't available through the CloudFormation template.
-The CloudFormation template is easier to use, but it doesn't allow for as much customization.
+There are three ways to install this program. You can either perform all the steps shown in the
+[Manual Installation](#manual-installation) section below, run the [CloudFormation template](cloudformation.yaml)
+that is provided in this repository, or deploy using Terraform using the Terraform configuration files found in
+the terraform directory. The manual installation is more involved, but it gives you
+most control and allows you to make changes to settings that aren't available with the other methods.
+The CloudFormation and Terraform are  easier to use since you only need to provide a few parameters.
 
 ### Installation using the CloudFormation template
 The CloudFormation template will do the following:
@@ -106,33 +107,47 @@ To install the program using the CloudFormation template, you will need to do th
 4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 1.
 5. This should bring up a new window with several parameters to provide values to. Most have
     defaults, but some do require values to be provided. See the list below for what each parameter is for.
+6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
+    provide tags for the stack. Any tags specified here will be applied to all resources that are created that
+    support tags. Tags are optional and can be left blank. There are other configuration parameters you can
+    change here, but typically you can leave them as defaults. Click on the "Next" button.
+7. The final page will allow you to review all configuration parameters you provided.
+    If everything looks good, click on the "Create stack" button.
 
-|Parameter Name | Notes|
-|---|---|
-|Stackname|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
-|S3BucketName|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
-|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
-|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
-|SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the FSxN file systems you want to monitor.|
-|SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
-|CloudWatchLogGroupARN|*Optional* The ARN of **an existing** CloudWatch Log Group that the Lambda function can send event messages to. It will create a new Log Stream within the Log Group every day for each file system. If this field is left blank, alerts will not be sent to CloudWatch.|
-|SecretArnPattern|The ARN pattern of the SecretsManager secrets that holds the FSxN file system credentials for all the FSxNs you want to monitor.|
-|CheckInterval|The interval, in minutes, that the EventBridge schedule will trigger the controller Lambda function. The default is 15 minutes.|
-|CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
-|ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
-|WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
-|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Controller program](#create-an-aws-role-for-the-controller-program) section below. If left blank a role will be created for you.|
-|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below. If left blank a role will be created for you.|
-|lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda\_layer.zip found in your S3 bucket.|
-|maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
-|memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your FSxN file system.|
-|CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
-|CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
-|CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
-|CreateS3Endpoint|Set to "true" if you want to create an S3 endpoint. **NOTE:** If a S3 Gateway Endpoint already exist for the specified VPC the endpoint creation will fail, causing the entire CloudFormation stack to fail. Note that this will be a "Gateway" type endpoint, since they are free to use. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
-|RoutetableIds|The route table IDs to update to use the S3 endpoint. Since the S3 endpoint is of type `Gateway` route tables have to be updated to use it. This parameter is only needed if you are creating an S3 endpoint.|
-|VpcId|The ID of a VPC where the subnets provided above are located. Required if you are creating an endpoint, not needed otherwise.|
-|EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
+### Installation using Terraform
+1. Copy all the files in this folder to your local machine.
+2. Change into the 'terraform directory'. Note that the Terraform configuration files are setup expecting the source files to the Lambda functions in the folder above it. So, if you need to change the location of the source files, you'll need to update the Terraform configuration files accordingly.
+3. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. See the list below for what each parameter is for.
+4. Run `terraform init` to initialize the Terraform working directory.
+5. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
+
+
+|Parameter Name | Needed by Deployment Tool |Notes|
+|---|---|---|
+|Stackname|ClouFormaiton|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
+|Region|Terraform|The AWS region where you want to deploy the program.|
+|S3BucketName|Both|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
+|FSxNListFilename|Both|The name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
+|SubnetIds|Both|The subnet IDs that the monitoring Lambda function will run from. They must have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
+|SecurityGroupIds|Both|The security group IDs that the monitoring Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the FSxN file systems you want to monitor.|
+|SnsTopicArn|Both|The ARN of the SNS topic you want the program to publish alert messages to.|
+|SecretArnPattern|Both|The ARN pattern of the SecretsManager secrets that holds the FSxN file system credentials for all the FSxNs you want to monitor.|
+|CheckInterval|Both|The interval, in minutes, that the EventBridge schedule will trigger the controller Lambda function. The default is 15 minutes.|
+|CreateCloudWatchAlarm|Both|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
+|ImplementWatchdogAsLambda|Both|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
+|WatchdogRoleArn|Both|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
+|ControllerRoleArn|Both|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Controller program](#create-an-aws-role-for-the-controller-program) section below. If left blank a role will be created for you.|
+|MonitoringRoleArn|Both|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below. If left blank a role will be created for you.|
+|lambdaLayerArn|Both|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda\_layer.zip found in your S3 bucket.|
+|maxRunTime|Both|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
+|memorySize|Both|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your FSxN file system.|
+|CreateSecretsManagerEndpoint|Both|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateSNSEndpoint|Both|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateCWEndpoint|Both|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|CreateS3Endpoint|Both|Set to "true" if you want to create an S3 endpoint. **NOTE:** If a S3 Gateway Endpoint already exist for the specified VPC the endpoint creation will fail, causing the entire CloudFormation stack to fail. Note that this will be a "Gateway" type endpoint, since they are free to use. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
+|RoutetableIds|Both|The route table IDs to update to use the S3 endpoint. Since the S3 endpoint is of type `Gateway` route tables have to be updated to use it. This parameter is only needed if you are creating an S3 endpoint.|
+|VpcId|Both|The ID of a VPC where the subnets provided above are located. Required if you are creating an endpoint, not needed otherwise.|
+|EndpointSecurityGroupIds|Both|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
 
 The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
 You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have reasonable default values
@@ -142,13 +157,6 @@ matching conditions at any time by updating the matching conditions file that is
 The default name of the conditions file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
 set for the OntapAdminServer parameter in the FSxNList file.
 
-6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
-    provide tags for the stack. Any tags specified here will be applied to all resources that are created that
-    support tags. Tags are optional and can be left blank. There are other configuration parameters you can
-    change here, but typically you can leave them as defaults. Click on the "Next" button.
-
-7. The final page will allow you to review all configuration parameters you provided.
-    If everything looks good, click on the "Create stack" button.
 
 ### Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is

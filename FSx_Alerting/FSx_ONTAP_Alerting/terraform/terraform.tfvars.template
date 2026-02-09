@@ -1,0 +1,6 @@
+region="us-west-2"
+s3BucketName=""
+subNetIds=[""]
+securityGroupIds=[""]
+snsTopicArn=""
+implementWatchdogAsLambda=false
