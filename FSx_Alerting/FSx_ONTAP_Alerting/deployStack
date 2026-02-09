@@ -78,10 +78,11 @@ for var in FSxNListFilename bucket subnets securityGroup snsTopicArn; do
     missingArgs="true"
   fi
 done
-
+#
+# Since Cloudforamtion doesn't treats an empty string as a parameter not being provided,
+# need to provide the default value.
 if [ -z "$secretArnPattern" -a -z "$monitoringRoleArn" ]; then
-  echo "Error: If not providing a monitoring role via the -r option, you must provide the secretArnPattern option." >&2
-  missingArgs="true"
+  secretArnPatternParameter="arn:aws:secretsmanager:*:*:secret:FSxSecret*"
 fi
 
 if [ "$missingArgs" == "true" ]; then
@@ -147,4 +148,5 @@ aws cloudformation create-stack --region $region --stack-name $stackName --templ
   ParameterKey=monitoringRoleArn,ParameterValue="$monitoringRoleArn" \
   ParameterKey=controllerRoleArn,ParameterValue="$controllerRoleArn" \
   ParameterKey=maxRunTime,ParameterValue="$maxRunTime" \
-  ParameterKey=memorySize,ParameterValue="$memorySize"
+  ParameterKey=memorySize,ParameterValue="$memorySize" \
+  ParameterKey=secretArnPattern,ParameterValue="$secretArnPattern"

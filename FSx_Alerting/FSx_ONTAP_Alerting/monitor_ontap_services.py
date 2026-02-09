@@ -169,7 +169,7 @@ def checkSystem():
     # Get the cluster name, ONTAP version and timezone from the FSxN.
     # This is also a way to test that the FSxN cluster is accessible.
     badHTTPStatus = False
-    logger.info(f"Checking cluster {config['OntapAdminServer']}.")
+    logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
@@ -248,7 +248,7 @@ def checkSystemHealth(service):
             lkey = key.lower()
             if lkey == "versionchange":
                 if rule[key] and clusterVersion != fsxStatus["version"]:
-                    message = f'NOTICE: The ONTAP vesion changed on cluster {clusterName} from {fsxStatus["version"]} to {clusterVersion}.'
+                    message = f'NOTICE: The ONTAP version changed on cluster {clusterName} from {fsxStatus["version"]} to {clusterVersion}.'
                     sendAlert(message, "INFO")
                     fsxStatus["version"] = clusterVersion
                     changedEvents = True
@@ -1882,7 +1882,6 @@ def readInConfig(event):
     #
     # Get the config values from the environment, or the event, if the evironmnet
     # has a non-none value. Otherwise, preserve the default value set above.
-    logger.debug("Being called from a Lambda function." if event.get('OntapAdminServer') is not None else "Being called from a timer or standalone.")
     for var in config:
         if event.get('OntapAdminServer') is None:  # If running "standalone" or from a timer
             if os.environ.get(var) is not None:
@@ -1989,7 +1988,7 @@ def lambda_handler(event, context):
     logging.basicConfig()
     logger = logging.getLogger("MOS_Monitoring")
     if lambdaFunction:
-        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
+        logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
     else: # Assume we are running in a test environment.
         logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
         formatter = logging.Formatter(
