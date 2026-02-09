@@ -76,9 +76,9 @@ that you don't disable them.
 There are three ways to install this program. You can either perform all the steps shown in the
 [Manual Installation](#manual-installation) section below, run the [CloudFormation template](cloudformation.yaml)
 that is provided in this repository, or deploy using Terraform using the Terraform configuration files found in
-the terraform directory. The manual installation is more involved, but it gives you
+the [terraform](terraform) directory. The manual installation is more involved, but it gives you
 most control and allows you to make changes to settings that aren't available with the other methods.
-The CloudFormation and Terraform are  easier to use since you only need to provide a few parameters.
+The CloudFormation and Terraform are easier to use since you only need to provide a few parameters.
 
 ### Installation using the CloudFormation template
 The CloudFormation template will do the following:
@@ -115,16 +115,33 @@ To install the program using the CloudFormation template, you will need to do th
     If everything looks good, click on the "Create stack" button.
 
 ### Installation using Terraform
+Deploying with Terraform will do the following:
+- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create two Lambda functions with the Python code provided in this repository.
+- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
+    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
+- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
+    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
+    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
+- Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+
+To install the program using Terraform, you will need to do the following:
+1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
 1. Copy all the files in this folder to your local machine.
-2. Change into the 'terraform directory'. Note that the Terraform configuration files are setup expecting the source files to the Lambda functions in the folder above it. So, if you need to change the location of the source files, you'll need to update the Terraform configuration files accordingly.
-3. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. See the list below for what each parameter is for.
-4. Run `terraform init` to initialize the Terraform working directory.
-5. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
+1. Change into the `terraform` directory. Note that the Terraform configuration files are setup expecting the source files to the Lambda functions in the folder above it. If you need to change the location of the source files, you'll need to update the Terraform configuration files accordingly.
+1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. See the list below for what each parameter is for.
+1. Run `terraform init` to initialize the Terraform working directory.
+1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 
 
 |Parameter Name | Needed by Deployment Tool |Notes|
 |---|---|---|
-|Stackname|ClouFormaiton|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
+|Stackname|CloudFormation|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
 |Region|Terraform|The AWS region where you want to deploy the program.|
 |S3BucketName|Both|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
 |FSxNListFilename|Both|The name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
