@@ -168,7 +168,7 @@ variable "snapMirrorLagTimeAlert" {
 }
 
 variable "snapMirrorLagTimePercentAlert" {
-    description = "Alert when the last succesful SnapMirror update time is more than this percent of the amount of time since the last scheduled update. Must be more than 100. A value of 200 means 2 times the update interval. Set to 0 to disable this alert."
+    description = "Alert when the last successful SnapMirror update time is more than this percent of the amount of time since the last scheduled update. Must be more than 100. A value of 200 means 2 times the update interval. Set to 0 to disable this alert."
     type        = number
     default     = 200
 }

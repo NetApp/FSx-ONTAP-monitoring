@@ -1,6 +1,6 @@
 ################################################################################
 # This file creates the VPC endpoints for the services that are required by
-# Monitor ONTAP Services program.the EKS cluster. The
+# Monitor ONTAP Services program.
 ################################################################################
 
 resource "aws_vpc_endpoint" "secrets_manager_endpoint" {

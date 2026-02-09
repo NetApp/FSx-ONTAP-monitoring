@@ -92,7 +92,7 @@ resource "aws_iam_role_policy_attachment" "lambda_basic_execution_role_watchdog"
 }
 #
 # This is the source code to the Lambda function that will publish to the SNS topic
-# in aother region.
+# in another region.
 data "archive_file" "watchdog_lambda_function_source" {
   count = var.implementWatchdogAsLambda ? 1 : 0
   type        = "zip"

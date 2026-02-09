@@ -56,7 +56,7 @@ resource "aws_iam_role_policy" "controller_policy" {
         ]
         Resource = [
           var.snsTopicArn,
-          resource.aws_lambda_function.monitor_ontap_services_lambda_function.arn,
+          aws_lambda_function.monitor_ontap_services_lambda_function.arn,
           "arn:aws:s3:::${var.s3BucketName}/*"
         ]
       }
@@ -112,11 +112,11 @@ resource "aws_lambda_function" "controller_lambda_function" {
 
   environment {
     variables = {
-      s3BucketRegion = var.region
-      s3BucketName   = var.s3BucketName
-      FSxNList      = var.FSxNListFilename
-      snsTopicArn   = var.snsTopicArn
-      MOSLambdaFunctionName: aws_lambda_function.monitor_ontap_services_lambda_function.function_name
+      s3BucketRegion        = var.region
+      s3BucketName          = var.s3BucketName
+      FSxNList              = var.FSxNListFilename
+      snsTopicArn           = var.snsTopicArn
+      MOSLambdaFunctionName = aws_lambda_function.monitor_ontap_services_lambda_function.function_name
 
       initialVersionChangeAlert = var.versionChangeAlert
       initialFailoverAlert = var.failoverAlert
@@ -173,7 +173,7 @@ resource "aws_iam_role_policy" "monitoring_lambda_policy" {
       {
         Effect = "Allow"
         Action = [
-          "secretsManager:GetSecretValue",
+          "secretsmanager:GetSecretValue",
           "sns:Publish",
           "s3:GetObject",
           "s3:PutObject",
