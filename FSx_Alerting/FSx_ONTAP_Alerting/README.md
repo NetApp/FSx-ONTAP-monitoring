@@ -106,7 +106,7 @@ To install the program using the CloudFormation template, you will need to do th
     - Make sure the correct region is selected in the top right corner of the page.
 4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 1.
 5. This should bring up a new window with several parameters to provide values to. Most have
-    defaults, but some do require values to be provided. See the list below for what each parameter is for.
+    defaults, but some do require values to be provided. See the [Configuration Parameters](#configuration_parameters) section below for what each parameter is for.
 6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
     provide tags for the stack. Any tags specified here will be applied to all resources that are created that
     support tags. Tags are optional and can be left blank. There are other configuration parameters you can
@@ -134,11 +134,11 @@ To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
 1. Copy all the files in this folder to your local machine.
 1. Change into the `terraform` directory. Note that the Terraform configuration files are setup expecting the source files to the Lambda functions in the folder above it. If you need to change the location of the source files, you'll need to update the Terraform configuration files accordingly.
-1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. See the list below for what each parameter is for.
+1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. See the [Configuration Parameters](#configuration_parameters) section list below for what each parameter is for.
 1. Run `terraform init` to initialize the Terraform working directory.
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 
-
+### Configuration Parameters
 |Parameter Name | Needed by Deployment Tool |Notes|
 |---|---|---|
 |Stackname|CloudFormation|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
