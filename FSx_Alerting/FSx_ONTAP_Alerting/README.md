@@ -134,7 +134,7 @@ To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
 1. Copy all the files in this folder to your local machine.
 1. Change into the `terraform` directory. Note that the Terraform configuration files are setup expecting the source files to the Lambda functions in the folder above it. If you need to change the location of the source files, you'll need to update the Terraform configuration files accordingly.
-1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. See the [Configuration Parameters](#configuration-parameters) section list below for what each parameter is for.
+1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. The `terraform.tfvars.template` file only has the required parameters in it. To see a complete list of variables refer to either the `vars.tf` file, or the [Configuration Parameters](#configuration-parameters) section list below.
 1. Run `terraform init` to initialize the Terraform working directory.
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 
