@@ -69,9 +69,9 @@ resource "aws_iam_role" "lambda_role_watchdog" {
   })
 }
 resource "aws_iam_role_policy" "lambda_policy_watchdog" {
-  count =  var.createWatchdogAlarm && var.implementWatchdogAsLambda && var.watchdogRoleArn == "" ? 1 : 0
-  name = "LambdaPolicyWatchdog"
-  role = aws_iam_role.lambda_role_watchdog[0].id
+  count  = var.createWatchdogAlarm && var.implementWatchdogAsLambda && var.watchdogRoleArn == "" ? 1 : 0
+  name   = "LambdaPolicyWatchdog"
+  role   = aws_iam_role.lambda_role_watchdog[0].id
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -86,7 +86,7 @@ resource "aws_iam_role_policy" "lambda_policy_watchdog" {
   })
 }
 resource "aws_iam_role_policy_attachment" "lambda_basic_execution_role_watchdog" {
-  count      = var.implementWatchdogAsLambda && var.watchdogRoleArn == "" ? 1 : 0
+  count      = var.createWatchdogAlarm && var.implementWatchdogAsLambda && var.watchdogRoleArn == "" ? 1 : 0
   role       = aws_iam_role.lambda_role_watchdog[0].name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
@@ -106,11 +106,16 @@ data "archive_file" "watchdog_lambda_function_source" {
           snsTopicArn = os.environ.get('snsTopicArn')
           if snsTopicArn is not None:
               snsClient = boto3.client('sns', region_name=snsTopicArn.split(":")[3])
-              snsClient.publish(
-                  TopicArn = snsTopicArn,
-                  Subject  = 'Error! Monitoring ONTAP services has failed to execute',
-                  Message  = f'Error! Lambda function {event["alarmData"]["alarmName"].replace("-watchdog-", "")} failed to execute properly.'
-              )
+              if 'alarmData' in event and 'alarmName' in event['alarmData']:
+                  snsClient.publish(
+                      TopicArn = snsTopicArn,
+                      Subject  = 'Error! Monitoring ONTAP services has failed to execute',
+                      Message  = f'Error! Lambda function {event["alarmData"]["alarmName"].replace("-watchdog-", "")} failed to execute properly.'
+                  )
+              else:
+                  print(f"Error: No alarm data found in the event.\nEvent data: {event}")
+          else:
+              print("Error: snsTopicArn environment variable is not set.")
     EOF
     filename = "index.py"
   }
@@ -133,7 +138,7 @@ resource "aws_lambda_function" "watchdog_lambda_function" {
 }
 #
 # These two resources allow the monitoring and controller CloudWatch "watchdog" alarms to invoke the proxy Lambda function.
-resource "aws_lambda_permission" "resource_based_permission-monitoring" {
+resource "aws_lambda_permission" "resource_based_permission_monitoring" {
   count = var.createWatchdogAlarm && var.implementWatchdogAsLambda ? 1 : 0
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.watchdog_lambda_function[0].function_name

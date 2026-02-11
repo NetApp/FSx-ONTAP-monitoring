@@ -126,7 +126,7 @@ variable "createS3Endpoint" {
 }
 
 variable "routeTableIds" {
-    description = "The route table IDs, comma separated, to update to use the S3 endpoint. Since the S3 endpoint is of type 'Gateway' route tables have to be updated to use it. This parameter is only needed if createS3Endpoint is set to 'true'."
+    description = "The route table IDs to update to use the S3 endpoint. Since the S3 endpoint is of type 'Gateway' route tables have to be updated to use it. This parameter is only needed if createS3Endpoint is set to 'true'."
     type        = list(string)
     default     = []
 }
@@ -138,7 +138,7 @@ variable "vpcId" {
 }
 
 variable "endpointSecurityGroupIds" {
-    description = "The security group IDs, comma separated list, to associate with the SNS, SecretsManager and/or CloudWatch Logs endpoints. Must allow inbound traffic from from the Lambda function over TCP port 443. This parameter is only needed if you are creating the SNS, SecretsManager, or CloudWatch Logs endpoint."
+    description = "The security group IDs to associate with the SNS, SecretsManager and/or CloudWatch Logs endpoints. Must allow inbound traffic from from the Lambda function over TCP port 443. This parameter is only needed if you are creating the SNS, SecretsManager, or CloudWatch Logs endpoint."
     type        = list(string)
     default     = []
 }

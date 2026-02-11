@@ -22,7 +22,7 @@ resource "random_integer" "unique_id" {
   max = 999999
 }
 #
-# This is the role and polies that will be assigned to the controller Lambda
+# This is the role and policies that will be assigned to the controller Lambda
 # function if the user doesn't provide a role ARN.
 resource "aws_iam_role" "controller_role" {
   count = var.controllerRoleArn == "" ? 1 : 0
