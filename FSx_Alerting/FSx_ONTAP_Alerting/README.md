@@ -67,18 +67,19 @@ that you don't disable them.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnet you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
 - An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret(s) that holds the FSx for ONTAP file system credentials. There should be two keys in each secret, one for the username and one for the password.
-- Create an object (file) within the S3 bucket that contains the list of FSxNs you want to monitor. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below.
+- Create an object (file) within the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want. You'll specify it when you deploy the solution. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below.
 - Optionally:
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
 ## Installation
 There are three ways to install this program. You can either perform all the steps shown in the
-[Manual Installation](#manual-installation) section below, run the [CloudFormation template](cloudformation.yaml)
-that is provided in this repository, or deploy using Terraform using the Terraform configuration files found in
-the [terraform](terraform) directory. The manual installation is more involved, but it gives you
-most control and allows you to make changes to settings that aren't available with the other methods.
-The CloudFormation and Terraform are easier to use since you only need to provide a few parameters.
+[Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
+the [CloudFormation template](cloudformation.yaml) file that is provided in this repository,
+or deploy using Terraform using the Terraform configuration files found in the [terraform](terraform)
+directory. The manual installation is more involved, but it gives you most control and allows you to
+make changes to settings that aren't available with the other methods. The CloudFormation and
+Terraform are easier to use since you only need to provide a few parameters.
 
 ### Installation using the CloudFormation template
 The CloudFormation template will do the following:
@@ -106,11 +107,15 @@ To install the program using the CloudFormation template, you will need to do th
     - Make sure the correct region is selected in the top right corner of the page.
 4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 1.
 5. This should bring up a new window with several parameters to provide values to. Most have
-    defaults, but some do require values to be provided. See the [Configuration Parameters](#configuration-parameters) section below for what each parameter is for.
+    defaults, but some do require values to be provided. See the [Deployment Configuration Parameters](#deployment-configuration-parameters) section below for what each parameter is for.
 6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
     provide tags for the stack. Any tags specified here will be applied to all resources that are created that
     support tags. Tags are optional and can be left blank. There are other configuration parameters you can
-    change here, but typically you can leave them as defaults. Click on the "Next" button.
+    change here, but typically you can leave them as defaults. At the bottom of the page there will be one check box
+    that you'll need to click on, and that is to acknowledge that the template might create an IAM resources (e.g. role).
+    If you have provided role ARNs for the roles that are required on the parameters page, then roles will not be
+    created. Of course if you don't provide role ARNs, it will attempt to create them. Once you
+    clicked on the confirmation check box click the "Next" button.
 7. The final page will allow you to review all configuration parameters you provided.
     If everything looks good, click on the "Create stack" button.
 
@@ -133,12 +138,17 @@ Deploying with Terraform will do the following:
 To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
 1. Copy all the files in this folder to your local machine.
-1. Change into the `terraform` directory. Note that the Terraform configuration files are setup expecting the source files to the Lambda functions in the folder above it. If you need to change the location of the source files, you'll need to update the Terraform configuration files accordingly.
-1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to match your environment. The `terraform.tfvars.template` file only has the required parameters in it. To see a complete list of variables refer to either the `vars.tf` file, or the [Configuration Parameters](#configuration-parameters) section list below.
+1. Change into the `terraform` directory. Note that the Terraform configuration files are setup expecting
+    the source files to the Lambda functions in the folder above it. If you need to change the location of
+    the source files, you'll need to update the Terraform configuration files accordingly.
+1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to
+    match your environment. The `terraform.tfvars.template` file only has the required parameters in it.
+    To see a complete list of variables refer to either the `vars.tf` file, or the
+    [Deployment Configuration Parameters](#deployment-configuration-parameters) section list below.
 1. Run `terraform init` to initialize the Terraform working directory.
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 
-### Configuration Parameters
+### Deployment Configuration Parameters
 |Parameter Name |Notes|
 |---|---|
 |Stackname\*|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
@@ -270,7 +280,11 @@ The format of the file is as follows:
 <OntapAdminServer2>,<SecretArn2>,<param1>=<value1>,<param2>=<value2>,...
 ...
 ```
-The params can be any of the configuration parameters listed in the [Configuration Parameters](#configuration-parameters) section below.
+Where:
+- `<OntapAdminServer>` is the full qualified hostname, or IP address, of the FSxN file system management endpoint you want to monitor.
+- `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the FSxN file system.
+- `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
+    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
 
 #### Create an SNS Topic
 Since the way this program sends alerts is via an SNS topic, you need to either create SNS topic, or use an
@@ -432,14 +446,17 @@ The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` s
 put `0.5` in the text box. This will set the alarm to trigger if there are any errors. Do this for both the controller and monitoring
 Lambda functions.
 
-### Configuration Parameters
-Below is a list of parameters for the Monitoring Lambda function that are used to configure it. Some parameters are required to be set
+### Monitoring Configuration Parameters
+Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
 while others are optional. Some of the optional ones are still required to be set to something but
-if they are not, a usable default value will be assumed. Instead of passing all these parameters
-via the FSxN\_List file, you can create a configuration file that contains the parameter assignments.
-The assignments should be of the form "parameter=value". The default filename for the configuration
-file is what you set the OntapAdminServer variable to plus the string "-config". If you want to use a different
-filename, then set the configFilename parameter to the name of your choosing.
+if they are not, a usable default value will be assumed.
+
+Instead of passing all these parameters via the FSxN\_List file, you can create a configuration
+file that contains the parameter assignments and then use the `configFilename` parameter in the FSxN\_List file to specify that file.
+The assignments in the configuraiton file should be of the form "parameter=value". The default filename for the configuration
+file is what you set OntapAdminServer to in the FSxN\_List file plus the string "-config". If you want to use a different
+filename, say a common file for all or most of the file systems, set the configFilename parameter to the name of your choosing.
+The file must be in the S3 bucket in order for the monitoring program to access it.
 
 :warning: **NOTE:** Parameter names are case sensitive. 
 
