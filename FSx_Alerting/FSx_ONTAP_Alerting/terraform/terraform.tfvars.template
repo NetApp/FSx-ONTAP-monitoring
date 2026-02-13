@@ -1,0 +1,6 @@
+region=""
+s3BucketName=""
+subNetIds=[""]
+securityGroupIds=[""]
+snsTopicArn=""
+FSxNListFilename="FSxNList"
