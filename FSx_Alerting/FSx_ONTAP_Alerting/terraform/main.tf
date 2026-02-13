@@ -53,12 +53,12 @@ resource "aws_iam_role_policy" "controller_policy" {
           "lambda:InvokeFunction",
           "s3:GetObject",
           "s3:ListBucket",
-          "sns:Publish",
+          "sns:Publish"
         ]
         Resource = [
           var.snsTopicArn,
           aws_lambda_function.monitor_ontap_services_lambda_function.arn,
-          "arn:aws:s3:::${var.s3BucketName}"
+          "arn:aws:s3:::${var.s3BucketName}",
           "arn:aws:s3:::${var.s3BucketName}/*"
         ]
       }
