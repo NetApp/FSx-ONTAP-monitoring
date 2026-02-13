@@ -64,10 +64,10 @@ that you don't disable them.
 - One, or more, FSx for NetApp ONTAP file system you want to monitor.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
     - **IMPORTANT** You must download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`. It contains some of the utilities that monitoring program depends on.
-- The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnet you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
+- The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnets you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
 - An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret(s) that holds the FSx for ONTAP file system credentials. There should be two keys in each secret, one for the username and one for the password.
-- Create an object (file) within the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want. You'll specify it when you deploy the solution. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below.
+- Create an object (file) in the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
@@ -137,10 +137,12 @@ Deploying with Terraform will do the following:
 
 To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
-1. Copy all the files in this folder to your local machine.
-1. Change into the `terraform` directory. Note that the Terraform configuration files are setup expecting
-    the source files to the Lambda functions in the folder above it. If you need to change the location of
-    the source files, you'll need to update the Terraform configuration files accordingly.
+1. Copy all the files in this folder to your local machine. The easiest way to do that is to simply "clone" the repository with a `git clone https://github.com/NetApp/FSx-ONTAP-monitoring/` command.
+1. Change into the `terraform` directory. If you cloned the entire repository use `cd FSx-ONTAP-monitoring/FSx_Alerting/FSx_ONTAP_Alerting/terraform`.
+    Note that the Terraform configuration files are setup expecting
+    the Lambda source files (`mon_ontap_services.py` and `controller.py`) to be in the folder above it.
+    If you need to change the location of the source files, you'll need to update the Terraform configuration
+    files accordingly.
 1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to
     match your environment. The `terraform.tfvars.template` file only has the required parameters in it.
     To see a complete list of variables refer to either the `vars.tf` file, or the
@@ -155,7 +157,7 @@ To install the program using Terraform, you will need to do the following:
 |Region\*\*|The AWS region where you want to deploy the program.|
 |S3BucketName|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
 |FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
-|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
+|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
 |SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the FSxN file systems you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
 |SecretArnPattern|The ARN pattern of the SecretsManager secrets that holds the FSxN file system credentials for all the FSxNs you want to monitor.|
@@ -285,6 +287,17 @@ Where:
 - `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the FSxN file system.
 - `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
     The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
+    **Do not** put double quotes around the values.
+
+An exmaple FSxNList file:
+```
+#
+# dr:
+10.100.12.89,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-dr-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+#
+# prod
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+```
 
 #### Create an SNS Topic
 Since the way this program sends alerts is via an SNS topic, you need to either create SNS topic, or use an
