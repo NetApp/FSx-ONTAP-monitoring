@@ -37,12 +37,14 @@ import boto3
 import hashlib
 import base64
 
-eventResilience = 4 # Times an event has to be missing before it is removed
+emsEventResilience = 200 # Times an ems event has to be missing before it is removed
+                         # from the alert history.
+                         # This was added since the Ontap API that returns EMS
+                         # events would often drop some events and then including
+                         # them in the subsequent calls. If I don't "age" the
+                         # alert history duplicate alerts will be sent.
+eventResilience = 4 # Times a non-ems event has to be missing before it is removed
                     # from the alert history.
-                    # This was added since the Ontap API that returns EMS
-                    # events would often drop some events and then including
-                    # them in the subsequent calls. If I don't "age" the
-                    # alert history duplicate alerts will be sent.
 initialVersion = "Initial Run"  # The version to store if this is the first
                                 # time the program has been run against a
                                 # FSxN.
@@ -169,7 +171,7 @@ def checkSystem():
     # Get the cluster name, ONTAP version and timezone from the FSxN.
     # This is also a way to test that the FSxN cluster is accessible.
     badHTTPStatus = False
-    logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}")
+    logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}.")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
@@ -402,7 +404,7 @@ def processEMSEvents(service):
                             "time": record["time"],
                             "messageName": record["message"]["name"],
                             "message": record["log_message"],
-                            "refresh": eventResilience
+                            "refresh": emsEventResilience
                             }
                     events.append(event)
                 else:
@@ -410,9 +412,9 @@ def processEMSEvents(service):
                     # If the event was found, reset the refresh count. If it is just one less
                     # than the max, then it means it was decremented above so there wasn't
                     # really a change in state.
-                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                    if events[eventIndex]["refresh"] != (emsEventResilience - 1):
                         changedEvents = True
-                    events[eventIndex]["refresh"] = eventResilience
+                    events[eventIndex]["refresh"] = emsEventResilience
     #
     # Now that we have processed all the events, check to see if any events should be deleted.
     i = len(events) - 1
@@ -423,7 +425,7 @@ def processEMSEvents(service):
             changedEvents = True
         else:
             # If an event wasn't refreshed, then we need to save the new refresh count.
-            if events[i]["refresh"] != eventResilience:
+            if events[i]["refresh"] != emsEventResilience:
                 changedEvents = True
         i -= 1
     #
