@@ -16,7 +16,7 @@ Usage: $(basename $0) [-R Region>] -b <s3Bucket> -F <FSxNListFilename> -s <subne
     -s <subnets> Comma-separated list of subnet IDs (not ARNs).
     -g <securityGroup> The security group ID to use (not ARN). Just needs to allow outbound over TCP port 443.
     -t <snsTopicArn> The ARN of the SNS topic for notifications.
-    -a <secretArnPattern> An ARN pattern that will match all the secrets manager secrets that the monitoring function will use to authenticate to FSxNs with. Required if you are not providing a monitoring role.
+    -a <secretArnPattern> An ARN pattern that will match all the secrets manager secrets that the monitoring function will use to authenticate to FSxNs with. Required if you are not providing a monitoring role. defaults to "arn:aws:secretsmanager:*:*:secret:FSxSecret*".
     -v <checkInterval> The interval in minutes to check the ONTAP system (optional, the default is 15 minutes).
     -w <true|false> Create CloudWatch watchdog alarms (optional, default is true).
     -r <monitoringRoleArn> The ARN of the role to use for the Monitoring Lambda function (optional).
@@ -78,10 +78,11 @@ for var in FSxNListFilename bucket subnets securityGroup snsTopicArn; do
     missingArgs="true"
   fi
 done
-
+#
+# Since Cloudforamtion doesn't treat an empty string as a parameter not being provided,
+# need to provide the default value.
 if [ -z "$secretArnPattern" -a -z "$monitoringRoleArn" ]; then
-  echo "Error: If not providing a monitoring role via the -r option, you must provide the secretArnPattern option." >&2
-  missingArgs="true"
+  secretArnPattern="arn:aws:secretsmanager:*:*:secret:FSxSecret*"
 fi
 
 if [ "$missingArgs" == "true" ]; then
@@ -147,4 +148,5 @@ aws cloudformation create-stack --region $region --stack-name $stackName --templ
   ParameterKey=monitoringRoleArn,ParameterValue="$monitoringRoleArn" \
   ParameterKey=controllerRoleArn,ParameterValue="$controllerRoleArn" \
   ParameterKey=maxRunTime,ParameterValue="$maxRunTime" \
-  ParameterKey=memorySize,ParameterValue="$memorySize"
+  ParameterKey=memorySize,ParameterValue="$memorySize" \
+  ParameterKey=secretArnPattern,ParameterValue="$secretArnPattern"
