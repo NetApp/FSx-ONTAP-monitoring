@@ -160,7 +160,8 @@ def checkSystem():
                 "systemHealth": 0,
                 "version" : initialVersion,
                 "numberNodes" : 2,
-                "downInterfaces" : []
+                "downInterfaces" : [],
+                "downNodes": []
             }
             changedEvents = True
         else:
@@ -171,7 +172,7 @@ def checkSystem():
     # Get the cluster name, ONTAP version and timezone from the FSxN.
     # This is also a way to test that the FSxN cluster is accessible.
     badHTTPStatus = False
-    logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}")
+    logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}.")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
         response = http.request('GET', endpoint, headers=headers, timeout=5.0)
@@ -259,20 +260,77 @@ def checkSystemHealth(service):
                 # Check that both nodes are available.
                 # Using the CLI passthrough API because I couldn't find the equivalent API call.
                 if rule[key]:
-                    endpoint = f'https://{config["OntapAdminServer"]}/api/private/cli/system/node/virtual-machine/instance/show-settings'
+                    endpoint = f'https://{config["OntapAdminServer"]}/api/cluster/nodes?fields=state'
                     response = http.request('GET', endpoint, headers=headers)
                     if response.status == 200:
-                        data = json.loads(response.data)
-                        if data["num_records"] != fsxStatus["numberNodes"]:
-                            message = f'Alert: The number of nodes in cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.\nNote, this is likely a planned failover event to upgrade the O/S, or to change the throughput capacity.'
-                            sendAlert(message, "INFO")
-                            fsxStatus["numberNodes"] = data["num_records"]
+                        #
+                        # For backwards compatibility with the previous version of the fsxStatus structure, if the "downNodes" key doesn't exist, add it.
+                        if fsxStatus.get("downNodes") is not None:
+                            for node in fsxStatus["downNodes"]:
+                                node["refresh"] -= 1
+                        else:
+                            fsxStatus["downNodes"] = []
                             changedEvents = True
+
+                        data = json.loads(response.data)
+                        if data["num_records"] != 0:
+                            #
+                            # The numberNodes field isn't used for non-FSxN clusters, but it would be confusing if it wasn't correct, so update it if it is wrong.
+                            if fsxStatus["numberNodes"] != data["num_records"]:
+                                fsxStatus["numberNodes"] = data["num_records"]
+                                changedEvents = True
+                            for node in data["records"]:
+                                if node.get("state") != "up":
+                                    uniqueIdentifier = node["name"]
+                                    eventIndex = eventExist(fsxStatus["downNodes"], uniqueIdentifier)
+                                    if eventIndex < 0:
+                                        message = f'Alert: Node {node["name"]} on cluster {clusterName} state is not "up".'
+                                        sendAlert(message, "INFO")  # This is an INFO since it is likely caused by a planned event like an O/S upgrade.
+                                        event = {
+                                            "index": uniqueIdentifier,
+                                            "refresh": eventResilience
+                                        }
+                                        fsxStatus["downNodes"].append(event)
+                                        changedEvents = True
+                                    else:
+                                        #
+                                        # If the event was found, reset the refresh count. If it is just one less
+                                        # than the max, then it means it was decremented above so there wasn't
+                                        # really a change in state.
+                                        if fsxStatus["downNodes"][eventIndex]["refresh"] != (eventResilience - 1):
+                                            changedEvents = True
+                                        fsxStatus["downNodes"][eventIndex]["refresh"] = eventResilience
+                            #
+                            # After processing the records, see if any events need to be removed.
+                            i = len(fsxStatus["downNodes"]) - 1
+                            while i >= 0:
+                                if fsxStatus["downNodes"][i]["refresh"] <= 0:
+                                    logger.debug(f'Deleting downed node: {fsxStatus["downNodes"][i]["index"]} Cluster={clusterName}')
+                                    del fsxStatus["downNodes"][i]
+                                    changedEvents = True
+                                else:
+                                    if fsxStatus["downNodes"][i]["refresh"] != eventResilience:
+                                        changedEvents = True
+                                i -= 1
+                        else:
+                            # If the number of records from the cluster/nodes API is 0, assume we are monitoring
+                            # an FSxN, so get the information from the virtual-machine instance show-settings API.
+                            endpoint = f'https://{config["OntapAdminServer"]}/api/private/cli/system/node/virtual-machine/instance/show-settings'
+                            response = http.request('GET', endpoint, headers=headers)
+                            if response.status == 200:
+                                data = json.loads(response.data)
+                                if data["num_records"] != fsxStatus["numberNodes"]:
+                                    message = f'Alert: The number of nodes in cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.\nNote, this is likely a planned failover event to upgrade the O/S, or to change the throughput capacity.'
+                                    sendAlert(message, "INFO")
+                                    fsxStatus["numberNodes"] = data["num_records"]
+                                    changedEvents = True
+                            else:
+                                logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
                     else:
                         logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
             elif lkey == "networkinterfaces":
                 if rule[key]:
-                    endpoint = f'https://{config["OntapAdminServer"]}/api/network/ip/interfaces?fields=state'
+                    endpoint = f'https://{config["OntapAdminServer"]}/api/network/ip/interfaces?fields=state,svm,scope'
                     response = http.request('GET', endpoint, headers=headers)
                     if response.status == 200:
                         #
@@ -283,10 +341,14 @@ def checkSystemHealth(service):
                         data = json.loads(response.data)
                         for interface in data["records"]:
                             if interface.get("state") != None and interface["state"] != "up":
-                                uniqueIdentifier = interface["name"]
+                                if interface["scope"] == "cluster":
+                                    svm = "cluster"
+                                else:
+                                    svm = interface["svm"]["name"] if interface.get("svm") is not None else "N/A"
+                                uniqueIdentifier = f'{interface["name"]}_{svm}'
                                 eventIndex = eventExist(fsxStatus["downInterfaces"], uniqueIdentifier)
                                 if eventIndex < 0:
-                                    message = f'Alert: Network interface {interface["name"]} on cluster {clusterName} is down.'
+                                    message = f'Alert: Network interface {interface["name"]} on svm: {svm} on cluster {clusterName} is not up.'
                                     sendAlert(message, "WARNING")
                                     event = {
                                         "index": uniqueIdentifier,
@@ -1148,10 +1210,10 @@ def sendWebHook(message, severity):
         #
         # This is a default payload for Moogsoft.
         payload = {
-            "INC__summary": f"{severity}: FSx ONTAP Monitoring Services Alert for cluster {clusterName}",
+            "INC__summary": f"{severity}: ONTAP Monitoring Services Alert for cluster {clusterName}",
             "INC__manager": "FSxONTAP",
             "INC__severity": "3",
-            "INC__identifier": f"FSx ONTAP Monitoring Services alert for cluster {clusterName} - {message_hash}",
+            "INC__identifier": f"ONTAP Monitoring Services alert for cluster {clusterName} - {message_hash}",
             "INC__configurationItem": cluster_name,
             "INC__fullMessageText": message
         }
