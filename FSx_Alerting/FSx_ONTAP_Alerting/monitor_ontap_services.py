@@ -1084,7 +1084,7 @@ def processStorageUtilization(service):
                             eventIndex = eventExist(events, uniqueIdentifier)
                             if eventIndex < 0:
                                 alertType = 'Warning' if lkey == "volumewarnsnapreservepercentused" else 'Critical'
-                                message = f"Volume snapreserve usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of its snap reserve space, which is more or equal to {rule[key]}% utilization."
+                                message = f"Volume snapshot reserve usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of its snap reserve space, which is more or equal to {rule[key]}% utilization."
                                 sendAlert(message, "WARNING")
                                 changedEvents = True
                                 event = {
