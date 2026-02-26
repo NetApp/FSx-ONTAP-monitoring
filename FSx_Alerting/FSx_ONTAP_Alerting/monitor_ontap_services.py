@@ -888,7 +888,7 @@ def processStorageUtilization(service):
                 url = None
     #
     # Run the API call to get the volume information.
-    url = '/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'
+    url = '/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state,space.snapshot&return_timeout=15'
     volumeRecords = []
     while url is not None:
         endpoint = f'https://{config["OntapAdminServer"]}{url}'
@@ -992,7 +992,7 @@ def processStorageUtilization(service):
                                 eventIndex = eventExist(events, uniqueIdentifier)
                                 if eventIndex < 0:
                                     alertType = 'Warning' if lkey == "volumewarnfilespercentused" else 'Critical'
-                                    message = f"Volume File (inode) Usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of it's inodes, which is more or equal to {rule[key]}% utilization."
+                                    message = f"Volume File (inode) Usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of its inodes, which is more or equal to {rule[key]}% utilization."
                                     sendAlert(message, "WARNING")
                                     changedEvents = True
                                     event = {
@@ -1009,6 +1009,35 @@ def processStorageUtilization(service):
                                         changedEvents = True
                                     events[eventIndex]["refresh"] = eventResilience
 
+            elif lkey == "volumewarnsnapreservepercentused" or lkey == "volumecriticalsnapreservepercentused":
+                for record in volumeRecords:
+                    #
+                    # If a volume is offline, the API will not report the "space.reserve_*" fields.
+                    if record["space"]["snapshot"].get("reserve_available") is not None and record["space"]["snapshot"].get("reserve_size") is not None and record["space"]["snapshot"]["reserve_size"] > 0:
+                        reserveSize = record["space"]["snapshot"]["reserve_size"]
+                        reserveAvailable = record["space"]["snapshot"]["reserve_available"]
+                        percentUsed = ((reserveSize - reserveAvailable) / reserveSize) * 100
+                        if percentUsed >= rule[key]:
+                            uniqueIdentifier = record["uuid"] + "_" + key
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                alertType = 'Warning' if lkey == "volumewarnsnapreservepercentused" else 'Critical'
+                                message = f"Volume snapreserve usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of its snap reserve space, which is more or equal to {rule[key]}% utilization."
+                                sendAlert(message, "WARNING")
+                                changedEvents = True
+                                event = {
+                                        "index": uniqueIdentifier,
+                                        "message": message,
+                                        "refresh": eventResilience
+                                    }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
             elif lkey == "offline":
                 for record in volumeRecords:
                     if rule[key] and record["state"].lower() == "offline":
@@ -1766,6 +1795,14 @@ def buildDefaultMatchingConditions(event):
             value = int(value)
             if value > 0:
                 conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"volumeCriticalFilesPercentUsed": value})
+        elif name == "initialVolumeSnapReserveUtilizationWarnAlert":
+            value = int(value)
+            if value > 0:
+                conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"volumeWarnSnapReservePercentUsed": value})
+        elif name == "initialVolumeSnapReserveUtilizationCriticalAlert":
+            value = int(value)
+            if value > 0:
+                conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"volumeCriticalSnapReservePercentUsed": value})
         elif name == "initialVolumeOfflineAlert":
             if value == "true":
                 conditions["services"][getServiceIndex("storage", conditions)]["rules"].append({"offline": True})
@@ -2073,7 +2110,7 @@ def lambda_handler(event, context):
             s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'))
     except json.decoder.JSONDecodeError as err:
         logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}" for cluster {config["OntapAdminServer"]}. The error message from the decoder:\n{err}\n')
-        return
+        raise Exception(err)
 
     if(checkSystem()):
         #
