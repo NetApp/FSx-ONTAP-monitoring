@@ -558,8 +558,8 @@ Each rule should be an object with one, or more, of the following keys:
 |aggrCriticalPercentUsed|Integer|Specifies the maximum allowable physical storage (aggregate) utilization (between 0 and 100) before an alert is sent.|
 |volumeWarnPercentUsed|Integer|Specifies the maximum allowable volume utilization (between 0 and 100) before an alert is sent.|
 |volumeCriticalPercentUsed|Integer|Specifies the maximum allowable volume utilization (between 0 and 100) before an alert is sent.|
-|volumeWarnSnapReservePercentUsed|Integer|Specifies the maximum allowable volume snap reserve utilization (between 0 and 100) before an alert is sent.|
-|volumeCriticalSnapReservePercentUsed|Integer|Specifies the maximum allowable volume snap reserve utilization (between 0 and 100) before an alert is sent.|
+|volumeWarnSnapReservePercentUsed|Integer|Specifies the maximum allowable volume snapshot reserve utilization (between 0 and 100) before an alert is sent.|
+|volumeCriticalSnapReservePercentUsed|Integer|Specifies the maximum allowable volume snapshot reserve utilization (between 0 and 100) before an alert is sent.|
 |volumeWarnFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
 |volumeCriticalFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
 |offline|Boolean|If `true` will alert if the volume is offline.|
