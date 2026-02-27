@@ -1074,10 +1074,10 @@ def processStorageUtilization(service):
             elif lkey == "volumewarnsnapreservepercentused" or lkey == "volumecriticalsnapreservepercentused":
                 for record in volumeRecords:
                     #
-                    # If a volume is offline, the API will not report the "space.reserve_*" fields.
-                    if record["space"]["snapshot"].get("reserve_available") is not None and record["space"]["snapshot"].get("reserve_size") is not None and record["space"]["snapshot"]["reserve_size"] > 0:
+                    # If a volume is offline, the API will not report on a lot of the snapshot fields.
+                    if record["space"]["snapshot"].get("used") is not None and record["space"]["snapshot"].get("reserve_size") is not None and record["space"]["snapshot"]["reserve_size"] > 0:
                         reserveSize = record["space"]["snapshot"]["reserve_size"]
-                        reserveAvailable = record["space"]["snapshot"]["reserve_available"]
+                        reserveAvailable = reserveSize - record["space"]["snapshot"]["used"]
                         percentUsed = ((reserveSize - reserveAvailable) / reserveSize) * 100
                         if percentUsed >= rule[key]:
                             uniqueIdentifier = record["uuid"] + "_" + key

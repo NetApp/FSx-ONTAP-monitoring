@@ -8,10 +8,10 @@ If they have, then the program will send an SNS message to the specified SNS top
 a syslog message, a webhook, as well as store the event information into a CloudWatch Log Stream.
 The program takes measures to ensure it doesn't send multiple messages for the same event.
 
-Here is this list of services that this program can monitor:
+Here is this list of services that this program can send alerts on:
 - If the file system is available.
 - If the underlying Data ONTAP version has changed.
-- If the file system is running off its partner node (i.e. is running in failover mode).
+- If the number of nodes in the cluster has changed. Typically meaning one has gone down.
 - If any of the network interfaces are down.
 - Any EMS message. Filtering is provided to allow you to only be alerted on the EMS messages you care about.
 - If any of the vservers are down.
@@ -19,9 +19,10 @@ Here is this list of services that this program can monitor:
 - If a SnapMirror relationship hasn't been updated within either a specified amount of time or as a percentage of time since its last scheduled update.
 - If a SnapMirror update has stalled.
 - If a SnapMirror relationship is in a "non-healthy" state.
-- If the aggregate is over a certain percentage full. You can set two thresholds (Warning and Critical).
+- If an aggregate is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
-- If a volume is using more than a specified percentage of its inodes. You can set two thresholds (Warning and Critical).
+- If a volume is using more than a specified percentage of its inodes (files). You can set two thresholds (Warning and Critical).
+- If a volume is using a certain precentage of its snapshot reserved space. You can set two thresholds (Warning and Critical).
 - If a volume if offline.
 - If any snapshots are older than a specified age.
 - If any quotas values have been breached. You can be alerted on both soft and hard limits.
