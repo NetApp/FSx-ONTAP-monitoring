@@ -64,20 +64,22 @@ that you don't disable them.
 - One, or more, FSx for NetApp ONTAP file system you want to monitor.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
     - **IMPORTANT** You must download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`. It contains some of the utilities that monitoring program depends on.
-- The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnet you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
+- The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnets you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
 - An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret(s) that holds the FSx for ONTAP file system credentials. There should be two keys in each secret, one for the username and one for the password.
-- Create an object (file) within the S3 bucket that contains the list of FSxNs you want to monitor. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below.
+- Create an object (file) in the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
 ## Installation
-There are two ways to install this program. You can either perform all the steps shown in the
-[Manual Installation](#manual-installation) section below, or run the [CloudFormation template](cloudformation.yaml)
-that is provided in this repository. The manual installation is more involved, but it gives you
-more control and allows you to make changes to settings that aren't available through the CloudFormation template.
-The CloudFormation template is easier to use, but it doesn't allow for as much customization.
+There are three ways to install this program. You can either perform all the steps shown in the
+[Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
+the [CloudFormation template](cloudformation.yaml) file that is provided in this repository,
+or deploy using Terraform using the Terraform configuration files found in the [terraform](terraform)
+directory. The manual installation is more involved, but it gives you most control and allows you to
+make changes to settings that aren't available with the other methods. The CloudFormation and
+Terraform are easier to use since you only need to provide a few parameters.
 
 ### Installation using the CloudFormation template
 The CloudFormation template will do the following:
@@ -105,17 +107,59 @@ To install the program using the CloudFormation template, you will need to do th
     - Make sure the correct region is selected in the top right corner of the page.
 4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 1.
 5. This should bring up a new window with several parameters to provide values to. Most have
-    defaults, but some do require values to be provided. See the list below for what each parameter is for.
+    defaults, but some do require values to be provided. See the [Deployment Configuration Parameters](#deployment-configuration-parameters) section below for what each parameter is for.
+6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
+    provide tags for the stack. Any tags specified here will be applied to all resources that are created that
+    support tags. Tags are optional and can be left blank. There are other configuration parameters you can
+    change here, but typically you can leave them as defaults. At the bottom of the page there will be one check box
+    that you'll need to click on, and that is to acknowledge that the template might create an IAM resources (e.g. role).
+    If you have provided role ARNs for the roles that are required on the parameters page, then roles will not be
+    created. Of course if you don't provide role ARNs, it will attempt to create them. Once you
+    clicked on the confirmation check box click the "Next" button.
+7. The final page will allow you to review all configuration parameters you provided.
+    If everything looks good, click on the "Create stack" button.
 
-|Parameter Name | Notes|
+### Installation using Terraform
+Deploying with Terraform will do the following:
+- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create two Lambda functions with the Python code provided in this repository.
+- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
+    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
+- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
+    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
+    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
+- Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+
+To install the program using Terraform, you will need to do the following:
+1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
+1. Copy all the files in this folder to your local machine. The easiest way to do that is to simply "clone" the repository with a `git clone https://github.com/NetApp/FSx-ONTAP-monitoring/` command.
+1. Change into the `terraform` directory. If you cloned the entire repository use `cd FSx-ONTAP-monitoring/FSx_Alerting/FSx_ONTAP_Alerting/terraform`.
+    Note that the Terraform configuration files are setup expecting
+    the Lambda source files (`mon_ontap_services.py` and `controller.py`) to be in the folder above it.
+    If you need to change the location of the source files, you'll need to update the Terraform configuration
+    files accordingly.
+1. Copy the `terraform.tfvars.template` to `terraform.tfvars` and update the values in that file to
+    match your environment. The `terraform.tfvars.template` file only has the required parameters in it.
+    To see a complete list of variables refer to either the `vars.tf` file, or the
+    [Deployment Configuration Parameters](#deployment-configuration-parameters) section list below.
+1. Run `terraform init` to initialize the Terraform working directory.
+1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
+
+### Deployment Configuration Parameters
+|Parameter Name |Notes|
 |---|---|
-|Stackname|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
+|Stackname\*|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
+|Region\*\*|The AWS region where you want to deploy the program.|
 |S3BucketName|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
 |FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
-|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
+|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
 |SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the FSxN file systems you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
-|CloudWatchLogGroupARN|*Optional* The ARN of **an existing** CloudWatch Log Group that the Lambda function can send event messages to. It will create a new Log Stream within the Log Group every day for each file system. If this field is left blank, alerts will not be sent to CloudWatch.|
 |SecretArnPattern|The ARN pattern of the SecretsManager secrets that holds the FSxN file system credentials for all the FSxNs you want to monitor.|
 |CheckInterval|The interval, in minutes, that the EventBridge schedule will trigger the controller Lambda function. The default is 15 minutes.|
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
@@ -134,6 +178,10 @@ To install the program using the CloudFormation template, you will need to do th
 |VpcId|The ID of a VPC where the subnets provided above are located. Required if you are creating an endpoint, not needed otherwise.|
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
 
+\* - Only required if you are deploying using the CloudFormation template.
+
+\*\* - Only required if you are deploying using Terraform.
+
 The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
 You can read more about it in the [Matching Conditions File](#matching-conditions-file) section below. All these parameters have reasonable default values
 so you probably won't have to change any of them. Note that if you enable EMS alerts, then the default rule will
@@ -142,13 +190,6 @@ matching conditions at any time by updating the matching conditions file that is
 The default name of the conditions file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
 set for the OntapAdminServer parameter in the FSxNList file.
 
-6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
-    provide tags for the stack. Any tags specified here will be applied to all resources that are created that
-    support tags. Tags are optional and can be left blank. There are other configuration parameters you can
-    change here, but typically you can leave them as defaults. Click on the "Next" button.
-
-7. The final page will allow you to review all configuration parameters you provided.
-    If everything looks good, click on the "Create stack" button.
 
 ### Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is
@@ -241,7 +282,22 @@ The format of the file is as follows:
 <OntapAdminServer2>,<SecretArn2>,<param1>=<value1>,<param2>=<value2>,...
 ...
 ```
-The params can be any of the configuration parameters listed in the [Configuration Parameters](#configuration-parameters) section below.
+Where:
+- `<OntapAdminServer>` is the full qualified hostname, or IP address, of the FSxN file system management endpoint you want to monitor.
+- `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the FSxN file system.
+- `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
+    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
+    **Do not** put double quotes around the values.
+
+An exmaple FSxNList file:
+```
+#
+# dr:
+10.100.12.89,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-dr-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+#
+# prod
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+```
 
 #### Create an SNS Topic
 Since the way this program sends alerts is via an SNS topic, you need to either create SNS topic, or use an
@@ -403,14 +459,17 @@ The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` s
 put `0.5` in the text box. This will set the alarm to trigger if there are any errors. Do this for both the controller and monitoring
 Lambda functions.
 
-### Configuration Parameters
-Below is a list of parameters for the Monitoring Lambda function that are used to configure it. Some parameters are required to be set
+### Monitoring Configuration Parameters
+Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
 while others are optional. Some of the optional ones are still required to be set to something but
-if they are not, a usable default value will be assumed. Instead of passing all these parameters
-via the FSxN\_List file, you can create a configuration file that contains the parameter assignments.
-The assignments should be of the form "parameter=value". The default filename for the configuration
-file is what you set the OntapAdminServer variable to plus the string "-config". If you want to use a different
-filename, then set the configFilename parameter to the name of your choosing.
+if they are not, a usable default value will be assumed.
+
+Instead of passing all these parameters via the FSxN\_List file, you can create a configuration
+file that contains the parameter assignments and then use the `configFilename` parameter in the FSxN\_List file to specify that file.
+The assignments in the configuraiton file should be of the form "parameter=value". The default filename for the configuration
+file is what you set OntapAdminServer to in the FSxN\_List file plus the string "-config". If you want to use a different
+filename, say a common file for all or most of the file systems, set the configFilename parameter to the name of your choosing.
+The file must be in the S3 bucket in order for the monitoring program to access it.
 
 :warning: **NOTE:** Parameter names are case sensitive. 
 

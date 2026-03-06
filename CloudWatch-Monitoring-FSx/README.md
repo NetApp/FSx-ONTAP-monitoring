@@ -54,6 +54,7 @@ The following is a brief description of each section of the dashboard:
 This solution automatically creates CloudWatch alarms for the following FSxN attributes:
 - Disk throughput utilization
 - Disk IOPS utilization
+- Client netweork throughput utilization
 - SSD storage capacity utilization
 - Volume storage capacity utilization
 - SnapMirror unhealthy relationships
