@@ -36,6 +36,9 @@ systems that you want to ingest the audit logs from.
     ```
     - If you use want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a default secret ARN with the `defaultSecretARN` parameter.
 - You have applied the necessary SACLs to the files you want to audit. The knowledge base article linked above provides guidance on how to do this.
+    **NOTE:** If you need to apply SACLs to all the files in a volume, you should consider using the 'SLAG' (Storage-Level Access Gruard) feature of ONTAP
+    which allows you to enforce SACLs on all the files in a volume without having to apply them to all the individually files. You can read about SLAG in the
+    NetAppp documenetation [here](https://docs.netapp.com/us-en/ontap/smb-admin/secure-file-access-storage-level-access-guard-concept.html).
 
 **You can either create the following items before running the CloudFormation script, or allow it to create the items for you.**
 
