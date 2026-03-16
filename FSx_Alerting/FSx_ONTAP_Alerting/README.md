@@ -522,6 +522,7 @@ Each rule should be an object with one, or more, of the following keys:
 |---|---|---|
 |versionChange|Boolean (true, false)|If `true` the program will send an alert when the ONTAP version changes. If it is set to `false`, it will not report on version changes.|
 |failover|Boolean|If 'true' the program will send an alert if the FSxN cluster is running on its standby node. If it is set to `false`, it will not report on failover status.|
+|frus|Boolean|If 'true' the program will send an alert when any FRU goes into a non "UP" state. If it is set to `false`, it will not report on FRU status. This is ignored for FSxN since the API to get FRU information is blocked.|
 |networkInterfaces|Boolean|If 'true' the program will send an alert if any of the network interfaces are down.  If it is set to `false`, it will not report on any network interfaces that are down.|
 
 #### Matching condition schema for EMS Events (ems)

@@ -24,6 +24,7 @@
 
 import json
 import re
+import ipaddress
 import os
 import datetime
 import pytz
@@ -161,7 +162,8 @@ def checkSystem():
                 "version" : initialVersion,
                 "numberNodes" : 2,
                 "downInterfaces" : [],
-                "downNodes": []
+                "downNodes": [],
+                "downFrus": []
             }
             changedEvents = True
         else:
@@ -257,7 +259,7 @@ def checkSystemHealth(service):
                     changedEvents = True
             elif lkey == "failover":
                 #
-                # Check that both nodes are available.
+                # Check that all nodes are available.
                 # Using the CLI passthrough API because I couldn't find the equivalent API call.
                 if rule[key]:
                     endpoint = f'https://{config["OntapAdminServer"]}/api/cluster/nodes?fields=state'
@@ -378,6 +380,60 @@ def checkSystemHealth(service):
                             i -= 1
                     else:
                         logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+            elif lkey == "frus":
+                if rule[key]:
+                    endpoint = f'https://{config["OntapAdminServer"]}/api/private/cli/system/chassis/fru?fields=node,name,monitor,serial-number,state,model,fru-name,status,type,display-name'
+                    response = http.request('GET', endpoint, headers=headers)
+                    if response.status == 200:
+                        #
+                        # Decrement the refresh field to know if any events have really gone away.
+                        if fsxStatus.get("downFrus") is not None:
+                            for fru in fsxStatus["downFrus"]:
+                                fru["refresh"] -= 1
+                        else:
+                            fsxStatus["downFrus"] = []
+                            changedEvents = True
+
+                        data = json.loads(response.data)
+                        for fru in data["records"]:
+                            if fru.get("status") is not None and fru["status"] != "ok":
+                                uniqueIdentifier = f'{fru["fru_name"]}_{fru["serial_number"]}'
+                                eventIndex = eventExist(fsxStatus["downFrus"], uniqueIdentifier)
+                                if eventIndex < 0:
+                                    message = f'Alert: FRU of type {fru["type"]} with a name of {fru["fru_name"]} on cluster {clusterName} is not "ok".'
+                                    sendAlert(message, "WARNING")
+                                    event = {
+                                        "index": uniqueIdentifier,
+                                        "refresh": eventResilience
+                                    }
+                                    fsxStatus["downFrus"].append(event)
+                                    changedEvents = True
+                                else:
+                                    #
+                                    # If the event was found, reset the refresh count. If it is just one less
+                                    # than the max, then it means it was decremented above so there wasn't
+                                    # really a change in state.
+                                    if fsxStatus["downFrus"][eventIndex]["refresh"] != (eventResilience - 1):
+                                        changedEvents = True
+                                    fsxStatus["downFrus"][eventIndex]["refresh"] = eventResilience
+                        #
+                        # After processing the records, see if any events need to be removed.
+                        i = len(fsxStatus["downFrus"]) - 1
+                        while i >= 0:
+                            if fsxStatus["downFrus"][i]["refresh"] <= 0:
+                                logger.debug(f'Deleting fru: {fsxStatus["downFrus"][i]["index"]} Cluster={clusterName}')
+                                del fsxStatus["downFrus"][i]
+                                changedEvents = True
+                            else:
+                                if fsxStatus["downFrus"][i]["refresh"] != eventResilience:
+                                    changedEvents = True
+                            i -= 1
+                    else:
+                        #
+                        # Since the private/cli/system/chassis/ API is blocked from FSxN, you might get an 403 or 404 error.
+                        # If that is the case, just ignore it and move on.
+                        if response.status != 403 and response.status != 404:
+                            logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
             else:
                 logger.warning(f'Unknown System Health alert type: "{key}" found on cluster {clusterName}.')
 
@@ -1258,7 +1314,7 @@ def sendWebHook(message, severity):
         #
         # Create a Secrets Manager client.
         secretRegion = config["webhookSecretARN"].split(":")[3]
-        client = boto3.client(service_name='secretsmanager', region_name=secretRegion)
+        client = boto3.client(service_name='secretsmanager', region_name=secretRegion, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
         #
         # Get the username and password from the secret.
         secretsInfo = client.get_secret_value(SecretId=config["webhookSecretARN"])
@@ -1827,6 +1883,11 @@ def buildDefaultMatchingConditions(event):
                 conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"networkInterfaces": True})
             else:
                 conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"networkInterfaces": False})
+        elif name == "initialFrusAlert":
+            if value == "true":
+                conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"frus": True})
+            else:
+                conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"frus": False})
         elif name == "initialEmsEventsAlert":
             if value == "true":
                 conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "error|alert|emergency", "message": "", "filter": ""})
@@ -2078,6 +2139,18 @@ def readInConfig(event):
             raise Exception(f'\n\nMissing configuration parameter "{key}".\n\n')
 
 ################################################################################
+# This function checks if a string is an IP address or hostname. We need this to
+# determine if we need to verify the SSL certificate when connecting to the
+# AWS service endpoint.
+################################################################################
+def isIpHostname(string):
+    try:
+        ipaddress.ip_address(string)
+        return False
+    except ValueError:
+        return True
+
+################################################################################
 # Main logic
 ################################################################################
 def lambda_handler(event, context):
@@ -2139,7 +2212,7 @@ def lambda_handler(event, context):
     #
     # Create a Secrets Manager client.
     secretRegion = config["secretArn"].split(":")[3]
-    client = boto3.client(service_name='secretsmanager', region_name=secretRegion, endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
+    client = boto3.client(service_name='secretsmanager', region_name=secretRegion, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
     #
     # Get the username and password of the ONTAP/FSxN system.
     secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
@@ -2158,11 +2231,11 @@ def lambda_handler(event, context):
     # Create clients to the other AWS services we will be using.
     #s3Client = boto3.client('s3', config["s3BucketRegion"])  # Defined in readInConfig()
     snsRegion = config["snsTopicArn"].split(":")[3]
-    snsClient = boto3.client('sns', region_name=snsRegion, endpoint_url=f'https://{config["snsEndPointHostname"]}')
+    snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
     cloudWatchClient = None
     if config["cloudWatchLogGroupArn"] is not None:
         cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
-        cloudWatchClient = boto3.client('logs', region_name=cloudWatchRegion, endpoint_url=f'https://{config["cloudWatchLogsEndPointHostname"]}')
+        cloudWatchClient = boto3.client('logs', region_name=cloudWatchRegion, verify=isIpHostname(config["cloudWatchLogsEndPointHostname"]), endpoint_url=f'https://{config["cloudWatchLogsEndPointHostname"]}')
     #
     # Create a http handle to make ONTAP/FSxN API calls with.
     auth = urllib3.make_headers(basic_auth=f'{username}:{password}')
