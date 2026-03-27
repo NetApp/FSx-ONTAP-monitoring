@@ -81,8 +81,8 @@ variable "checkInterval" {
     type = number
     default = 15
     validation {
-        condition     = var.checkInterval >= 0
-        error_message = "The checkInterval variable must be greater than 0."
+        condition     = var.checkInterval >= 5 && floor(var.checkInterval) == var.checkInterval
+        error_message = "The checkInterval variable must be an integer greater than 5."
     }
 }
 
@@ -93,7 +93,7 @@ variable "alarmPrefixString" {
 }
 
 variable "regions" {
-    description = "This is a list of AWS regions that you want the Lambda function to run in. If left blank, it will run in all regions."
+    description = "This is a comma separated list of AWS regions that you want the Lambda function to run in. If left blank, it will run in all regions."
     type = string
     default = ""
 }

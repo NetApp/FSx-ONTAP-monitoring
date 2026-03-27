@@ -230,9 +230,10 @@ Once the script has been configured and invoked, it will:
 * Scan for the CloudWatch alarms and remove any alarms that the associated resource doesn't exist anymore.
 
 ## Cleaning up
-If you decide you don't want to use this program anymore, you can delete the CloudFormation stack that you created.
+If you decide you don't want to use this program anymore, you can delete the CloudFormation stack that you created
+or if you used Terraform to deploy it, you can run `terraform destroy`.
 This will remove the Lambda function, the EventBridge schedule, and the roles that were created for you. If you did
-not use the CloudFormation template, you will have to do these steps yourself.
+not use the CloudFormation or Terraform, you will have to do these steps yourself.
 
 Once you have removed the program, you can remove all the CloudWatch alarms that were created by the program by running
 the following command from a Unix based operating system. An AWS Cloudshell works perfect for this task:
