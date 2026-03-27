@@ -60,7 +60,7 @@ To use the CloudFormation template perform the following steps:
 To use the Terraform configuration files perform the following steps:
 1. Download the `terraform` folder from this repo.
 2. Open a terminal and navigate to the `terraform` folder.
-3. Copy the `terraform.tfvars.example` file to `terraform.tfvars` and edit the variables in that file to match your environment. The variables are the same as the parameters described in the CloudFormation deployment section above.
+3. Copy the `terraform.tfvars.template` file to `terraform.tfvars` and edit the variables in that file to match your environment. The variables are the same as the parameters described in the CloudFormation deployment section above.
 4. Run `terraform init` to initialize the Terraform configuration.
 5. Run `terraform apply` to apply the Terraform configuration.
 
@@ -220,7 +220,7 @@ multiple times to act on multiple regions.
 You can run the program in "Dry Run" mode by specifying the `-d` (or `--dryRun`) option. This will cause the program to only display
 messages showing what it would have done, and not really create or delete any CloudWatch alarms.
 
-### Expected Action
+## Expected Action
 Once the script has been configured and invoked, it will:
 * Scan for every FSx for ONTAP file systems in every region, unless you have specified a specific list of regions to scan. For every file system that it finds it will:
     * Create a CPU utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
