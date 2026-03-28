@@ -163,7 +163,8 @@ def checkSystem():
                 "numberNodes" : 2,
                 "downInterfaces" : [],
                 "downNodes": [],
-                "downFrus": []
+                "downFrus": [],
+                "downDisks": []
             }
             changedEvents = True
         else:
@@ -332,16 +333,14 @@ def checkSystemHealth(service):
                         logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
             elif lkey == "networkinterfaces":
                 if rule[key]:
-                    endpoint = f'https://{config["OntapAdminServer"]}/api/network/ip/interfaces?fields=state,svm,scope'
-                    response = http.request('GET', endpoint, headers=headers)
-                    if response.status == 200:
+                    records = getAllRecords('/api/network/ip/interfaces?fields=state,svm,scope')
+                    if len(records) > 0:
                         #
                         # Decrement the refresh field to know if any events have really gone away.
                         for interface in fsxStatus["downInterfaces"]:
                             interface["refresh"] -= 1
 
-                        data = json.loads(response.data)
-                        for interface in data["records"]:
+                        for interface in records:
                             if interface.get("state") != None and interface["state"] != "up":
                                 if interface["scope"] == "cluster":
                                     svm = "cluster"
@@ -378,13 +377,10 @@ def checkSystemHealth(service):
                                 if fsxStatus["downInterfaces"][i]["refresh"] != eventResilience:
                                     changedEvents = True
                             i -= 1
-                    else:
-                        logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
             elif lkey == "frus":
                 if rule[key]:
-                    endpoint = f'https://{config["OntapAdminServer"]}/api/private/cli/system/chassis/fru?fields=node,name,monitor,serial-number,state,model,fru-name,status,type,display-name'
-                    response = http.request('GET', endpoint, headers=headers)
-                    if response.status == 200:
+                    records = getAllRecords('/api/private/cli/system/chassis/fru?fields=node,name,monitor,serial-number,state,model,fru-name,status,type,display-name', True)
+                    if len(records) > 0:
                         #
                         # Decrement the refresh field to know if any events have really gone away.
                         if fsxStatus.get("downFrus") is not None:
@@ -394,8 +390,7 @@ def checkSystemHealth(service):
                             fsxStatus["downFrus"] = []
                             changedEvents = True
 
-                        data = json.loads(response.data)
-                        for fru in data["records"]:
+                        for fru in records:
                             if fru.get("status") is not None and fru["status"] != "ok":
                                 uniqueIdentifier = f'{fru["fru_name"]}_{fru["serial_number"]}'
                                 eventIndex = eventExist(fsxStatus["downFrus"], uniqueIdentifier)
@@ -428,12 +423,53 @@ def checkSystemHealth(service):
                                 if fsxStatus["downFrus"][i]["refresh"] != eventResilience:
                                     changedEvents = True
                             i -= 1
-                    else:
+            elif lkey == "disks":
+                if rule[key]:
+                    disks = getAllRecords('/api/storage/disks?fields=state,error,name,serial_number,outage', True)
+                    if len(disks) > 0:
                         #
-                        # Since the private/cli/system/chassis/ API is blocked from FSxN, you might get an 403 or 404 error.
-                        # If that is the case, just ignore it and move on.
-                        if response.status != 403 and response.status != 404:
-                            logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+                        # Decrement the refresh field to know if any events have really gone away.
+                        if fsxStatus.get("downDisks") is not None:
+                            for disk in fsxStatus["downDisks"]:
+                                disk["refresh"] -= 1
+                        else:
+                            fsxStatus["downDisks"] = []
+                            changedEvents = True
+
+                        for disk in disks:
+                            if disk.get("state") == "present":
+                                if disk.get("outage") is not None and disk["outage"].get("persistently_failed") and disk.get("serial_number") is not None and disk.get("name") is not None:
+                                    uniqueIdentifier = f'{disk["name"]}_{disk["serial_number"]}'
+                                    eventIndex = eventExist(fsxStatus["downDisks"], uniqueIdentifier)
+                                    if eventIndex < 0:
+                                        message = f'Alert: Disk {disk["name"]} with serial number {disk["serial_number"]} on cluster {clusterName} has failed.'
+                                        sendAlert(message, "WARNING")
+                                        event = {
+                                            "index": uniqueIdentifier,
+                                            "refresh": eventResilience
+                                        }
+                                        fsxStatus["downDisks"].append(event)
+                                        changedEvents = True
+                                    else:
+                                        #
+                                        # If the event was found, reset the refresh count. If it is just one less
+                                        # than the max, then it means it was decremented above so there wasn't
+                                        # really a change in state.
+                                        if fsxStatus["downDisks"][eventIndex]["refresh"] != (eventResilience - 1):
+                                            changedEvents = True
+                                        fsxStatus["downDisks"][eventIndex]["refresh"] = eventResilience
+                        #
+                        # After processing the records, see if any events need to be removed.
+                        i = len(fsxStatus["downDisks"]) - 1
+                        while i >= 0:
+                            if fsxStatus["downDisks"][i]["refresh"] <= 0:
+                                logger.debug(f'Deleting disk: {fsxStatus["downDisks"][i]["index"]} Cluster={clusterName}')
+                                del fsxStatus["downDisks"][i]
+                                changedEvents = True
+                            else:
+                                if fsxStatus["downDisks"][i]["refresh"] != eventResilience:
+                                    changedEvents = True
+                            i -= 1
             else:
                 logger.warning(f'Unknown System Health alert type: "{key}" found on cluster {clusterName}.')
 
@@ -772,22 +808,7 @@ def processSnapMirrorRelationships(service):
                 logger.warning(f'Unknown snapmirror alert type: "{key}" found on cluster {clusterName}.')
     #
     # Run the API call to get the current state of all the snapmirror relationships.
-    url = f'/api/snapmirror/relationships?fields=*&return_timeout=15'
-    records = []
-    while url is not None:
-        endpoint = f'https://{config["OntapAdminServer"]}{url}'
-        response = http.request('GET', endpoint, headers=headers)
-        if response.status == 200:
-            data = json.loads(response.data)
-            records.extend(data.get("records"))
-        else:
-            logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
-            return
-
-        if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-            url = data["_links"]["next"]["href"]
-        else:
-            url = None
+    records = getAllRecords('/api/snapmirror/relationships?fields=*&return_timeout=15')
 
     logger.info(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}.')
     for record in records:
@@ -965,6 +986,34 @@ def processSnapMirrorRelationships(service):
         s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
+# This function is used to make API calls that may return multiple pages of
+# data. It will loop through the pages until it has all the records and return
+# them as an array. If there is an error on any of the API calls, it will
+# return an empty array since we don't want to send incomplete data back to
+# the caller.
+################################################################################
+def getAllRecords(url, ignoreErrors=False):
+    global config, http, headers, clusterName, clusterVersion, logger
+
+    records = []
+    while url is not None:
+        endpoint = f'https://{config["OntapAdminServer"]}{url}'
+        response = http.request('GET', endpoint, headers=headers)
+        if response.status == 200:
+            data = json.loads(response.data)
+            records.extend(data.get("records"))
+            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
+                url = data["_links"]["next"]["href"]
+            else:
+                url = None
+        else:
+            if not ignoreErrors:
+                logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
+            return [] # Don't send an incomplete list back if we weren't able to get all the records.
+
+    return records
+
+################################################################################
 # This function is used to check all the volume and aggregate utlization.
 ################################################################################
 def processStorageUtilization(service):
@@ -989,54 +1038,13 @@ def processStorageUtilization(service):
         event["refresh"] -= 1
     #
     # Run the API call to get the physical storage used.
-    url = '/api/storage/aggregates?fields=space&return_timeout=15'
-    aggrRecords = []
-    while url is not None:
-        endpoint = f'https://{config["OntapAdminServer"]}{url}'
-        aggrResponse = http.request('GET', endpoint, headers=headers)
-        if aggrResponse.status != 200:
-            logger.error(f'API call to {endpoint} failed. HTTP status code {aggrResponse.status}.')
-            break
-        else:
-            data = json.loads(aggrResponse.data)
-            aggrRecords.extend(data.get("records"))
-            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                url = data["_links"]["next"]["href"]
-            else:
-                url = None
+    aggrRecords = getAllRecords('/api/storage/aggregates?fields=space&return_timeout=15')
     #
     # Run the API call to get the volume information.
-    url = '/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state,space.snapshot&return_timeout=15'
-    volumeRecords = []
-    while url is not None:
-        endpoint = f'https://{config["OntapAdminServer"]}{url}'
-        volumeResponse = http.request('GET', endpoint, headers=headers)
-        if volumeResponse.status != 200:
-            logger.error(f'API call to {endpoint} failed. HTTP status code {volumeResponse.status}.')
-            break
-        else:
-            data = json.loads(volumeResponse.data)
-            volumeRecords.extend(data.get("records"))
-            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                url = data["_links"]["next"]["href"]
-            else:
-                url = None
+    volumeRecords = getAllRecords('/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state,space.snapshot&return_timeout=15')
     #
     # Now get the constituent volumes.
-    url = '/api/storage/volumes?is_constituent=true&fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'
-    while url is not None:
-        endpoint = f'https://{config["OntapAdminServer"]}{url}'
-        volumeResponse = http.request('GET', endpoint, headers=headers)
-        if volumeResponse.status != 200:
-            logger.error(f'API call to {endpoint} failed. HTTP status code {volumeResponse.status}.')
-            break
-        else:
-            data = json.loads(volumeResponse.data)
-            volumeRecords.extend(data.get("records"))
-            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                url = data["_links"]["next"]["href"]
-            else:
-                url = None
+    volumeRecords.extend(getAllRecords('/api/storage/volumes?is_constituent=true&fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'))
 
     logger.info(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}.')
     #
@@ -1469,24 +1477,10 @@ def processQuotaUtilization(service):
         event["refresh"] -= 1
     #
     # Run the API call to get the quota report.
-    # For some reason the API version of the quota report became unrelable (i.e. returning 0 records)
+    # For some reason the API version of the quota report became unreliable (i.e. returning 0 records)
     # so using the private CLI version of the API.
     #url = '/api/storage/quota/reports?fields=*&return_timeout=15'
-    url = '/api/private/cli/volume/quota/report?fields=vserver,volume,index,tree,quota-type,quota-target,disk-used,disk-limit,files-used,file-limit,soft-disk-limit,soft-file-limit,quota-specifier,disk-used-pct-soft-disk-limit,disk-used-pct-disk-limit,files-used-pct-soft-file-limit,files-used-pct-file-limit&return_timeout=15'
-    records = []
-    while url is not None:
-        endpoint = f'https://{config["OntapAdminServer"]}{url}'
-        response = http.request('GET', endpoint, headers=headers)
-        if response.status == 200:
-            data = json.loads(response.data)
-            records.extend(data.get("records"))
-        else:
-            logger.error(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
-            return
-        if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-            url = data["_links"]["next"]["href"]
-        else:
-            url = None
+    records = getAllRecords('/api/private/cli/volume/quota/report?fields=vserver,volume,index,tree,quota-type,quota-target,disk-used,disk-limit,files-used,file-limit,soft-disk-limit,soft-file-limit,quota-specifier,disk-used-pct-soft-disk-limit,disk-used-pct-disk-limit,files-used-pct-soft-file-limit,files-used-pct-file-limit&return_timeout=15')
 
     logger.info(f'Found {len(records)} quota report records cluster={clusterName}.')
     for record in records:
@@ -1694,22 +1688,7 @@ def processVserver(service):
     if vserverState is not None and vserverState:
         #
         # Run the API call to get the vserver state for each vserver.
-        url = f'/api/svm/svms?fields=state&return_timeout=15'
-        records = []
-        while url is not None:
-            endpoint = f'https://{config["OntapAdminServer"]}{url}'
-            response = http.request('GET', endpoint, headers=headers)
-            if response.status == 200:
-                data = json.loads(response.data)
-                records.extend(data.get("records"))
-            else:
-                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
-                break
-
-            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                url = data["_links"]["next"]["href"]
-            else:
-                url = None
+        records = getAllRecords('/api/svm/svms?fields=state&return_timeout=15')
 
         logger.info(f'Found {len(records)} vservers to check on cluster {clusterName}.')
         for record in records:
@@ -1737,22 +1716,7 @@ def processVserver(service):
     if nfsProtocolState is not None and nfsProtocolState:
         #
         # Run the API call to get the NFS protocol state for each vserver.
-        url = '/api/protocols/nfs/services?fields=state&return_timeout=15'
-        records = []
-        while url is not None:
-            endpoint = f'https://{config["OntapAdminServer"]}{url}'
-            response = http.request('GET', endpoint, headers=headers)
-            if response.status == 200:
-                data = json.loads(response.data)
-                records.extend(data.get("records"))
-            else:
-                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
-                break
-            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                url = data["_links"]["next"]["href"]
-            else:
-                url = None
-
+        records = getAllRecords('/api/protocols/nfs/services?fields=state&return_timeout=15')
         for record in records:
             if record["state"].lower() != "online":
                 uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + nfsProtocolStateKey
@@ -1778,22 +1742,7 @@ def processVserver(service):
     if cifsProtocolState is not None and cifsProtocolState:
         #
         # Run the API call to get the NFS protocol state for each vserver.
-        url = '/api/protocols/cifs/services?fields=enabled&return_timeout=15'
-        records = []
-        while url is not None:
-            endpoint = f'https://{config["OntapAdminServer"]}{url}'
-            response = http.request('GET', endpoint, headers=headers)
-            if response.status == 200:
-                data = json.loads(response.data)
-                records.extend(data.get("records"))
-            else:
-                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
-                break
-            if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                url = data["_links"]["next"]["href"]
-            else:
-                url = None
-
+        records = getAllRecords('/api/protocols/cifs/services?fields=enabled&return_timeout=15')
         for record in records:
             if not record["enabled"]:
                 uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + cifsProtocolStateKey
@@ -1888,6 +1837,11 @@ def buildDefaultMatchingConditions(event):
                 conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"frus": True})
             else:
                 conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"frus": False})
+        elif name == "initialDisksAlert":
+            if value == "true":
+                conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"disks": True})
+            else:
+                conditions["services"][getServiceIndex("systemHealth", conditions)]["rules"].append({"disks": False})
         elif name == "initialEmsEventsAlert":
             if value == "true":
                 conditions["services"][getServiceIndex("ems", conditions)]["rules"].append({"name": "", "severity": "error|alert|emergency", "message": "", "filter": ""})

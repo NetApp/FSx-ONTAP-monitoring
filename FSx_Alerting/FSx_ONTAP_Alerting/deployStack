@@ -54,7 +54,7 @@ while getopts "hR:b:F:S:s:g:t:a:v:w:r:x:l:W:m:M:f:" opt; do
     F) FSxNListFilename="$OPTARG" ;;
     S) FSxNStatusFilename="$OPTARG" ;;
     s) subnets="'$OPTARG'" ;;
-    g) securityGroup="$OPTARG" ;;
+    g) securityGroup="'$OPTARG'" ;;
     t) snsTopicArn="$OPTARG" ;;
     a) secretArnPattern="$OPTARG" ;;
     v) checkInterval="$OPTARG" ;;
@@ -138,7 +138,7 @@ aws cloudformation create-stack --region $region --stack-name $stackName --templ
   ParameterKey=s3BucketName,ParameterValue=$bucket \
   ParameterKey=FSxNListFilename,ParameterValue=$FSxNListFilename \
   ParameterKey=subNetIds,ParameterValue="$subnets" \
-  ParameterKey=securityGroupIds,ParameterValue=$securityGroup \
+  ParameterKey=securityGroupIds,ParameterValue="$securityGroup" \
   ParameterKey=snsTopicArn,ParameterValue=$snsTopicArn \
   ParameterKey=createWatchdogAlarm,ParameterValue="$watchdog" \
   ParameterKey=implementWatchdogAsLambda,ParameterValue="$implementWatchdogAsLambda" \

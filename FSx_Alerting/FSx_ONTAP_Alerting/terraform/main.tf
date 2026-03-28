@@ -119,9 +119,11 @@ resource "aws_lambda_function" "controller_lambda_function" {
       FSxNList              = var.FSxNListFilename
       snsTopicArn           = var.snsTopicArn
       MOSLambdaFunctionName = aws_lambda_function.monitor_ontap_services_lambda_function.function_name
-
       initialVersionChangeAlert = var.versionChangeAlert
       initialFailoverAlert = var.failoverAlert
+      initialFrusAlert = var.frusAlert
+      initialDisksAlert = var.disksAlert
+      initialNetworkInterfaceAlert = var.networkInterfaceAlert
       initialEmsEventsAlert = var.emsEventsAlert
       initialSnapMirrorLagTimeAlert = var.snapMirrorLagTimeAlert
       initialSnapMirrorLagTimePercentAlert = var.snapMirrorLagTimePercentAlert
@@ -133,6 +135,8 @@ resource "aws_lambda_function" "controller_lambda_function" {
       initialVolumeUtilizationCriticalAlert = var.volumeUtilizationCriticalAlert
       initialVolumeFileUtilizationWarnAlert = var.volumeFileUtilizationWarnAlert
       initialVolumeFileUtilizationCriticalAlert = var.volumeFileUtilizationCriticalAlert
+      iniitalVolumeSnapReserveUtilizationWarnAlert: var.volumeSnapReserveUtilizationWarnAlert
+      iniitalVolumeSnapReserveUtilizationCriticalAlert: var.volumeSnapReserveUtilizationCriticalAlert
       initialVolumeOfflineAlert = var.volumeOfflineAlert
       initialOldSnapshot = var.oldSnapshotAlert
       initialSoftQuotaUtilizationAlert = var.softQuotaUtilizationAlert
@@ -234,4 +238,8 @@ resource "aws_lambda_function" "monitor_ontap_services_lambda_function" {
   memory_size      = var.memorySize
   filename         = "monitor_ontap_services.zip"
   depends_on       = [data.archive_file.monitor_ontap_services_source]
+}
+
+output "controllerLambdaFunctionArn" {
+  value = aws_lambda_function.controller_lambda_function.arn
 }

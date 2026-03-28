@@ -155,6 +155,24 @@ variable "failoverAlert" {
     default     = "true"
 }
 
+variable "frusAlert" {
+    description = "Alert failed FRUs."
+    type        = string
+    default     = "false"
+}
+
+variable "disksAlert" {
+    description = "Alert failed disks."
+    type        = string
+    default     = "false"
+}
+
+variable "networkInterfaceAlert" {
+    description = "Alert on network interfaces being down."
+    type        = string
+    default     = "false"
+}
+
 variable "emsEventsAlert" {
     description = "Alert for EMS messages."
     type        = string
@@ -200,25 +218,37 @@ variable "fileSystemUtilizationCriticalAlert" {
 variable "volumeUtilizationWarnAlert" {
     description = "Alert when a volume utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     type        = number
-    default     = 90
+    default     = 80
 }
 
 variable "volumeUtilizationCriticalAlert" {
     description = "Alert when a volume utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     type        = number
-    default     = 95
+    default     = 90
 }
 
 variable "volumeFileUtilizationWarnAlert" {
     description = "Alert when a volume inode utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     type        = number
-    default     = 90
+    default     = 80
 }
 
 variable "volumeFileUtilizationCriticalAlert" {
     description = "Alert when a volume inode utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
     type        = number
-    default     = 95
+    default     = 90
+}
+
+variable "volumeSnapReserveUtilizationWarnAlert" {
+    description = "Alert when a volume's SnapReserve utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
+    type        = number
+    default     = 80
+}
+
+variable "volumeSnapReserveUtilizationCriticalAlert" {
+    description = "Alert when a volume's SnapReserve utilization exceeds this threshold in percentage. Set to 0 to disable this alert."
+    type        = number
+    default     = 90
 }
 
 variable "volumeOfflineAlert" {
