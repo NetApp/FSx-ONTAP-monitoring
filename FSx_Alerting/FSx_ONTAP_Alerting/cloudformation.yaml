@@ -980,8 +980,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v4.33
-          # Date: 2026-03-28-11:30:31
+          # Version: v4.34
+          # Date: 2026-03-28-16:34:59
           ################################################################################
           
           import json
@@ -1390,7 +1390,7 @@ Resources:
                           if rule[key]:
                               records = getAllRecords('/api/storage/disks?fields=state,error,name,serial_number,outage', True)
                               logger.info(f'Received {len(records)} disk records from cluster {clusterName}. requestFailed={requestFailed}.')
-                              if not RequestFailed:
+                              if not requestFailed:
                                   #
                                   # Decrement the refresh field to know if any events have really gone away.
                                   if fsxStatus.get("downDisks") is not None:
@@ -1598,7 +1598,7 @@ Resources:
               text = ""
               for item in array:
                   if text != "":
-                       text += ","
+                      text += ","
                   text += str(item)
           
               return text if text != "" else "*"
@@ -1756,7 +1756,6 @@ Resources:
                   maxLagTimePercent = None
                   healthy = None
                   stalledTransferSeconds = None
-                  offline = None
                   for rule in service["rules"]:
                       for key in rule.keys():
                           lkey = key.lower()
@@ -1878,8 +1877,8 @@ Resources:
                               if prevRec != None:
                                   timeDiff=curTimeSeconds - prevRec["time"]
                                   if prevRec['bytesTransferred'] == bytesTransferred:
-                                      if (curTimeSeconds - prevRec['time']) > stalledTransferSeconds:
-                                          uniqueIdentifier = record['uuid'] + "_" + "transfer"
+                                      if timeDiff > stalledTransferSeconds:
+                                          uniqueIdentifier = record['uuid'] + "_" + stalledTransferSecondsKey
                                           eventIndex = eventExist(events, uniqueIdentifier)
                                           if eventIndex < 0:
                                               message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
@@ -1966,7 +1965,7 @@ Resources:
                   response = http.request('GET', endpoint, headers=headers)
                   if response.status == 200:
                       data = json.loads(response.data)
-                      records.extend(data.get("records"), [])
+                      records.extend(data.get("records", []))
                       if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
                           url = data["_links"]["next"]["href"]
                       else:
@@ -2009,16 +2008,16 @@ Resources:
               #
               # Run the API call to get the volume information.
               volumeRecords = getAllRecords('/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state,space.snapshot&return_timeout=15')
-              anyRequestFailed = requestFailed and anyRequestFailed
+              anyRequestFailed = requestFailed or anyRequestFailed
               #
               # Now get the constituent volumes.
               volumeRecords.extend(getAllRecords('/api/storage/volumes?is_constituent=true&fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'))
-              anyRequestFailed = requestFailed and anyRequestFailed
+              anyRequestFailed = requestFailed or anyRequestFailed
           
               logger.info(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}. anyRequestFailed={anyRequestFailed}.')
               #
               # If any of the requests failed, bail.
-              if not anyRequestFailed:
+              if anyRequestFailed:
                   return
           
               for rule in service["rules"]:
@@ -2165,7 +2164,7 @@ Resources:
                           for volume in volumeRecords:
                               if volume["flexcache_endpoint_type"].lower() != "cache" and volume["style"].lower() != "flexgroup_constituent":
                                   snapshotRecords.extend(getAllRecords(f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'))
-                                  anyRequestFailed = requestFailed and anyRequestFailed
+                                  anyRequestFailed = requestFailed or anyRequestFailed
                           logger.info(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}. anyRequestFailed={anyRequestFailed}.')
                           for snapshot in snapshotRecords:
                               if snapshot.get("create_time") is not None:
@@ -2255,7 +2254,7 @@ Resources:
                   payload = rawData["Body"].read().decode('UTF-8')
                   #
                   # Make the account_id a local variable so it can be used in the payload replacement.
-                  account_id = config.get("awsAccountId", "not_set")
+                  account_id = config.get("awsAccountId", "not_set")   # pylint: disable=W0641
                   #
                   # Replace the fields in the payload.
                   for fieldName in ["cluster_name", "severity", "account_id", "message", "message_hash"]:
@@ -2273,7 +2272,7 @@ Resources:
                   }
           
               data = json.dumps(payload).encode('UTF-8')
-              headers = {
+              webhookHeaders = {
                   "Content-Type": "application/json",
                   "Accept": "application/json"
               }
@@ -2299,13 +2298,13 @@ Resources:
           
                   username = secrets[config['webhookSecretUsernameKey']]
                   password = secrets[config['webhookSecretPasswordKey']]
-                  headers["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
+                  webhookHeaders["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
               #
               # Note that the urllib3 library that AWS natively provides for their Lambda functions
               # is of the 1.* version, so we have to use the syntax for that version.
               try:
-                  logger.debug(f'Sending webhook to {config["webhookEndpoint"]} with these headers {headers} and the following data: {data}')
-                  response = http.request('POST', config['webhookEndpoint'], headers=headers, body=data, timeout=5)
+                  logger.debug(f'Sending webhook to {config["webhookEndpoint"]} with these headers {webhookHeaders} and the following data: {data}')
+                  response = http.request('POST', config['webhookEndpoint'], headers=webhookHeaders, body=data, timeout=5)
                   if response.status == 200:
                       logger.info(f"Webhook sent successfully for {clusterName}.")
                   else:
@@ -2318,8 +2317,8 @@ Resources:
           
               if config.get("webhookEndpoint2") is not None:
                   try:
-                      logger.debug(f'Sending webhook to {config["webhookEndpoint2"]} with these headers {headers} and the following data: {data}')
-                      response = http.request('POST', config['webhookEndpoint2'], headers=headers, body=data, timeout=5)
+                      logger.debug(f'Sending webhook to {config["webhookEndpoint2"]} with these headers {webhookHeaders} and the following data: {data}')
+                      response = http.request('POST', config['webhookEndpoint2'], headers=webhookHeaders, body=data, timeout=5)
                       if response.status == 200:
                           logger.info(f"Webhook sent successfully for {clusterName}.")
                       else:
@@ -2653,7 +2652,7 @@ Resources:
                   #
                   # Run the API call to get the vserver state for each vserver.
                   records = getAllRecords('/api/svm/svms?fields=state&return_timeout=15')
-                  anyRequestFailed = anyRequestFailed and requestFailed
+                  anyRequestFailed = anyRequestFailed or requestFailed
                   logger.info(f'Found {len(records)} vservers to check on cluster {clusterName} requestFailed={requestFailed}.')
                   for record in records:
                       if record["state"].lower() != "running":
@@ -2681,7 +2680,7 @@ Resources:
                   #
                   # Run the API call to get the NFS protocol state for each vserver.
                   records = getAllRecords('/api/protocols/nfs/services?fields=state&return_timeout=15')
-                  anyRequestFailed = anyRequestFailed and requestFailed
+                  anyRequestFailed = anyRequestFailed or requestFailed
                   logger.info(f'Found {len(records)} nfs vservers to check on cluster {clusterName} requestFailed={requestFailed}.')
                   for record in records:
                       if record["state"].lower() != "online":
@@ -2709,7 +2708,7 @@ Resources:
                   #
                   # Run the API call to get the CIFS protocol state for each vserver.
                   records = getAllRecords('/api/protocols/cifs/services?fields=enabled&return_timeout=15')
-                  anyRequestFailed = anyRequestFailed and requestFailed
+                  anyRequestFailed = anyRequestFailed or requestFailed
                   logger.info(f'Found {len(records)} cifs vservers to check on cluster {clusterName} requestFailed={requestFailed}.')
                   for record in records:
                       if not record["enabled"]:
