@@ -956,10 +956,10 @@ def processSnapMirrorRelationships(service):
             if not smRelationships[i]["refresh"]:
                 relationshipId = smRelationships[i].get("uuid")
                 if relationshipId is None:
-                    id="Old format"
+                    tmpId = "Old format"
                 else:
-                    id = relationshipId
-                logger.debug(f'Deleting smRelationship: {id} cluster={clusterName}')
+                    tmpId = relationshipId
+                logger.debug(f'Deleting smRelationship: {tmpId} cluster={clusterName}')
                 del smRelationships[i]
                 updateRelationships = True
     

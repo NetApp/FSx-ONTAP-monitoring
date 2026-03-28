@@ -980,8 +980,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v4.34
-          # Date: 2026-03-28-16:34:59
+          # Version: v4.35
+          # Date: 2026-03-28-16:50:47
           ################################################################################
           
           import json
@@ -1918,10 +1918,10 @@ Resources:
                       if not smRelationships[i]["refresh"]:
                           relationshipId = smRelationships[i].get("uuid")
                           if relationshipId is None:
-                              id="Old format"
+                              tmpId = "Old format"
                           else:
-                              id = relationshipId
-                          logger.debug(f'Deleting smRelationship: {id} cluster={clusterName}')
+                              tmpId = relationshipId
+                          logger.debug(f'Deleting smRelationship: {tmpId} cluster={clusterName}')
                           del smRelationships[i]
                           updateRelationships = True
               
