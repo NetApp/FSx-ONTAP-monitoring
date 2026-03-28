@@ -145,7 +145,7 @@ def eventExist (events, uniqueIdentifier):
 # 'True'.
 ################################################################################
 def checkSystem():
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, clusterTimezone
+    global config, s3Client, http, headers, clusterName, clusterVersion, logger, clusterTimezone
 
     changedEvents = False
     #
@@ -238,7 +238,7 @@ def checkSystem():
 # ASSUMPTIONS: That checkSystem() has been called before it.
 ################################################################################
 def checkSystemHealth(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client, http, headers, clusterName, clusterVersion, logger, requestFailed
 
     changedEvents = False
     #
@@ -261,7 +261,6 @@ def checkSystemHealth(service):
             elif lkey == "failover":
                 #
                 # Check that all nodes are available.
-                # Using the CLI passthrough API because I couldn't find the equivalent API call.
                 if rule[key]:
                     endpoint = f'https://{config["OntapAdminServer"]}/api/cluster/nodes?fields=state'
                     response = http.request('GET', endpoint, headers=headers)
@@ -334,7 +333,8 @@ def checkSystemHealth(service):
             elif lkey == "networkinterfaces":
                 if rule[key]:
                     records = getAllRecords('/api/network/ip/interfaces?fields=state,svm,scope')
-                    if len(records) > 0:
+                    logger.info(f'Received {len(records)} network interface records from cluster {clusterName}. requestFailed={requestFailed}.')
+                    if not requestFailed:
                         #
                         # Decrement the refresh field to know if any events have really gone away.
                         for interface in fsxStatus["downInterfaces"]:
@@ -380,7 +380,8 @@ def checkSystemHealth(service):
             elif lkey == "frus":
                 if rule[key]:
                     records = getAllRecords('/api/private/cli/system/chassis/fru?fields=node,name,monitor,serial-number,state,model,fru-name,status,type,display-name', True)
-                    if len(records) > 0:
+                    logger.info(f'Received {len(records)} FRU records from cluster {clusterName}. requestFailed={requestFailed}.')
+                    if not requestFailed:
                         #
                         # Decrement the refresh field to know if any events have really gone away.
                         if fsxStatus.get("downFrus") is not None:
@@ -425,8 +426,9 @@ def checkSystemHealth(service):
                             i -= 1
             elif lkey == "disks":
                 if rule[key]:
-                    disks = getAllRecords('/api/storage/disks?fields=state,error,name,serial_number,outage', True)
-                    if len(disks) > 0:
+                    records = getAllRecords('/api/storage/disks?fields=state,error,name,serial_number,outage', True)
+                    logger.info(f'Received {len(records)} disk records from cluster {clusterName}. requestFailed={requestFailed}.')
+                    if not RequestFailed:
                         #
                         # Decrement the refresh field to know if any events have really gone away.
                         if fsxStatus.get("downDisks") is not None:
@@ -436,7 +438,7 @@ def checkSystemHealth(service):
                             fsxStatus["downDisks"] = []
                             changedEvents = True
 
-                        for disk in disks:
+                        for disk in records:
                             if disk.get("state") == "present":
                                 if disk.get("outage") is not None and disk["outage"].get("persistently_failed") and disk.get("serial_number") is not None and disk.get("name") is not None:
                                     uniqueIdentifier = f'{disk["name"]}_{disk["serial_number"]}'
@@ -480,7 +482,7 @@ def checkSystemHealth(service):
 # This function processes the EMS events.
 ################################################################################
 def processEMSEvents(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client, http, headers, clusterName, logger
 
     changedEvents = False
     #
@@ -644,7 +646,7 @@ def convertArrayToString(array):
 # run. It returns the time in seconds since the UNIX epoch.
 ################################################################################
 def getLastRunTime(scheduleUUID):
-    global config, http, headers, clusterName, clusterVersion, logger, clusterTimezone
+    global config, http, headers, logger, clusterTimezone
 
     minutes = ""
     hours = ""
@@ -702,7 +704,7 @@ def getLastRunTime(scheduleUUID):
 ################################################################################
 ################################################################################
 def getPolicySchedule(policyUUID):
-    global config, http, headers, clusterName, clusterVersion, logger
+    global config, http, headers, logger
 
     # Run the API call to get the policy information.
     endpoint = f'https://{config["OntapAdminServer"]}/api/snapmirror/policies/{policyUUID}?fields=*&return_timeout=15'
@@ -722,7 +724,6 @@ def getPolicySchedule(policyUUID):
 # have been updated. It returns the time in seconds since the UNIX epoch.
 ################################################################################
 def getLastScheduledUpdate(record):
-    global config, http, headers, clusterName, clusterVersion, logger
     #
     # First check to see if there is a schedule associated with the SM relationship.
     if record.get("transfer_schedule") is not None:
@@ -742,7 +743,7 @@ def getLastScheduledUpdate(record):
 # This function is used to check SnapMirror relationships.
 ################################################################################
 def processSnapMirrorRelationships(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, clusterTimezone
+    global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
     #
     # Get the saved events so we can ensure we are only reporting on new ones.
     try:
@@ -756,12 +757,6 @@ def processSnapMirrorRelationships(service):
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
-    # Decrement the refresh field to know if any records have really gone away.
-    for event in events:
-        event["refresh"] -= 1
-
-    changedEvents=False
-    #
     # Get the saved SM relationships.
     try:
         data = s3Client.get_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"])
@@ -773,99 +768,130 @@ def processSnapMirrorRelationships(service):
             raise Exception(err)
     else:
         smRelationships = json.loads(data["Body"].read().decode('UTF-8'))
-    #
-    # Set the refresh to False to know if any of the relationships still exist.
-    for relationship in smRelationships:
-        relationship["refresh"] = False
 
+    changedEvents=False
     updateRelationships = False
-    #
-    # Get the current time in seconds since UNIX epoch 01/01/1970.
-    curTimeSeconds = int(datetime.datetime.now(pytz.timezone(clusterTimezone) if clusterTimezone != None else datetime.timezone.utc).timestamp())
-    #
-    # Consolidate all the rules so we can decide how to process lagtime.
-    maxLagTime = None
-    maxLagTimePercent = None
-    healthy = None
-    stalledTransferSeconds = None
-    offline = None
-    for rule in service["rules"]:
-        for key in rule.keys():
-            lkey = key.lower()
-            if lkey == "maxlagtime":
-                maxLagTime = rule[key]
-                maxLagTimeKey = key
-            elif lkey == "maxlagtimepercent":
-                maxLagTimePercent = rule[key]
-                maxLagTimePercentKey = key
-            elif lkey == "healthy":
-                healthy = rule[key]
-                healthyKey = key
-            elif lkey == "stalledtransferseconds":
-                stalledTransferSeconds = rule[key]
-                stalledTransferSecondsKey = key
-            else:
-                logger.warning(f'Unknown snapmirror alert type: "{key}" found on cluster {clusterName}.')
     #
     # Run the API call to get the current state of all the snapmirror relationships.
     records = getAllRecords('/api/snapmirror/relationships?fields=*&return_timeout=15')
+    logger.info(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}. requestFailed={requestFailed}.')
 
-    logger.info(f'Found {len(records)} SnapMirror relationships on cluster {clusterName}.')
-    for record in records:
+    if not requestFailed:
         #
-        # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
-        processedLagTime = False
+        # Decrement the refresh field to know if any records have really gone away.
+        for event in events:
+            event["refresh"] -= 1
         #
-        # If the source cluster isn't defined, then assume it is a local SM relationship.
-        if record['source'].get('cluster') is None:
-            sourceClusterName = clusterName
-        else:
-            sourceClusterName = record['source']['cluster']['name']
+        # Set the refresh to False to know if any of the relationships still exist.
+        for relationship in smRelationships:
+            relationship["refresh"] = False
         #
-        # For lag time if maxLagTimePercent is defined check to see if there is a schedule,
-        # if there is a schedule alert on that otherrwise alert on the maxLagTime.
-        # But, first check that lag_time is defined, and that the state is not "uninitialized",
-        # since the lag_time is set to the oldest snapshot of the source volume which would
-        # cause a false positive.
-        if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
-            lagSeconds = parseLagTime(record["lag_time"])
-            if maxLagTimePercent is not None:
-                lastScheduledUpdate = getLastScheduledUpdate(record)
-                if lastScheduledUpdate != -1:
-                    processedLagTime = True
-                    if lagSeconds > ((curTimeSeconds - lastScheduledUpdate) * maxLagTimePercent/100):
-                        #
-                        # If the transfer is in progress, and they have stalled transfer alert enabled, we don't need to alert on the lag time.
-                        if not (record.get("transfer") is not None and record["transfer"]["state"].lower() in ["transferring", "finalizing", "preparing", "fasttransferring"] and stalledTransferSeconds is not None):
-                            uniqueIdentifier = record["uuid"] + "_" + maxLagTimePercentKey
-                            eventIndex = eventExist(events, uniqueIdentifier)
-                            if eventIndex < 0:
-                                timeStr = lagTimeStr(lagSeconds)
-                                asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
-                                message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
-                                sendAlert(message, "WARNING")
-                                changedEvents=True
-                                event = {
-                                    "index": uniqueIdentifier,
-                                    "message": message,
-                                    "refresh": eventResilience
-                                }
-                                events.append(event)
-                            else:
-                                # If the event was found, reset the refresh count. If it is just one less
-                                # than the max, then it means it was decremented above so there wasn't
-                                # really a change in state.
-                                if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                    changedEvents = True
-                                events[eventIndex]["refresh"] = eventResilience
-
-            if maxLagTime is not None and not processedLagTime:
-                if lagSeconds > maxLagTime:
-                    uniqueIdentifier = record["uuid"] + "_" + maxLagTimeKey
+        # Get the current time in seconds since UNIX epoch 01/01/1970.
+        curTimeSeconds = int(datetime.datetime.now(pytz.timezone(clusterTimezone) if clusterTimezone != None else datetime.timezone.utc).timestamp())
+        #
+        # Consolidate all the rules so we can decide how to process lagtime.
+        maxLagTime = None
+        maxLagTimePercent = None
+        healthy = None
+        stalledTransferSeconds = None
+        offline = None
+        for rule in service["rules"]:
+            for key in rule.keys():
+                lkey = key.lower()
+                if lkey == "maxlagtime":
+                    maxLagTime = rule[key]
+                    maxLagTimeKey = key
+                elif lkey == "maxlagtimepercent":
+                    maxLagTimePercent = rule[key]
+                    maxLagTimePercentKey = key
+                elif lkey == "healthy":
+                    healthy = rule[key]
+                    healthyKey = key
+                elif lkey == "stalledtransferseconds":
+                    stalledTransferSeconds = rule[key]
+                    stalledTransferSecondsKey = key
+                else:
+                    logger.warning(f'Unknown snapmirror alert type: "{key}" found on cluster {clusterName}.')
+    
+        for record in records:
+            #
+            # Since there are multiple ways to process lag time, make sure to only do it one way for each relationship.
+            processedLagTime = False
+            #
+            # If the source cluster isn't defined, then assume it is a local SM relationship.
+            if record['source'].get('cluster') is None:
+                sourceClusterName = clusterName
+            else:
+                sourceClusterName = record['source']['cluster']['name']
+            #
+            # For lag time if maxLagTimePercent is defined check to see if there is a schedule,
+            # if there is a schedule alert on that otherrwise alert on the maxLagTime.
+            # But, first check that lag_time is defined, and that the state is not "uninitialized",
+            # since the lag_time is set to the oldest snapshot of the source volume which would
+            # cause a false positive.
+            if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
+                lagSeconds = parseLagTime(record["lag_time"])
+                if maxLagTimePercent is not None:
+                    lastScheduledUpdate = getLastScheduledUpdate(record)
+                    if lastScheduledUpdate != -1:
+                        processedLagTime = True
+                        if lagSeconds > ((curTimeSeconds - lastScheduledUpdate) * maxLagTimePercent/100):
+                            #
+                            # If the transfer is in progress, and they have stalled transfer alert enabled, we don't need to alert on the lag time.
+                            if not (record.get("transfer") is not None and record["transfer"]["state"].lower() in ["transferring", "finalizing", "preparing", "fasttransferring"] and stalledTransferSeconds is not None):
+                                uniqueIdentifier = record["uuid"] + "_" + maxLagTimePercentKey
+                                eventIndex = eventExist(events, uniqueIdentifier)
+                                if eventIndex < 0:
+                                    timeStr = lagTimeStr(lagSeconds)
+                                    asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
+                                    message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
+                                    sendAlert(message, "WARNING")
+                                    changedEvents=True
+                                    event = {
+                                        "index": uniqueIdentifier,
+                                        "message": message,
+                                        "refresh": eventResilience
+                                    }
+                                    events.append(event)
+                                else:
+                                    # If the event was found, reset the refresh count. If it is just one less
+                                    # than the max, then it means it was decremented above so there wasn't
+                                    # really a change in state.
+                                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                        changedEvents = True
+                                    events[eventIndex]["refresh"] = eventResilience
+    
+                if maxLagTime is not None and not processedLagTime:
+                    if lagSeconds > maxLagTime:
+                        uniqueIdentifier = record["uuid"] + "_" + maxLagTimeKey
+                        eventIndex = eventExist(events, uniqueIdentifier)
+                        if eventIndex < 0:
+                            timeStr = lagTimeStr(lagSeconds)
+                            message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
+                            sendAlert(message, "WARNING")
+                            changedEvents=True
+                            event = {
+                                "index": uniqueIdentifier,
+                                "message": message,
+                                "refresh": eventResilience
+                            }
+                            events.append(event)
+                        else:
+                            # If the event was found, reset the refresh count. If it is just one less
+                            # than the max, then it means it was decremented above so there wasn't
+                            # really a change in state.
+                            if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                changedEvents = True
+                            events[eventIndex]["refresh"] = eventResilience
+    
+            if healthy is not None:
+                if not healthy and not record["healthy"]: # Report on "not healthy" and the status is "not healthy"
+                    uniqueIdentifier = record["uuid"] + "_" + healthyKey
                     eventIndex = eventExist(events, uniqueIdentifier)
                     if eventIndex < 0:
-                        timeStr = lagTimeStr(lagSeconds)
-                        message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
+                        message = f'Snapmirror Health Alert: {sourceClusterName}::{record["source"]["path"]} {clusterName}::{record["destination"]["path"]} has a status of {record["healthy"]}.'
+                        for reason in record["unhealthy_reason"]:
+                            message += "\n" + reason["message"]
                         sendAlert(message, "WARNING")
                         changedEvents=True
                         event = {
@@ -881,109 +907,85 @@ def processSnapMirrorRelationships(service):
                         if events[eventIndex]["refresh"] != (eventResilience - 1):
                             changedEvents = True
                         events[eventIndex]["refresh"] = eventResilience
-
-        if healthy is not None:
-            if not healthy and not record["healthy"]: # Report on "not healthy" and the status is "not healthy"
-                uniqueIdentifier = record["uuid"] + "_" + healthyKey
-                eventIndex = eventExist(events, uniqueIdentifier)
-                if eventIndex < 0:
-                    message = f'Snapmirror Health Alert: {sourceClusterName}::{record["source"]["path"]} {clusterName}::{record["destination"]["path"]} has a status of {record["healthy"]}.'
-                    for reason in record["unhealthy_reason"]:
-                        message += "\n" + reason["message"]
-                    sendAlert(message, "WARNING")
-                    changedEvents=True
-                    event = {
-                        "index": uniqueIdentifier,
-                        "message": message,
-                        "refresh": eventResilience
-                    }
-                    events.append(event)
-                else:
-                    # If the event was found, reset the refresh count. If it is just one less
-                    # than the max, then it means it was decremented above so there wasn't
-                    # really a change in state.
-                    if events[eventIndex]["refresh"] != (eventResilience - 1):
-                        changedEvents = True
-                    events[eventIndex]["refresh"] = eventResilience
-
-        if stalledTransferSeconds is not None:
-            if record.get('transfer') is not None and record['transfer']['state'].lower() == "transferring":
-                transferUuid = record['transfer']['uuid']
-                bytesTransferred = record['transfer']['bytes_transferred']
-                prevRec =  getPreviousSMRecord(smRelationships, transferUuid) # This reset the "refresh" field if found.
-                if prevRec != None:
-                    timeDiff=curTimeSeconds - prevRec["time"]
-                    if prevRec['bytesTransferred'] == bytesTransferred:
-                        if (curTimeSeconds - prevRec['time']) > stalledTransferSeconds:
-                            uniqueIdentifier = record['uuid'] + "_" + "transfer"
-                            eventIndex = eventExist(events, uniqueIdentifier)
-                            if eventIndex < 0:
-                                message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
-                                sendAlert(message, "WARNING")
-                                changedEvents=True
-                                event = {
-                                    "index": uniqueIdentifier,
-                                    "message": message,
-                                    "refresh": eventResilience
-                                }
-                                events.append(event)
-                            else:
-                                # If the event was found, reset the refresh count. If it is just one less
-                                # than the max, then it means it was decremented above so there wasn't
-                                # really a change in state.
-                                if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                    changedEvents = True
-                                events[eventIndex]["refresh"] = eventResilience
+    
+            if stalledTransferSeconds is not None:
+                if record.get('transfer') is not None and record['transfer']['state'].lower() == "transferring":
+                    transferUuid = record['transfer']['uuid']
+                    bytesTransferred = record['transfer']['bytes_transferred']
+                    prevRec =  getPreviousSMRecord(smRelationships, transferUuid) # This reset the "refresh" field if found.
+                    if prevRec != None:
+                        timeDiff=curTimeSeconds - prevRec["time"]
+                        if prevRec['bytesTransferred'] == bytesTransferred:
+                            if (curTimeSeconds - prevRec['time']) > stalledTransferSeconds:
+                                uniqueIdentifier = record['uuid'] + "_" + "transfer"
+                                eventIndex = eventExist(events, uniqueIdentifier)
+                                if eventIndex < 0:
+                                    message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
+                                    sendAlert(message, "WARNING")
+                                    changedEvents=True
+                                    event = {
+                                        "index": uniqueIdentifier,
+                                        "message": message,
+                                        "refresh": eventResilience
+                                    }
+                                    events.append(event)
+                                else:
+                                    # If the event was found, reset the refresh count. If it is just one less
+                                    # than the max, then it means it was decremented above so there wasn't
+                                    # really a change in state.
+                                    if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                        changedEvents = True
+                                    events[eventIndex]["refresh"] = eventResilience
+                        else:
+                            prevRec['time'] = curTimeSeconds
+                            prevRec['refresh'] = True
+                            prevRec['bytesTransferred'] = bytesTransferred
+                            updateRelationships = True
                     else:
-                        prevRec['time'] = curTimeSeconds
-                        prevRec['refresh'] = True
-                        prevRec['bytesTransferred'] = bytesTransferred
+                        prevRec = {
+                            "time": curTimeSeconds,
+                            "refresh": True,
+                            "bytesTransferred": bytesTransferred,
+                            "uuid": transferUuid
+                        }
                         updateRelationships = True
+                        smRelationships.append(prevRec)
+        #
+        # After processing the records, see if any SM relationships need to be removed.
+        i = len(smRelationships) - 1
+        while i >= 0:
+            if not smRelationships[i]["refresh"]:
+                relationshipId = smRelationships[i].get("uuid")
+                if relationshipId is None:
+                    id="Old format"
                 else:
-                    prevRec = {
-                        "time": curTimeSeconds,
-                        "refresh": True,
-                        "bytesTransferred": bytesTransferred,
-                        "uuid": transferUuid
-                    }
-                    updateRelationships = True
-                    smRelationships.append(prevRec)
-    #
-    # After processing the records, see if any SM relationships need to be removed.
-    i = len(smRelationships) - 1
-    while i >= 0:
-        if not smRelationships[i]["refresh"]:
-            relationshipId = smRelationships[i].get("uuid")
-            if relationshipId is None:
-                id="Old format"
-            else:
-                id = relationshipId
-            logger.debug(f'Deleting smRelationship: {id} cluster={clusterName}')
-            del smRelationships[i]
-            updateRelationships = True
-
-        i -= 1
-    #
-    # If any of the SM relationships changed, save it.
-    if(updateRelationships):
-        s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'))
-    #
-    # After processing the records, see if any events need to be removed.
-    i = len(events) - 1
-    while i >= 0:
-        if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
-            del events[i]
-            changedEvents = True
-        else:
-            # If an event wasn't refreshed, then we need to save the new refresh count.
-            if events[i]["refresh"] != eventResilience:
+                    id = relationshipId
+                logger.debug(f'Deleting smRelationship: {id} cluster={clusterName}')
+                del smRelationships[i]
+                updateRelationships = True
+    
+            i -= 1
+        #
+        # If any of the SM relationships changed, save it.
+        if(updateRelationships):
+            s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'))
+        #
+        # After processing the records, see if any events need to be removed.
+        i = len(events) - 1
+        while i >= 0:
+            if events[i]["refresh"] <= 0:
+                logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
+                del events[i]
                 changedEvents = True
-        i -= 1
-    #
-    # If the events array changed, save it.
-    if(changedEvents):
-        s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+            else:
+                # If an event wasn't refreshed, then we need to save the new refresh count.
+                if events[i]["refresh"] != eventResilience:
+                    changedEvents = True
+            i -= 1
+        #
+        # If the events array changed, save it.
+        if(changedEvents):
+            s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
 
 ################################################################################
 # This function is used to make API calls that may return multiple pages of
@@ -993,20 +995,22 @@ def processSnapMirrorRelationships(service):
 # the caller.
 ################################################################################
 def getAllRecords(url, ignoreErrors=False):
-    global config, http, headers, clusterName, clusterVersion, logger
+    global config, http, headers, logger, requestFailed
 
     records = []
+    requestFailed = False
     while url is not None:
         endpoint = f'https://{config["OntapAdminServer"]}{url}'
         response = http.request('GET', endpoint, headers=headers)
         if response.status == 200:
             data = json.loads(response.data)
-            records.extend(data.get("records"))
+            records.extend(data.get("records"), [])
             if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
                 url = data["_links"]["next"]["href"]
             else:
                 url = None
         else:
+            requestFailed = True
             if not ignoreErrors:
                 logger.warning(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
             return [] # Don't send an incomplete list back if we weren't able to get all the records.
@@ -1014,10 +1018,10 @@ def getAllRecords(url, ignoreErrors=False):
     return records
 
 ################################################################################
-# This function is used to check all the volume and aggregate utlization.
+# This function is used to check all the volume and aggregate utilization.
 ################################################################################
 def processStorageUtilization(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, clusterTimezone
+    global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
 
     changedEvents=False
     #
@@ -1039,17 +1043,20 @@ def processStorageUtilization(service):
     #
     # Run the API call to get the physical storage used.
     aggrRecords = getAllRecords('/api/storage/aggregates?fields=space&return_timeout=15')
+    anyRequestFailed = requestFailed
     #
     # Run the API call to get the volume information.
     volumeRecords = getAllRecords('/api/storage/volumes?fields=style,flexcache_endpoint_type,space,files,svm,state,space.snapshot&return_timeout=15')
+    anyRequestFailed = requestFailed and anyRequestFailed
     #
     # Now get the constituent volumes.
     volumeRecords.extend(getAllRecords('/api/storage/volumes?is_constituent=true&fields=style,flexcache_endpoint_type,space,files,svm,state&return_timeout=15'))
+    anyRequestFailed = requestFailed and anyRequestFailed
 
-    logger.info(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}.')
+    logger.info(f'Found {len(volumeRecords)} volumes and {len(aggrRecords)} aggregates to check on cluster {clusterName}. anyRequestFailed={anyRequestFailed}.')
     #
-    # If there are no volumes or aggregates, there is nothing to do.
-    if len(volumeRecords) == 0 and len(aggrRecords) == 0:
+    # If any of the requests failed, bail.
+    if not anyRequestFailed:
         return
 
     for rule in service["rules"]:
@@ -1139,7 +1146,7 @@ def processStorageUtilization(service):
                 for record in volumeRecords:
                     #
                     # If a volume is offline, the API will not report on a lot of the snapshot fields.
-                    if record["space"]["snapshot"].get("used") is not None and record["space"]["snapshot"].get("reserve_size") is not None and record["space"]["snapshot"]["reserve_size"] > 0:
+                    if record.get("space") is not None and record["space"].get("snapshot") is not None and record["space"]["snapshot"].get("used") is not None and record["space"]["snapshot"].get("reserve_size") is not None and record["space"]["snapshot"]["reserve_size"] > 0:
                         reserveSize = record["space"]["snapshot"]["reserve_size"]
                         reserveAvailable = reserveSize - record["space"]["snapshot"]["used"]
                         percentUsed = ((reserveSize - reserveAvailable) / reserveSize) * 100
@@ -1192,23 +1199,12 @@ def processStorageUtilization(service):
                 #
                 # Run the API call to get the snapshot information.
                 snapshotRecords = []
+                anyRequestFailed = False
                 for volume in volumeRecords:
                     if volume["flexcache_endpoint_type"].lower() != "cache" and volume["style"].lower() != "flexgroup_constituent":
-                        url = f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'
-                        while url is not None:
-                            endpoint = f'https://{config["OntapAdminServer"]}{url}'
-                            response = http.request('GET', endpoint, headers=headers)
-                            if response.status != 200:
-                                logger.error(f'API call to {endpoint} failed. HTTP status code {response.status}.')
-                                break
-                            else:
-                                data = json.loads(response.data)
-                                snapshotRecords.extend(data.get("records"))
-                                if data.get("_links") is not None and data["_links"].get("next") is not None and data["_links"]["next"].get("href") is not None:
-                                    url = data["_links"]["next"]["href"]
-                                else:
-                                    url = None
-                logger.info(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}.')
+                        snapshotRecords.extend(getAllRecords(f'/api/storage/volumes/{volume["uuid"]}/snapshots?fields=create_time,volume,svm&return_timeout=15'))
+                        anyRequestFailed = requestFailed and anyRequestFailed
+                logger.info(f'Found {len(snapshotRecords)} snapshots on cluster {clusterName}. anyRequestFailed={anyRequestFailed}.')
                 for snapshot in snapshotRecords:
                     if snapshot.get("create_time") is not None:
                         #
@@ -1242,6 +1238,9 @@ def processStorageUtilization(service):
                 logger.warning(message)
     #
     # After processing the records, see if any events need to be removed.
+    # It is possible that an "oldSnapshot" event being erroneously cleared if for some reason the
+    # request failed to get all the snapshots. But, potentially erroneously clearing that is better
+    # than not clearing a volume or aggregate utilization event that should be cleared.
     i = len(events) - 1
     while i >= 0:
         if events[i]["refresh"] <= 0:
@@ -1265,7 +1264,7 @@ def processStorageUtilization(service):
 # modify it to work with the destination you want to send the alert to.
 ################################################################################
 def sendWebHook(message, severity):
-    global clusterName, http, snsClient, config, logger
+    global config, clusterName, http, snsClient, logger
 
     if config.get('webhookEndpoint') is None:
         return
@@ -1456,7 +1455,7 @@ def sendAlert(message, severity):
 # This function is used to check utilization of quota limits.
 ################################################################################
 def processQuotaUtilization(service):
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client, clusterName, logger, requestFailed
 
     changedEvents=False
     #
@@ -1472,173 +1471,175 @@ def processQuotaUtilization(service):
     else:
         events = json.loads(data["Body"].read().decode('UTF-8'))
     #
-    # Decrement the refresh field to know if any records have really gone away.
-    for event in events:
-        event["refresh"] -= 1
-    #
     # Run the API call to get the quota report.
     # For some reason the API version of the quota report became unreliable (i.e. returning 0 records)
     # so using the private CLI version of the API.
     #url = '/api/storage/quota/reports?fields=*&return_timeout=15'
     records = getAllRecords('/api/private/cli/volume/quota/report?fields=vserver,volume,index,tree,quota-type,quota-target,disk-used,disk-limit,files-used,file-limit,soft-disk-limit,soft-file-limit,quota-specifier,disk-used-pct-soft-disk-limit,disk-used-pct-disk-limit,files-used-pct-soft-file-limit,files-used-pct-file-limit&return_timeout=15')
 
-    logger.info(f'Found {len(records)} quota report records cluster={clusterName}.')
-    for record in records:
-        for rule in service["rules"]:
-            for key in rule.keys():
-                lkey = key.lower() # Convert to all lower case so the key can be case insensitive.
-                if lkey == "maxsoftquotainodespercentused":
-                    if(record.get("files_used_pct_soft_file_limit") is not None and record["files_used_pct_soft_file_limit"] >= rule[key]):
-                        uniqueIdentifier = str(record["index"]) + "_" + key
-                        eventIndex = eventExist(events, uniqueIdentifier)
-                        if eventIndex < 0:
-                            userStr = ''
-                            qtreeStr = ' '
-                            if record["quota_type"] == "user":
-                                users = None
-                                for user in record["quota_target"]:
-                                    if users is None:
-                                        users = user
-                                    else:
-                                        users += f',{user}'
-                                userStr=f'associated with user(s) "{users}" '
-                            if record.get("tree") is not None:
-                                qtreeStr=f' under qtree: {record["tree"]} '
-                            message = f'Quota Inode Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_soft_file_limit"]}% which is more than {rule[key]}% of its inodes.'
-                            sendAlert(message, "WARNING")
-                            changedEvents=True
-                            event = {
+    logger.info(f'Found {len(records)} quota report records cluster={clusterName} requestFailed={requestFailed}.')
+    if not requestFailed:
+        #
+        # Decrement the refresh field to know if any records have really gone away.
+        for event in events:
+            event["refresh"] -= 1
+
+        for record in records:
+            for rule in service["rules"]:
+                for key in rule.keys():
+                    lkey = key.lower() # Convert to all lower case so the key can be case insensitive.
+                    if lkey == "maxsoftquotainodespercentused":
+                        if(record.get("files_used_pct_soft_file_limit") is not None and record["files_used_pct_soft_file_limit"] >= rule[key]):
+                            uniqueIdentifier = str(record["index"]) + "_" + key
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                userStr = ''
+                                qtreeStr = ' '
+                                if record["quota_type"] == "user":
+                                    users = None
+                                    for user in record["quota_target"]:
+                                        if users is None:
+                                            users = user
+                                        else:
+                                            users += f',{user}'
+                                    userStr=f'associated with user(s) "{users}" '
+                                if record.get("tree") is not None:
+                                    qtreeStr=f' under qtree: {record["tree"]} '
+                                message = f'Quota Inode Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_soft_file_limit"]}% which is more than {rule[key]}% of its inodes.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                        "index": uniqueIdentifier,
+                                        "message": message,
+                                        "refresh": eventResilience
+                                        }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
+    
+                    elif lkey == "maxquotainodespercentused" or lkey == "maxhardquotainodespercentused":
+                        if(record.get("files_used_pct_file_limit") is not None and record["files_used_pct_file_limit"] >= rule[key]):
+                            uniqueIdentifier = str(record["index"]) + "_" + key
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                userStr = ''
+                                qtreeStr = ' '
+                                if record["quota_type"] == "user":
+                                    users = None
+                                    for user in record["quota_target"]:
+                                        if users is None:
+                                            users = user
+                                        else:
+                                            users += f',{user}'
+                                    userStr=f'associated with user(s) "{users}" '
+                                if record.get("tree") is not None:
+                                    qtreeStr=f' under qtree: {record["tree"]} '
+                                message = f'Quota Inode Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_file_limit"]}% which is more than {rule[key]}% of its inodes.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                        "index": uniqueIdentifier,
+                                        "message": message,
+                                        "refresh": eventResilience
+                                        }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
+    
+                    elif lkey == "maxhardquotaspacepercentused":
+                        if(record.get("disk_used_pct_disk_limit") and record["disk_used_pct_disk_limit"] >= rule[key]):
+                            uniqueIdentifier = str(record["index"]) + "_" + key
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                userStr = ''
+                                qtreeStr = ' '
+                                if record["quota_type"] == "user":
+                                    users = None
+                                    for user in record["quota_target"]:
+                                        if users is None:
+                                            users = user
+                                        else:
+                                            users += f',{user}'
+                                    userStr=f'associated with user(s) "{users}" '
+                                if record.get("tree") is not None:
+                                    qtreeStr=f' under qtree: {record["tree"]} '
+                                message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
+                                        "index": uniqueIdentifier,
+                                        "message": message,
+                                        "refresh": eventResilience
+                                        }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
+    
+                    elif lkey == "maxsoftquotaspacepercentused":
+                        if(record.get("disk_used_pct_soft_disk_limit") and record["disk_used_pct_soft_disk_limit"] >= rule[key]):
+                            uniqueIdentifier = str(record["index"]) + "_" + key
+                            eventIndex = eventExist(events, uniqueIdentifier)
+                            if eventIndex < 0:
+                                userStr = ''
+                                qtreeStr = ' '
+                                if record["quota_type"] == "user":
+                                    users = None
+                                    for user in record["quota_target"]:
+                                        if users is None:
+                                            users = user
+                                        else:
+                                            users += f',{user}'
+                                    userStr=f'associated with user(s) "{users}" '
+                                if record.get("tree") is not None:
+                                    qtreeStr=f' under qtree: {record["tree"]} '
+                                message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
+                                sendAlert(message, "WARNING")
+                                changedEvents=True
+                                event = {
                                     "index": uniqueIdentifier,
                                     "message": message,
                                     "refresh": eventResilience
-                                    }
-                            events.append(event)
-                        else:
-                            # If the event was found, reset the refresh count. If it is just one less
-                            # than the max, then it means it was decremented above so there wasn't
-                            # really a change in state.
-                            if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                changedEvents = True
-                            events[eventIndex]["refresh"] = eventResilience
-
-                elif lkey == "maxquotainodespercentused" or lkey == "maxhardquotainodespercentused":
-                    if(record.get("files_used_pct_file_limit") is not None and record["files_used_pct_file_limit"] >= rule[key]):
-                        uniqueIdentifier = str(record["index"]) + "_" + key
-                        eventIndex = eventExist(events, uniqueIdentifier)
-                        if eventIndex < 0:
-                            userStr = ''
-                            qtreeStr = ' '
-                            if record["quota_type"] == "user":
-                                users = None
-                                for user in record["quota_target"]:
-                                    if users is None:
-                                        users = user
-                                    else:
-                                        users += f',{user}'
-                                userStr=f'associated with user(s) "{users}" '
-                            if record.get("tree") is not None:
-                                qtreeStr=f' under qtree: {record["tree"]} '
-                            message = f'Quota Inode Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_file_limit"]}% which is more than {rule[key]}% of its inodes.'
-                            sendAlert(message, "WARNING")
-                            changedEvents=True
-                            event = {
-                                    "index": uniqueIdentifier,
-                                    "message": message,
-                                    "refresh": eventResilience
-                                    }
-                            events.append(event)
-                        else:
-                            # If the event was found, reset the refresh count. If it is just one less
-                            # than the max, then it means it was decremented above so there wasn't
-                            # really a change in state.
-                            if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                changedEvents = True
-                            events[eventIndex]["refresh"] = eventResilience
-
-                elif lkey == "maxhardquotaspacepercentused":
-                    if(record.get("disk_used_pct_disk_limit") and record["disk_used_pct_disk_limit"] >= rule[key]):
-                        uniqueIdentifier = str(record["index"]) + "_" + key
-                        eventIndex = eventExist(events, uniqueIdentifier)
-                        if eventIndex < 0:
-                            userStr = ''
-                            qtreeStr = ' '
-                            if record["quota_type"] == "user":
-                                users = None
-                                for user in record["quota_target"]:
-                                    if users is None:
-                                        users = user
-                                    else:
-                                        users += f',{user}'
-                                userStr=f'associated with user(s) "{users}" '
-                            if record.get("tree") is not None:
-                                qtreeStr=f' under qtree: {record["tree"]} '
-                            message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
-                            sendAlert(message, "WARNING")
-                            changedEvents=True
-                            event = {
-                                    "index": uniqueIdentifier,
-                                    "message": message,
-                                    "refresh": eventResilience
-                                    }
-                            events.append(event)
-                        else:
-                            # If the event was found, reset the refresh count. If it is just one less
-                            # than the max, then it means it was decremented above so there wasn't
-                            # really a change in state.
-                            if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                changedEvents = True
-                            events[eventIndex]["refresh"] = eventResilience
-
-                elif lkey == "maxsoftquotaspacepercentused":
-                    if(record.get("disk_used_pct_soft_disk_limit") and record["disk_used_pct_soft_disk_limit"] >= rule[key]):
-                        uniqueIdentifier = str(record["index"]) + "_" + key
-                        eventIndex = eventExist(events, uniqueIdentifier)
-                        if eventIndex < 0:
-                            userStr = ''
-                            qtreeStr = ' '
-                            if record["quota_type"] == "user":
-                                users = None
-                                for user in record["quota_target"]:
-                                    if users is None:
-                                        users = user
-                                    else:
-                                        users += f',{user}'
-                                userStr=f'associated with user(s) "{users}" '
-                            if record.get("tree") is not None:
-                                qtreeStr=f' under qtree: {record["tree"]} '
-                            message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
-                            sendAlert(message, "WARNING")
-                            changedEvents=True
-                            event = {
-                                "index": uniqueIdentifier,
-                                "message": message,
-                                "refresh": eventResilience
-                            }
-                            events.append(event)
-                        else:
-                            # If the event was found, reset the refresh count. If it is just one less
-                            # than the max, then it means it was decremented above so there wasn't
-                            # really a change in state.
-                            if events[eventIndex]["refresh"] != (eventResilience - 1):
-                                changedEvents = True
-                            events[eventIndex]["refresh"] = eventResilience
-
-                else:
-                    message = f'Unknown quota matching condition type "{key}" found for cluster {clusterName}.'
-                    logger.warning(message)
-    #
-    # After processing the records, see if any events need to be removed.
-    i = len(events) - 1
-    while i >= 0:
-        if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
-            del events[i]
-            changedEvents = True
-        else:
-            # If an event wasn't refreshed, then we need to save the new refresh count.
-            if events[i]["refresh"] != eventResilience:
+                                }
+                                events.append(event)
+                            else:
+                                # If the event was found, reset the refresh count. If it is just one less
+                                # than the max, then it means it was decremented above so there wasn't
+                                # really a change in state.
+                                if events[eventIndex]["refresh"] != (eventResilience - 1):
+                                    changedEvents = True
+                                events[eventIndex]["refresh"] = eventResilience
+    
+                    else:
+                        message = f'Unknown quota matching condition type "{key}" found for cluster {clusterName}.'
+                        logger.warning(message)
+        #
+        # After processing the records, see if any events need to be removed.
+        i = len(events) - 1
+        while i >= 0:
+            if events[i]["refresh"] <= 0:
+                logger.debug(f'Deleting event: {events[i]["message"]} Cluster={clusterName}')
+                del events[i]
                 changedEvents = True
-        i -= 1
+            else:
+                # If an event wasn't refreshed, then we need to save the new refresh count.
+                if events[i]["refresh"] != eventResilience:
+                    changedEvents = True
+            i -= 1
     #
     # If the events array changed, save it.
     if(changedEvents):
@@ -1647,9 +1648,10 @@ def processQuotaUtilization(service):
 ################################################################################
 ################################################################################
 def processVserver(service):
-    global config, s3Client, snsClient, http, headers, clusterName, logger
+    global config, s3Client, clusterName, logger, requestFailed
 
     changedEvents=False
+    anyRequestFailed = False
     #
     # Get the saved events so we can ensure we are only reporting on new ones.
     try:
@@ -1689,8 +1691,8 @@ def processVserver(service):
         #
         # Run the API call to get the vserver state for each vserver.
         records = getAllRecords('/api/svm/svms?fields=state&return_timeout=15')
-
-        logger.info(f'Found {len(records)} vservers to check on cluster {clusterName}.')
+        anyRequestFailed = anyRequestFailed and requestFailed
+        logger.info(f'Found {len(records)} vservers to check on cluster {clusterName} requestFailed={requestFailed}.')
         for record in records:
             if record["state"].lower() != "running":
                 uniqueIdentifier = str(record["uuid"]) + "_" + vserverStateKey
@@ -1717,6 +1719,8 @@ def processVserver(service):
         #
         # Run the API call to get the NFS protocol state for each vserver.
         records = getAllRecords('/api/protocols/nfs/services?fields=state&return_timeout=15')
+        anyRequestFailed = anyRequestFailed and requestFailed
+        logger.info(f'Found {len(records)} nfs vservers to check on cluster {clusterName} requestFailed={requestFailed}.')
         for record in records:
             if record["state"].lower() != "online":
                 uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + nfsProtocolStateKey
@@ -1741,8 +1745,10 @@ def processVserver(service):
 
     if cifsProtocolState is not None and cifsProtocolState:
         #
-        # Run the API call to get the NFS protocol state for each vserver.
+        # Run the API call to get the CIFS protocol state for each vserver.
         records = getAllRecords('/api/protocols/cifs/services?fields=enabled&return_timeout=15')
+        anyRequestFailed = anyRequestFailed and requestFailed
+        logger.info(f'Found {len(records)} cifs vservers to check on cluster {clusterName} requestFailed={requestFailed}.')
         for record in records:
             if not record["enabled"]:
                 uniqueIdentifier = str(record["svm"]["uuid"]) + "_" + cifsProtocolStateKey
@@ -1767,17 +1773,23 @@ def processVserver(service):
 
     #
     # After processing the records, see if any events need to be removed.
-    i = len(events) - 1
-    while i >= 0:
-        if events[i]["refresh"] <= 0:
-            logger.debug(f'Deleting event: {events[i]["message"]} for cluster {clusterName}')
-            del events[i]
-            changedEvents = True
-        else:
-            # If an event wasn't refreshed, then we need to save the new refresh count.
-            if events[i]["refresh"] != eventResilience:
+    # However, if any of the requests failed, and no new events were detected, then we should
+    # hold off on removing any events since we can't be sure if they are resolved or not.
+    # This does leave for a corner case of just some of the requests failing and some events
+    # being resolved, but it is better than the alternative of erroneously clearing events
+    # and causing duplicated alerts when the API starts working again.
+    if not anyRequestFailed or changedEvents:
+        i = len(events) - 1
+        while i >= 0:
+            if events[i]["refresh"] <= 0:
+                logger.debug(f'Deleting event: {events[i]["message"]} for cluster {clusterName}')
+                del events[i]
                 changedEvents = True
-        i -= 1
+            else:
+                # If an event wasn't refreshed, then we need to save the new refresh count.
+                if events[i]["refresh"] != eventResilience:
+                    changedEvents = True
+            i -= 1
     #
     # If the events array changed, save it.
     if(changedEvents):
@@ -1803,7 +1815,7 @@ def getServiceIndex(targetService, conditions):
 def buildDefaultMatchingConditions(event):
     #
     # Define global variables so we don't have to pass them to all the functions.
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger
+    global config, s3Client
     #
     # Define an empty matching conditions dictionary.
     conditions = { "services": [
@@ -1947,8 +1959,7 @@ def buildDefaultMatchingConditions(event):
 ################################################################################
 def readInConfig(event):
     #
-    # Define global variables so we don't have to pass them to all the functions.
-    global config, s3Client, snsClient, http, headers, logger, clusterName
+    global config, s3Client, logger, clusterName
     #
     # Define a dictionary with all the required variables so we can
     # easily add them and check for their existence.
@@ -2116,7 +2127,7 @@ def lambda_handler(event, context):
     logging.basicConfig()
     logger = logging.getLogger("MOS_Monitoring")
     if lambdaFunction:
-        logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
+        logger.setLevel(logging.INFO)       # Anything at this level and above this get logged.
     else: # Assume we are running in a test environment.
         logger.setLevel(logging.DEBUG)      # Anything at this level and above this get logged.
         formatter = logging.Formatter(

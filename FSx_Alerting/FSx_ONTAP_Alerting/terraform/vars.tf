@@ -167,7 +167,7 @@ variable "disksAlert" {
     default     = "false"
 }
 
-variable "networkInterfaceAlert" {
+variable "networkInterfacesAlert" {
     description = "Alert on network interfaces being down."
     type        = string
     default     = "false"

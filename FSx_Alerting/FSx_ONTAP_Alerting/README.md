@@ -22,7 +22,7 @@ Here is this list of services that this program can send alerts on:
 - If an aggregate is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is using more than a specified percentage of its inodes (files). You can set two thresholds (Warning and Critical).
-- If a volume is using a certain precentage of its snapshot reserved space. You can set two thresholds (Warning and Critical).
+- If a volume is using a certain percentage of its snapshot reserved space. You can set two thresholds (Warning and Critical).
 - If a volume if offline.
 - If any snapshots are older than a specified age.
 - If any quotas values have been breached. You can be alerted on both soft and hard limits.

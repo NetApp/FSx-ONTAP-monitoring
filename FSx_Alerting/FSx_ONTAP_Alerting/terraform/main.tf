@@ -123,7 +123,7 @@ resource "aws_lambda_function" "controller_lambda_function" {
       initialFailoverAlert = var.failoverAlert
       initialFrusAlert = var.frusAlert
       initialDisksAlert = var.disksAlert
-      initialNetworkInterfaceAlert = var.networkInterfaceAlert
+      initialNetworkInterfacesAlert = var.networkInterfacesAlert
       initialEmsEventsAlert = var.emsEventsAlert
       initialSnapMirrorLagTimeAlert = var.snapMirrorLagTimeAlert
       initialSnapMirrorLagTimePercentAlert = var.snapMirrorLagTimePercentAlert
@@ -135,8 +135,8 @@ resource "aws_lambda_function" "controller_lambda_function" {
       initialVolumeUtilizationCriticalAlert = var.volumeUtilizationCriticalAlert
       initialVolumeFileUtilizationWarnAlert = var.volumeFileUtilizationWarnAlert
       initialVolumeFileUtilizationCriticalAlert = var.volumeFileUtilizationCriticalAlert
-      iniitalVolumeSnapReserveUtilizationWarnAlert: var.volumeSnapReserveUtilizationWarnAlert
-      iniitalVolumeSnapReserveUtilizationCriticalAlert: var.volumeSnapReserveUtilizationCriticalAlert
+      initialVolumeSnapReserveUtilizationWarnAlert = var.volumeSnapReserveUtilizationWarnAlert
+      initialVolumeSnapReserveUtilizationCriticalAlert = var.volumeSnapReserveUtilizationCriticalAlert
       initialVolumeOfflineAlert = var.volumeOfflineAlert
       initialOldSnapshot = var.oldSnapshotAlert
       initialSoftQuotaUtilizationAlert = var.softQuotaUtilizationAlert
