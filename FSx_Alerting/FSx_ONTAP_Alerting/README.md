@@ -26,6 +26,8 @@ Here is this list of services that this program can send alerts on:
 - If a volume if offline.
 - If any snapshots are older than a specified age.
 - If any quotas values have been breached. You can be alerted on both soft and hard limits.
+- If any FRUs (field replaceable units) are in a non-healthy state. On applies to an on-premises ONTAP cluster.
+- If any disks are in a non-healthy state. On applies to an on-premises ONTAP cluster.
 
 ## Architecture
 This solution is made up of two main components: the monitoring program and the controller. The monitoring
