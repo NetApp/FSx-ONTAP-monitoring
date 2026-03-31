@@ -1,0 +1,9 @@
+region = ""
+SNStopic = ""
+accountId = ""
+defaultCPUThreshold = 80
+defaultSSDThreshold = 80
+defaultVolumeThreshold = 80
+defaultVolumeFilesThreshold = 80
+checkInterval = 15
+regions = ""
