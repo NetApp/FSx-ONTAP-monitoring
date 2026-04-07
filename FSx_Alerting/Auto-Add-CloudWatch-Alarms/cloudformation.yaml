@@ -199,8 +199,8 @@ Resources:
           # Lastly, you can create an override for the SSD alarm, by creating a tag
           # with the name "SSD_Alarm_Threshold" on the file system resource.
           #
-          # Version: v2.4
-          # Date: 2025-12-23-17:10:05
+          # Version: v2.7
+          # Date: 2026-02-01-08:53:08
           #
           ################################################################################
           #
@@ -314,8 +314,8 @@ Resources:
                       ActionsEnabled=True,
                       AlarmActions=[action],
                       AlarmDescription=alarmDescription,
-                      EvaluationPeriods=3,
-                      DatapointsToAlarm=2,
+                      EvaluationPeriods=1,
+                      DatapointsToAlarm=1,
                       Threshold=threshold,
                       ComparisonOperator='GreaterThanThreshold',
                       MetricName="CPUUtilization",
@@ -659,6 +659,10 @@ Resources:
               for region in regions:
                   if region in fsxRegions:
                       print(f'Scanning {region}')
+                      cpuThresholds = {}
+                      ssdThresholds = {}
+                      volumeThresholds = {}
+                      volumeFileThresholds = {}
                       try:
                           fsxClient = boto3.client('fsx', region_name=region, config=boto3Config)
                           cwClient = boto3.client('cloudwatch', region_name=region, config=boto3Config)
@@ -672,8 +676,9 @@ Resources:
                           for fs in fss:
                               if(fs['FileSystemType'] == "ONTAP"):
                                   threshold = int(getCPUAlarmThresholdTagValue(fs['Tags']))
+                                  fsId = fs['FileSystemId']
+                                  cpuThresholds[fsId] = threshold
                                   if(threshold != 100):
-                                      fsId = fs['FileSystemId']
                                       fsName = fsId.replace('fs-', 'FsxId')
                                       alarmName = alarmPrefixCPU + fsId
                                       alarmDescription = f"CPU utilization alarm for file system {fsName}{customerId} in region {region}."
@@ -689,16 +694,18 @@ Resources:
                               if(alarmName[:len(alarmPrefixCPU)] == alarmPrefixCPU):
                                   fsId = alarmName[len(alarmPrefixCPU):]
                                   if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
-                                     not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
+                                     not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId or
+                                     cpuThresholds.get(fsId) == 100):
                                       print("Deleting alarm: " + alarmName + " in region " + region)
                                       delete_alarm(cwClient, alarmName)
                           #
                           # Scan for filesystems without SSD Utilization Alarm.
                           for fs in fss:
                               if(fs['FileSystemType'] == "ONTAP"):
+                                  fsId = fs['FileSystemId']
                                   threshold = int(getSSDAlarmThresholdTagValue(fs['Tags']))
+                                  ssdThresholds[fsId] = threshold
                                   if(threshold != 100):
-                                      fsId = fs['FileSystemId']
                                       fsName = fsId.replace('fs-', 'FsxId')
                                       alarmName = alarmPrefixSSD + fsId
                                       alarmDescription = f"SSD utilization alarm for file system {fsName}{customerId} in region {region}."
@@ -714,7 +721,8 @@ Resources:
                               if(alarmName[:len(alarmPrefixSSD)] == alarmPrefixSSD):
                                   fsId = alarmName[len(alarmPrefixSSD):]
                                   if(not contains_fs(fsId, fss) and onlyFilesystemId == None or
-                                     not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId):
+                                     not contains_fs(fsId, fss) and onlyFilesystemId != None and onlyFilesystemId == fsId or
+                                     ssdThresholds.get(fsId) == 100):
                                       print("Deleting alarm: " + alarmName + " in region " + region)
                                       delete_alarm(cwClient, alarmName)
                           #
@@ -728,6 +736,7 @@ Resources:
                                   volumeTags = getVolumeTags(fsxClient, volumeARN)
           
                                   threshold = int(getAlarmThresholdTagValue(volumeTags, "alarm_threshold"))
+                                  volumeThresholds[volumeId] = threshold
                                   if(threshold != 100):   # No alarm if the value is set to 100.
                                       alarmName = alarmPrefixVolume + volumeId
                                       fsName = fsId.replace('fs-', 'FsxId')
@@ -738,6 +747,7 @@ Resources:
                                           add_volume_alarm(cwClient, volumeId, alarmName, alarmDescription, fsId, threshold, region)
           
                                   threshold = int(getAlarmThresholdTagValue(volumeTags, "files_threshold"))
+                                  volumeFileThresholds[volumeId] = threshold
                                   if(threshold != 100):   # No alarm if the value is set to 100.
                                       alarmName = alarmFilesPrefixVolume + volumeId
                                       fsName = fsId.replace('fs-', 'FsxId')
@@ -750,18 +760,20 @@ Resources:
                           # Scan for volume alarms without volumes.
                           for alarm in alarms:
                               alarmName = alarm['AlarmName']
-                              if(alarmName[:len(alarmPrefixVolume)] == alarmPrefixVolume):
+                              if alarmName[:len(alarmPrefixVolume)] == alarmPrefixVolume:
                                   volumeId = alarmName[len(alarmPrefixVolume):]
                                   if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
-                                     not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                                      print("Deleting alarm: " + alarmName + " in region " + region)
+                                     not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm) or
+                                     volumeThresholds.get(volumeId) == 100):
+                                      print(f"Deleting alarm: {alarmName} in region {region}")
                                       delete_alarm(cwClient, alarmName)
           
-                              if(alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume):
+                              if alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume:
                                   volumeId = alarmName[len(alarmFilesPrefixVolume):]
                                   if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
-                                     not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm)):
-                                      print("Deleting alarm: " + alarmName + " in region " + region)
+                                     not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm) or
+                                     volumeFileThresholds.get(volumeId) == 100):
+                                      print(f"Deleting alarm: {alarmName} in region {region}")
                                       delete_alarm(cwClient, alarmName)
           
                       except botocore.exceptions.ClientError as e:
@@ -774,7 +786,6 @@ Resources:
                       except botocore.exceptions.EndpointConnectionError as e:
                           print(f"Warning: Endpoint Connection fault while scanning {region}. Skipping")
                           continue
-          
               return
           
           ################################################################################
