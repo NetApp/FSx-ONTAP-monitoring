@@ -335,13 +335,14 @@ them within curly braces `{}`. Here is a list of the available placeholders:
 | cluster\_name | The name of the FSxN cluster. |
 | severity      | The severity of the event. |
 | account\_id   | The AWS account ID set via the `awsAccountId` configuration parameter. |
+| alert\_category | The category of the alert. It is determined by the "service" being monitored (e.g. EMS, SnapMirror, storage, system health)|
 | message       | The alert message. |
 | message\_hash | A hash value that uniquely identifies the event. It is used to prevent duplicate alerts for the same event. |
 
 If you don't provide a webhook payload configuration file, the program will use the following default payload:
 ```
 {
-    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}).",
+    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}). | {alert_category}",
     "INC__manager": "FSxONTAP",
     "INC__severity": "3",
     "INC__identifier": "FSx ONTAP Monitoring Services alert for cluster {cluster_name}({account_id}) - {message_hash}",

@@ -147,6 +147,7 @@ def eventExist (events, uniqueIdentifier):
 def checkSystem():
     global config, s3Client, http, headers, clusterName, clusterVersion, logger, clusterTimezone
 
+    alertCategory = "System Health Alert"
     changedEvents = False
     #
     # Get the previous status.
@@ -215,7 +216,7 @@ def checkSystem():
                 message = f'CRITICAL: Received a non 200 HTTP status code ({response.status}) when trying to access {clusterName}.'
             else:
                 message = f'CRITICAL: Failed to issue API against {clusterName}. Cluster could be down.'
-            sendAlert(message, "CRITICAL")
+            sendAlert(message, "CRITICAL", alertCategory)
             fsxStatus["systemHealth"] += 1
             changedEvents = True
 
@@ -240,6 +241,7 @@ def checkSystem():
 def checkSystemHealth(service):
     global config, s3Client, http, headers, clusterName, clusterVersion, logger, requestFailed
 
+    alertCategory = "System Health Alert"
     changedEvents = False
     #
     # Get the previous status.
@@ -255,7 +257,7 @@ def checkSystemHealth(service):
             if lkey == "versionchange":
                 if rule[key] and clusterVersion != fsxStatus["version"]:
                     message = f'NOTICE: The ONTAP version changed on cluster {clusterName} from {fsxStatus["version"]} to {clusterVersion}.'
-                    sendAlert(message, "INFO")
+                    sendAlert(message, "INFO", alertCategory)
                     fsxStatus["version"] = clusterVersion
                     changedEvents = True
             elif lkey == "failover":
@@ -287,7 +289,7 @@ def checkSystemHealth(service):
                                     eventIndex = eventExist(fsxStatus["downNodes"], uniqueIdentifier)
                                     if eventIndex < 0:
                                         message = f'Alert: Node {node["name"]} on cluster {clusterName} state is not "up".'
-                                        sendAlert(message, "INFO")  # This is an INFO since it is likely caused by a planned event like an O/S upgrade.
+                                        sendAlert(message, "INFO", alertCategory)  # This is an INFO since it is likely caused by a planned event like an O/S upgrade.
                                         event = {
                                             "index": uniqueIdentifier,
                                             "refresh": eventResilience
@@ -323,7 +325,7 @@ def checkSystemHealth(service):
                                 data = json.loads(response.data)
                                 if data["num_records"] != fsxStatus["numberNodes"]:
                                     message = f'Alert: The number of nodes in cluster {clusterName} went from {fsxStatus["numberNodes"]} to {data["num_records"]}.\nNote, this is likely a planned failover event to upgrade the O/S, or to change the throughput capacity.'
-                                    sendAlert(message, "INFO")
+                                    sendAlert(message, "INFO", alertCategory)
                                     fsxStatus["numberNodes"] = data["num_records"]
                                     changedEvents = True
                             else:
@@ -350,7 +352,7 @@ def checkSystemHealth(service):
                                 eventIndex = eventExist(fsxStatus["downInterfaces"], uniqueIdentifier)
                                 if eventIndex < 0:
                                     message = f'Alert: Network interface {interface["name"]} on svm: {svm} on cluster {clusterName} is not up.'
-                                    sendAlert(message, "WARNING")
+                                    sendAlert(message, "WARNING", alertCategory)
                                     event = {
                                         "index": uniqueIdentifier,
                                         "refresh": eventResilience
@@ -397,7 +399,7 @@ def checkSystemHealth(service):
                                 eventIndex = eventExist(fsxStatus["downFrus"], uniqueIdentifier)
                                 if eventIndex < 0:
                                     message = f'Alert: FRU of type {fru["type"]} with a name of {fru["fru_name"]} on cluster {clusterName} is not "ok".'
-                                    sendAlert(message, "WARNING")
+                                    sendAlert(message, "WARNING", alertCategory)
                                     event = {
                                         "index": uniqueIdentifier,
                                         "refresh": eventResilience
@@ -439,13 +441,13 @@ def checkSystemHealth(service):
                             changedEvents = True
 
                         for disk in records:
-                            if disk.get("state") == "present":
+                            if disk.get("state") == "broken":
                                 if disk.get("outage") is not None and disk["outage"].get("persistently_failed") and disk.get("serial_number") is not None and disk.get("name") is not None:
                                     uniqueIdentifier = f'{disk["name"]}_{disk["serial_number"]}'
                                     eventIndex = eventExist(fsxStatus["downDisks"], uniqueIdentifier)
                                     if eventIndex < 0:
                                         message = f'Alert: Disk {disk["name"]} with serial number {disk["serial_number"]} on cluster {clusterName} has failed.'
-                                        sendAlert(message, "WARNING")
+                                        sendAlert(message, "WARNING", alertCategory)
                                         event = {
                                             "index": uniqueIdentifier,
                                             "refresh": eventResilience
@@ -484,6 +486,7 @@ def checkSystemHealth(service):
 def processEMSEvents(service):
     global config, s3Client, http, headers, clusterName, logger
 
+    alertCategory = "EMS Event Alert"
     changedEvents = False
     #
     # Get the saved events so we can ensure we are only reporting on new ones.
@@ -541,18 +544,18 @@ def processEMSEvents(service):
                     message = f'{record["time"]} : {clusterName} {record["message"]["name"]}({record["message"]["severity"]}) - {record["log_message"]}'
                     useverity=record["message"]["severity"].upper()
                     if useverity == "EMERGENCY":
-                        sendAlert(message, "CRITICAL")
+                        sendAlert(message, "CRITICAL", alertCategory)
                     elif useverity == "ALERT":
-                        sendAlert(message, "ERROR")
+                        sendAlert(message, "ERROR", alertCategory)
                     elif useverity == "ERROR":
-                        sendAlert(message, "WARNING")
+                        sendAlert(message, "WARNING", alertCategory)
                     elif useverity == "NOTICE" or useverity == "INFORMATIONAL":
-                        sendAlert(message, "INFO")
+                        sendAlert(message, "INFO", alertCategory)
                     elif useverity == "DEBUG":
-                        sendAlert(message, "DEBUG")
+                        sendAlert(message, "DEBUG", alertCategory)
                     else:
-                        sendAlert(f'Received unknown severity from ONTAP "{record["message"]["severity"]}". The message received is next.', "INFO")
-                        sendAlert(message, "INFO")
+                        sendAlert(f'Received unknown severity from ONTAP "{record["message"]["severity"]}". The message received is next.', "INFO", alertCategory)
+                        sendAlert(message, "INFO", alertCategory)
 
                     changedEvents = True
                     event = {
@@ -744,6 +747,8 @@ def getLastScheduledUpdate(record):
 ################################################################################
 def processSnapMirrorRelationships(service):
     global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
+
+    alertCategory = "SnapMirror Health Alert"
     #
     # Get the saved events so we can ensure we are only reporting on new ones.
     try:
@@ -844,7 +849,7 @@ def processSnapMirrorRelationships(service):
                                     timeStr = lagTimeStr(lagSeconds)
                                     asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
                                     message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
-                                    sendAlert(message, "WARNING")
+                                    sendAlert(message, "WARNING", alertCategory)
                                     changedEvents=True
                                     event = {
                                         "index": uniqueIdentifier,
@@ -867,7 +872,7 @@ def processSnapMirrorRelationships(service):
                         if eventIndex < 0:
                             timeStr = lagTimeStr(lagSeconds)
                             message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
-                            sendAlert(message, "WARNING")
+                            sendAlert(message, "WARNING", alertCategory)
                             changedEvents=True
                             event = {
                                 "index": uniqueIdentifier,
@@ -891,7 +896,7 @@ def processSnapMirrorRelationships(service):
                         message = f'Snapmirror Health Alert: {sourceClusterName}::{record["source"]["path"]} {clusterName}::{record["destination"]["path"]} has a status of {record["healthy"]}.'
                         for reason in record["unhealthy_reason"]:
                             message += "\n" + reason["message"]
-                        sendAlert(message, "WARNING")
+                        sendAlert(message, "WARNING", alertCategory)
                         changedEvents=True
                         event = {
                             "index": uniqueIdentifier,
@@ -920,7 +925,7 @@ def processSnapMirrorRelationships(service):
                                 eventIndex = eventExist(events, uniqueIdentifier)
                                 if eventIndex < 0:
                                     message = f"Snapmirror transfer has stalled: {sourceClusterName}::{record['source']['path']} -> {clusterName}::{record['destination']['path']}."
-                                    sendAlert(message, "WARNING")
+                                    sendAlert(message, "WARNING", alertCategory)
                                     changedEvents=True
                                     event = {
                                         "index": uniqueIdentifier,
@@ -1022,6 +1027,7 @@ def getAllRecords(url, ignoreErrors=False):
 def processStorageUtilization(service):
     global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
 
+    alertCategory = "Storage Health Alert"
     changedEvents=False
     #
     # Get the saved events so we can ensure we are only reporting on new ones.
@@ -1069,7 +1075,7 @@ def processStorageUtilization(service):
                         if eventIndex < 0:
                             alertType = 'Warning' if lkey == "aggrwarnpercentused" else 'Critical'
                             message = f'Aggregate {alertType} Alert: Aggregate {aggr["name"]} on {clusterName} is {aggr["space"]["block_storage"]["used_percent"]}% full, which is more or equal to {rule[key]}% full.'
-                            sendAlert(message, "WARNING")
+                            sendAlert(message, "WARNING", alertCategory)
                             changedEvents = True
                             event = {
                                     "index": uniqueIdentifier,
@@ -1094,7 +1100,7 @@ def processStorageUtilization(service):
                             if eventIndex < 0:
                                 alertType = 'Warning' if lkey == "volumewarnpercentused" else 'Critical'
                                 message = f'Volume Usage {alertType} Alert: volume {record["svm"]["name"]}:{record["name"]} on {clusterName} is {record["space"]["percent_used"]}% full, which is more or equal to {rule[key]}% full.'
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents = True
                                 event = {
                                         "index": uniqueIdentifier,
@@ -1125,7 +1131,7 @@ def processStorageUtilization(service):
                                 if eventIndex < 0:
                                     alertType = 'Warning' if lkey == "volumewarnfilespercentused" else 'Critical'
                                     message = f"Volume File (inode) Usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of its inodes, which is more or equal to {rule[key]}% utilization."
-                                    sendAlert(message, "WARNING")
+                                    sendAlert(message, "WARNING", alertCategory)
                                     changedEvents = True
                                     event = {
                                             "index": uniqueIdentifier,
@@ -1155,7 +1161,7 @@ def processStorageUtilization(service):
                             if eventIndex < 0:
                                 alertType = 'Warning' if lkey == "volumewarnsnapreservepercentused" else 'Critical'
                                 message = f"Volume snapshot reserve usage {alertType} Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is using {percentUsed:.0f}% of its snap reserve space, which is more or equal to {rule[key]}% utilization."
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents = True
                                 event = {
                                         "index": uniqueIdentifier,
@@ -1177,7 +1183,7 @@ def processStorageUtilization(service):
                         eventIndex = eventExist(events, uniqueIdentifier)
                         if eventIndex < 0:
                             message = f"Volume Offline Alert: volume {record['svm']['name']}:{record['name']} on {clusterName} is offline."
-                            sendAlert(message, "WARNING")
+                            sendAlert(message, "WARNING", alertCategory)
                             changedEvents=True
                             event = {
                                 "index": uniqueIdentifier,
@@ -1217,7 +1223,7 @@ def processStorageUtilization(service):
                             if eventIndex < 0:
                                 timeStr = lagTimeStr(int(ageSeconds))
                                 message = f'Old Snapshot Alert: snapshot {snapshot["name"]} on volume {snapshot["volume"]["name"]} in SVM {snapshot["svm"]["name"]} is {int(ageSeconds)} seconds old ({timeStr}), which is more than {rule[key]} days.'
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents=True
                                 event = {
                                     "index": uniqueIdentifier,
@@ -1262,7 +1268,7 @@ def processStorageUtilization(service):
 # specific Moogsoft webhook implementation. You will most likely want to
 # modify it to work with the destination you want to send the alert to.
 ################################################################################
-def sendWebHook(message, severity):
+def sendWebHook(message, severity, alert_category):
     global config, clusterName, http, snsClient, logger
 
     if config.get('webhookEndpoint') is None:
@@ -1295,13 +1301,13 @@ def sendWebHook(message, severity):
         account_id = config.get("awsAccountId", "not_set")   # pylint: disable=W0641
         #
         # Replace the fields in the payload.
-        for fieldName in ["cluster_name", "severity", "account_id", "message", "message_hash"]:
+        for fieldName in ["cluster_name", "severity", "account_id", "message", "message_hash", "alert_category"]:
             payload = payload.replace("{" + fieldName + "}", str(locals()[fieldName]))
     else:
         #
         # This is a default payload for Moogsoft.
         payload = {
-            "INC__summary": f"{severity}: ONTAP Monitoring Services Alert for cluster {clusterName}",
+            "INC__summary": f"{severity}: ONTAP Monitoring Services Alert for cluster {clusterName} | {alert_category}",
             "INC__manager": "FSxONTAP",
             "INC__severity": "3",
             "INC__identifier": f"ONTAP Monitoring Services alert for cluster {clusterName} - {message_hash}",
@@ -1388,7 +1394,7 @@ def severityToNumber(severity):
 ################################################################################
 # This function sends the message to the various alerting systems.
 ################################################################################
-def sendAlert(message, severity):
+def sendAlert(message, severity, alertCategory):
     global config, snsClient, logger, cloudWatchClient, clusterName, lambdaFunction
 
     #
@@ -1448,7 +1454,7 @@ def sendAlert(message, severity):
     #
     # Send to webhook if defined.
     if config.get('webhookEndpoint') is not None and severityToNumber(config['webhookSeverity']) >= severityToNumber(severity):
-        sendWebHook(message, severity)
+        sendWebHook(message, severity, alertCategory)
 
 ################################################################################
 # This function is used to check utilization of quota limits.
@@ -1456,6 +1462,7 @@ def sendAlert(message, severity):
 def processQuotaUtilization(service):
     global config, s3Client, clusterName, logger, requestFailed
 
+    alertCategory = "Quota Utilization Alert"
     changedEvents=False
     #
     # Get the saved events so we can ensure we are only reporting on new ones.
@@ -1505,7 +1512,7 @@ def processQuotaUtilization(service):
                                 if record.get("tree") is not None:
                                     qtreeStr=f' under qtree: {record["tree"]} '
                                 message = f'Quota Inode Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_soft_file_limit"]}% which is more than {rule[key]}% of its inodes.'
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents=True
                                 event = {
                                         "index": uniqueIdentifier,
@@ -1539,7 +1546,7 @@ def processQuotaUtilization(service):
                                 if record.get("tree") is not None:
                                     qtreeStr=f' under qtree: {record["tree"]} '
                                 message = f'Quota Inode Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["files_used_pct_file_limit"]}% which is more than {rule[key]}% of its inodes.'
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents=True
                                 event = {
                                         "index": uniqueIdentifier,
@@ -1573,7 +1580,7 @@ def processQuotaUtilization(service):
                                 if record.get("tree") is not None:
                                     qtreeStr=f' under qtree: {record["tree"]} '
                                 message = f'Quota Space Usage Alert: Hard quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents=True
                                 event = {
                                         "index": uniqueIdentifier,
@@ -1607,7 +1614,7 @@ def processQuotaUtilization(service):
                                 if record.get("tree") is not None:
                                     qtreeStr=f' under qtree: {record["tree"]} '
                                 message = f'Quota Space Usage Alert: Soft quota of type "{record["quota_type"]}" on {record["vserver"]}:/{record["volume"]}{qtreeStr}{userStr}on {clusterName} is using {record["disk_used_pct_soft_disk_limit"]}% which is more than {rule[key]}% of its allocated space.'
-                                sendAlert(message, "WARNING")
+                                sendAlert(message, "WARNING", alertCategory)
                                 changedEvents=True
                                 event = {
                                     "index": uniqueIdentifier,
@@ -1649,6 +1656,7 @@ def processQuotaUtilization(service):
 def processVserver(service):
     global config, s3Client, clusterName, logger, requestFailed
 
+    alertCategory = "Vserver health Alert"
     changedEvents=False
     anyRequestFailed = False
     #
@@ -1698,7 +1706,7 @@ def processVserver(service):
                 eventIndex = eventExist(events, uniqueIdentifier)
                 if eventIndex < 0:
                     message = f'SVM State Alert: SVM {record["name"]} on {clusterName} is not online.'
-                    sendAlert(message, "WARNING")
+                    sendAlert(message, "WARNING", alertCategory)
                     changedEvents=True
                     event = {
                             "index": uniqueIdentifier,
@@ -1726,7 +1734,7 @@ def processVserver(service):
                 eventIndex = eventExist(events, uniqueIdentifier)
                 if eventIndex < 0:
                     message = f'NFS Protocol State Alert: NFS protocol on {record["svm"]["name"]} on {clusterName} is not online.'
-                    sendAlert(message, "WARNING")
+                    sendAlert(message, "WARNING", alertCategory)
                     changedEvents=True
                     event = {
                             "index": uniqueIdentifier,
@@ -1754,7 +1762,7 @@ def processVserver(service):
                 eventIndex = eventExist(events, uniqueIdentifier)
                 if eventIndex < 0:
                     message = f'CIFS Protocol State Alert: CIFS protocol on {record["svm"]["name"]} on {clusterName} is not online.'
-                    sendAlert(message, "WARNING")
+                    sendAlert(message, "WARNING", alertCategory)
                     changedEvents=True
                     event = {
                             "index": uniqueIdentifier,
