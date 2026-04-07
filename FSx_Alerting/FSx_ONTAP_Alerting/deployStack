@@ -100,7 +100,7 @@ if [ $watchdog != "true" -a $watchdog != "false" ]; then
 fi
 #
 # Create a CloudFormation stack name that isn't too long.
-stackName=MOS-multi-$$
+stackName=MOS-multi-$RANDOM
 
 if [ -r "$FSxNListFilename" ]; then
   if aws s3 --region $region cp $FSxNListFilename s3://$bucket; then
