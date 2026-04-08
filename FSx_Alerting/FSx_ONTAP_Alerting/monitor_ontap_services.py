@@ -1419,7 +1419,7 @@ def sendAlert(message, severity, alertCategory):
         source = " "
     #
     # Ensure the subject is less than 100 characters.
-    subject = f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}'
+    subject = f'{severity}:{source}Monitor ONTAP Services {alertCategory} for cluster {clusterName}'
     snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
     #
     # Send to CloudWatch if defined.

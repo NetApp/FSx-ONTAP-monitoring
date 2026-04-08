@@ -980,8 +980,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v4.36
-          # Date: 2026-04-07-17:17:00
+          # Version: v4.37
+          # Date: 2026-04-08-07:31:22
           ################################################################################
           
           import json
@@ -2381,7 +2381,7 @@ Resources:
                   source = " "
               #
               # Ensure the subject is less than 100 characters.
-              subject = f'{severity}:{source}Monitor ONTAP Services Alert for cluster {clusterName}'
+              subject = f'{severity}:{source}Monitor ONTAP Services {alertCategory} for cluster {clusterName}'
               snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
               #
               # Send to CloudWatch if defined.
