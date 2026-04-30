@@ -11,6 +11,7 @@ Metadata:
           default: Harvest and Grafana Instance parameters
         Parameters:
           - InstanceType
+          - VolumeSize
           - KeyPair
           - SecurityGroup
           - Subnet
@@ -25,6 +26,8 @@ Metadata:
     ParameterLabels:
       InstanceType:
         default: Instance Type
+      VolumeSize:
+        default: Volume Size (GB)
       KeyPair:
         default: Key Pair
       LatestLinuxAmiId:
@@ -56,6 +59,11 @@ Parameters:
       - m5n.4xlarge
     Default: t3.medium
     Type: String
+
+  VolumeSize:
+    Description: Volume size in GB for the EC2 instance.
+    Type: Number
+    Default: 20
 
   KeyPair:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance.
@@ -108,6 +116,12 @@ Resources:
       InstanceType: !Ref InstanceType
       KeyName: !Ref KeyPair
       Monitoring: true
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: !Ref VolumeSize
+            VolumeType: gp3
+            DeleteOnTermination: true
       NetworkInterfaces:
         - AssociatePublicIpAddress: !If [CreatePublicIP, "true", "false"]
           DeviceIndex: "0"

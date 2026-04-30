@@ -8,10 +8,10 @@ If they have, then the program will send an SNS message to the specified SNS top
 a syslog message, a webhook, as well as store the event information into a CloudWatch Log Stream.
 The program takes measures to ensure it doesn't send multiple messages for the same event.
 
-Here is this list of services that this program can monitor:
+Here is this list of services that this program can send alerts on:
 - If the file system is available.
 - If the underlying Data ONTAP version has changed.
-- If the file system is running off its partner node (i.e. is running in failover mode).
+- If the number of nodes in the cluster has changed. Typically meaning one has gone down.
 - If any of the network interfaces are down.
 - Any EMS message. Filtering is provided to allow you to only be alerted on the EMS messages you care about.
 - If any of the vservers are down.
@@ -19,12 +19,15 @@ Here is this list of services that this program can monitor:
 - If a SnapMirror relationship hasn't been updated within either a specified amount of time or as a percentage of time since its last scheduled update.
 - If a SnapMirror update has stalled.
 - If a SnapMirror relationship is in a "non-healthy" state.
-- If the aggregate is over a certain percentage full. You can set two thresholds (Warning and Critical).
+- If an aggregate is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
-- If a volume is using more than a specified percentage of its inodes. You can set two thresholds (Warning and Critical).
+- If a volume is using more than a specified percentage of its inodes (files). You can set two thresholds (Warning and Critical).
+- If a volume is using a certain percentage of its snapshot reserved space. You can set two thresholds (Warning and Critical).
 - If a volume if offline.
 - If any snapshots are older than a specified age.
 - If any quotas values have been breached. You can be alerted on both soft and hard limits.
+- If any FRUs (field replaceable units) are in a non-healthy state. On applies to an on-premises ONTAP cluster.
+- If any disks are in a non-healthy state. On applies to an on-premises ONTAP cluster.
 
 ## Architecture
 This solution is made up of two main components: the monitoring program and the controller. The monitoring
@@ -332,13 +335,14 @@ them within curly braces `{}`. Here is a list of the available placeholders:
 | cluster\_name | The name of the FSxN cluster. |
 | severity      | The severity of the event. |
 | account\_id   | The AWS account ID set via the `awsAccountId` configuration parameter. |
+| alert\_category | The category of the alert. It is determined by the "service" being monitored (e.g. EMS, SnapMirror, storage, system health)|
 | message       | The alert message. |
 | message\_hash | A hash value that uniquely identifies the event. It is used to prevent duplicate alerts for the same event. |
 
 If you don't provide a webhook payload configuration file, the program will use the following default payload:
 ```
 {
-    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}).",
+    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}). | {alert_category}",
     "INC__manager": "FSxONTAP",
     "INC__severity": "3",
     "INC__identifier": "FSx ONTAP Monitoring Services alert for cluster {cluster_name}({account_id}) - {message_hash}",
@@ -521,6 +525,8 @@ Each rule should be an object with one, or more, of the following keys:
 |---|---|---|
 |versionChange|Boolean (true, false)|If `true` the program will send an alert when the ONTAP version changes. If it is set to `false`, it will not report on version changes.|
 |failover|Boolean|If 'true' the program will send an alert if the FSxN cluster is running on its standby node. If it is set to `false`, it will not report on failover status.|
+|frus|Boolean|If 'true' the program will send an alert when any FRU goes into a non "UP" state. If it is set to `false`, it will not report on FRU status. This is ignored for FSxN since the API to get FRU information is blocked.|
+|disks|Boolean|If 'true' the program will send an alert when any disks fails. If it is set to `false`, it will not report on disk status. This is ignored for FSxN since the API to get disk information is blocked.|
 |networkInterfaces|Boolean|If 'true' the program will send an alert if any of the network interfaces are down.  If it is set to `false`, it will not report on any network interfaces that are down.|
 
 #### Matching condition schema for EMS Events (ems)
@@ -558,6 +564,8 @@ Each rule should be an object with one, or more, of the following keys:
 |aggrCriticalPercentUsed|Integer|Specifies the maximum allowable physical storage (aggregate) utilization (between 0 and 100) before an alert is sent.|
 |volumeWarnPercentUsed|Integer|Specifies the maximum allowable volume utilization (between 0 and 100) before an alert is sent.|
 |volumeCriticalPercentUsed|Integer|Specifies the maximum allowable volume utilization (between 0 and 100) before an alert is sent.|
+|volumeWarnSnapReservePercentUsed|Integer|Specifies the maximum allowable volume snapshot reserve utilization (between 0 and 100) before an alert is sent.|
+|volumeCriticalSnapReservePercentUsed|Integer|Specifies the maximum allowable volume snapshot reserve utilization (between 0 and 100) before an alert is sent.|
 |volumeWarnFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
 |volumeCriticalFilesPercentUsed|Integer|Specifies the maximum allowable volume files (inodes) utilization (between 0 and 100) before an alert is sent.|
 |offline|Boolean|If `true` will alert if the volume is offline.|
