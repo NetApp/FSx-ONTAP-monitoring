@@ -70,7 +70,7 @@ that you don't disable them.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnets you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
 - An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret(s) that holds the FSx for ONTAP file system credentials. There should be two keys in each secret, one for the username and one for the password.
-- Create an object (file) in the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below. If you create it locally, make sure to upload it to the S3 bucket.
+- Create an object (file) in the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File_Format](#fsxn-list-file-format) section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
@@ -122,6 +122,11 @@ To install the program using the CloudFormation template, you will need to do th
 7. The final page will allow you to review all configuration parameters you provided.
     If everything looks good, click on the "Create stack" button.
 
+#### Deploying the CloudFormation stack via the command line
+If you want to deploy this program from the command line, you can use the [deployStack](deployStack) script
+found in this repository. It takes various options to set the required parameters in the
+stack. If you run the script without any parameters, it will display the usage information.
+
 ### Installation using Terraform
 Deploying with Terraform will do the following:
 - Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
@@ -154,6 +159,10 @@ To install the program using Terraform, you will need to do the following:
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 
 ### Deployment Configuration Parameters
+For both the CloudFormation and Terraform deployment methods, there are several parameters that you can provide values
+for to customize the deployment. Some of them are required, while others have default values. Below is a table that
+describes each parameter and any notes about it.
+
 |Parameter Name |Notes|
 |---|---|
 |Stackname\*|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
@@ -210,11 +219,6 @@ please create an issue on the [Issues](https://github.com/NetApp/FSx-ONTAP-monit
 in this repository and someone will help you.
 
 After you have checked the controller Lambda function, check the monitoring Lambda function the same way.
-
-### Deploying the CloudFormation stack via the command line
-If you want to deploy this program from the command line, you can use the [deployStack](deployStack) script
-found in this repository. It takes various options to set the required parameters in the
-stack. If you run the script without any parameters, it will display the usage information.
 
 ---
 
@@ -275,32 +279,12 @@ send the alert and store the event. Once a successful SnapMirror synchronization
 from the s3 object allowing for a new event to be created and alerted on. If you want to keep the event information
 longer than that, please configure the program to store them in a CloudWatch log group.
 
-This bucket is also used to store the Matching Condition file. You can read more about it in the [Matching Conditions File](#matching-conditions-file) below.
+This bucket is also used to store the [Matching Condition](#matching-conditions-file) and [FSxN List](#create-fsxn-list-file) files.
 
 #### Create FSxN List File
 The FSxN list file is used by the controller Lambda function to determine which FSxN file systems to monitor.
-The format of the file is as follows:
-```
-<OntapAdminServer1>,<SecretArn1>,<param1>=<value1>,<param2>=<value2>,...
-<OntapAdminServer2>,<SecretArn2>,<param1>=<value1>,<param2>=<value2>,...
-...
-```
-Where:
-- `<OntapAdminServer>` is the full qualified hostname, or IP address, of the FSxN file system management endpoint you want to monitor.
-- `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the FSxN file system.
-- `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
-    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
-    **Do not** put double quotes around the values.
-
-An exmaple FSxNList file:
-```
-#
-# dr:
-10.100.12.89,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-dr-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
-#
-# prod
-198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
-```
+You can find the format of this file in the [FSxN List File Format](#fsxn-list-file-format) section below.
+Once you have created the file, upload it to the S3 bucket you created in the previous step.
 
 #### Create an SNS Topic
 Since the way this program sends alerts is via an SNS topic, you need to either create SNS topic, or use an
@@ -463,17 +447,73 @@ The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` s
 put `0.5` in the text box. This will set the alarm to trigger if there are any errors. Do this for both the controller and monitoring
 Lambda functions.
 
+---
+## Configuration Reference
+
+### FSxN\_List File Format
+The FSxN\_List file specifies the FSxN file systems to monitor and any configuration parameters you want to specify for each one.
+
+The format of the file is as follows:
+```
+<OntapAdminServer1>,<SecretArn1>,<param1>=<value1>,<param2>=<value2>,...
+<OntapAdminServer2>,<SecretArn2>,<param1>=<value1>,<param2>=<value2>,...
+...
+```
+Where:
+- `<OntapAdminServer>` is the full qualified hostname, or IP address, of the FSxN file system management endpoint you want to monitor.
+- `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the FSxN file system.
+- `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
+    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
+    **Do not** put double quotes around the values.
+
+An exmaple FSxNList file:
+```
+#
+# dr:
+10.100.12.89,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-dr-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+#
+# prod
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+```
+
+:bulb: **Tip** You can use the `configFilename` paramters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+:bulb: **Tip** You can use the `conditionsFilename` paramters to specify a file that contains the [Matching Conditions File](#matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
+
+### Configuration File Format
+The configuration file is a simple text file that contains a list of parameter assignments. The format of the file is as follows:
+```
+param1=value1
+param2=value2
+...
+```
+Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
+
 ### Monitoring Configuration Parameters
 Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
 while others are optional. Some of the optional ones are still required to be set to something but
 if they are not, a usable default value will be assumed.
 
-Instead of passing all these parameters via the FSxN\_List file, you can create a configuration
-file that contains the parameter assignments and then use the `configFilename` parameter in the FSxN\_List file to specify that file.
-The assignments in the configuraiton file should be of the form "parameter=value". The default filename for the configuration
-file is what you set OntapAdminServer to in the FSxN\_List file plus the string "-config". If you want to use a different
-filename, say a common file for all or most of the file systems, set the configFilename parameter to the name of your choosing.
-The file must be in the S3 bucket in order for the monitoring program to access it.
+Instead of passing all these parameters via the FSxN\_List file, you can create a [configuration file](#configuration-file-format)
+that contains the parameter assignments. The default filename for the configuration file is what you set OntapAdminServer
+to in the FSxN\_List file plus the string "-config". If you want to use a different filename, for example so you can have
+a common file for all or most of the file systems, then set the `configFilename` parameter in the FSxN\_List file to the name of your configuration file.
+**NOTE:** The file must be in the S3 bucket in order for the monitoring program to access it.
+
+For example, if you have a configuration file named `defaultConfig` in your S3 bucket with the following:
+
+```
+cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*
+conditionsFilename=defaultConditions
+webhookEndpoint=https://hooks.slack.com/services/T00000000
+webhookConfigFilename=defaultWebhookConfig
+```
+
+Then your FSxN\_List file can look like this:
+
+```
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,configFilename=defaultConfig
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,configFilename=defaultConfig
+```
 
 :warning: **NOTE:** Parameter names are case sensitive. 
 
@@ -485,7 +525,7 @@ The file must be in the S3 bucket in order for the monitoring program to access 
 | secretArn                | Yes      | None          | Set to the ARN of the secret within the AWS Secrets Manager that holds the FSxN credentials. This is the second parameter of the FSxN list file.|
 | secretUsernameKey        | No       | username      | Set to the key name within the AWS Secrets Manager secret that holds the username portion of the FSxN credentials. |
 | secretPasswordKey        | No       | password      | Set to the key name within the AWS Secrets Manager secret that holds the password portion of the FSxN credentials. |
-| configFilename           | No       | OntapAdminServer + "-config" | Set to the filename (S3 object) that contains parameter assignments. It's okay if it doesn't exist, as long as there are environment variables for all the required parameters. |
+| configFilename           | No       | OntapAdminServer + "-config" | Set to the filename (S3 object) that contains parameter assignments. |
 | conditionsFilename       | No       | OntapAdminServer + "-conditions" | Set to the filename (S3 object) where you want the program to read the matching condition information from. |
 | snsTopicArn              | Yes      | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. |
 | cloudWatchLogGroupArn    | No       | None          | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
