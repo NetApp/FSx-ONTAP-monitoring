@@ -785,7 +785,7 @@ Resources:
           Value: !Sub "monitor-ontap-services-${AWS::StackName}"
       Statistic: "Maximum"
       Period: 900
-      EvaluationPeriods: 4
+      EvaluationPeriods: 2
       DatapointsToAlarm: 2
       TreatMissingData: "ignore"
       Threshold: 0.5
@@ -980,8 +980,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v4.37
-          # Date: 2026-04-08-07:31:22
+          # Version: v4.38
+          # Date: 2026-06-25-17:12:07
           ################################################################################
           
           import json

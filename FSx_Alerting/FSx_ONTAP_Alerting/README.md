@@ -8,6 +8,11 @@ If they have, then the program will send an SNS message to the specified SNS top
 a syslog message, a webhook, as well as store the event information into a CloudWatch Log Stream.
 The program takes measures to ensure it doesn't send multiple messages for the same event.
 
+While this program was originally written to monitor FSx for ONTAP file systems, it can also be used
+to monitor on-premises ONTAP clusters as well. And in fact, if is is used to monitor an on-premises ONTAP cluster,
+it can monitor more services than it can for FSx for ONTAP file systems. Specifically, it can monitor the
+health of the FRUs (field replaceable units) and disks in the cluster.
+
 Here is this list of services that this program can send alerts on:
 - If the file system is available.
 - If the underlying Data ONTAP version has changed.
@@ -23,7 +28,7 @@ Here is this list of services that this program can send alerts on:
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is using more than a specified percentage of its inodes (files). You can set two thresholds (Warning and Critical).
 - If a volume is using a certain percentage of its snapshot reserved space. You can set two thresholds (Warning and Critical).
-- If a volume if offline.
+- If a volume is offline.
 - If any snapshots are older than a specified age.
 - If any quotas values have been breached. You can be alerted on both soft and hard limits.
 - If any FRUs (field replaceable units) are in a non-healthy state. On applies to an on-premises ONTAP cluster.
@@ -31,9 +36,9 @@ Here is this list of services that this program can send alerts on:
 
 ## Architecture
 This solution is made up of two main components: the monitoring program and the controller. The monitoring
-program is used to get the information from the FSxN(s) and sends any alerts to the various destinations. The
-controller is used to invoke the monitoring program on a regular basis. It is done this way
-so you can monitor multiple FSxN file systems with just these two components.
+program is used to get the information from the FSx for ONTAP file system and sends any alerts to the
+various destinations. The controller is used to invoke the monitoring program for all the specified file systems
+on a regular basis. It is done this way so you can monitor multiple file systems with just these two components.
 
 When the controller invokes the monitoring program it will send it the hostname (or IP address)
 of the FSxN file system to monitor, as well as any other specific configuration parameters for the
@@ -98,7 +103,7 @@ The CloudFormation template will do the following:
 - Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
     - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
     - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
-- Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+- Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
 To install the program using the CloudFormation template, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -108,14 +113,14 @@ To install the program using the CloudFormation template, you will need to do th
     cause your browser to download the file to your local computer.
 3. Go to the [CloudFormation service in the AWS console](https://us-west-2.console.aws.amazon.com/cloudformation/) and click on "Create stack (with new resources)".
     - Make sure the correct region is selected in the top right corner of the page.
-4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 1.
+4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 2.
 5. This should bring up a new window with several parameters to provide values to. Most have
     defaults, but some do require values to be provided. See the [Deployment Configuration Parameters](#deployment-configuration-parameters) section below for what each parameter is for.
 6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
     provide tags for the stack. Any tags specified here will be applied to all resources that are created that
     support tags. Tags are optional and can be left blank. There are other configuration parameters you can
     change here, but typically you can leave them as defaults. At the bottom of the page there will be one check box
-    that you'll need to click on, and that is to acknowledge that the template might create an IAM resources (e.g. role).
+    that you'll need to click on, and that is to acknowledge that the template might create IAM resources (e.g. a role).
     If you have provided role ARNs for the roles that are required on the parameters page, then roles will not be
     created. Of course if you don't provide role ARNs, it will attempt to create them. Once you
     clicked on the confirmation check box click the "Next" button.
@@ -140,8 +145,8 @@ Deploying with Terraform will do the following:
     it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
 - Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
     - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
-    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
-- Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+    - Optionally Create a role for the CloudWatch alarm so it can invoke the above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
+- Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
 To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -466,7 +471,7 @@ Where:
     The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
     **Do not** put double quotes around the values.
 
-An exmaple FSxNList file:
+An example FSxNList file:
 ```
 #
 # dr:
@@ -476,8 +481,9 @@ An exmaple FSxNList file:
 198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
 ```
 
-:bulb: **Tip** You can use the `configFilename` paramters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
-:bulb: **Tip** You can use the `conditionsFilename` paramters to specify a file that contains the [Matching Conditions File](#matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
+:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+
+:bulb: **Tip** You can use the `conditionsFilename` parameters to specify a file that contains the [Matching Conditions File](#matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
 
 ### Configuration File Format
 The configuration file is a simple text file that contains a list of parameter assignments. The format of the file is as follows:
