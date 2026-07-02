@@ -85,7 +85,7 @@ There are three ways to install this program. You can either perform all the ste
 [Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
 the [CloudFormation template](cloudformation.yaml) file that is provided in this repository,
 or deploy using Terraform using the Terraform configuration files found in the [terraform](terraform)
-directory. The manual installation is more involved, but it gives you most control and allows you to
+directory. The manual installation is more involved, but it gives you the most control and allows you to
 make changes to settings that aren't available with the other methods. The CloudFormation and
 Terraform are easier to use since you only need to provide a few parameters.
 
@@ -259,7 +259,8 @@ Below is the specific list of permissions needed.
 
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
-and send SNS messages if the monitoring function fails (only if using synchronous invocation).
+and send SNS messages if it failes to invoke the monitoring function.
+
 | Permission                    | Minimal Resources | Reason     |
 |:------------------------------|:----------------|:--|
 |lambda:InvokeFunction          | The ARN to the Monitoring Lambda function. | To be able to invoke the monitoring Lambda function.|
@@ -277,7 +278,7 @@ the [lambda_layer.zip](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monito
 You will refer to this file, and bucket, when you create the Lambda function.
 
 Another use of the s3 bucket is to store events that have already been reported on so they can be compared against
-to ensure program does not send multiple messages for the same event.
+to ensure that the program does not send multiple messages for the same event.
 Note that it doesn't keep every event indefinitely, it only stores them while the condition is true. So, say for
 example it sends an alert for a SnapMirror relationship that has a lag time that is too long. It will
 send the alert and store the event. Once a successful SnapMirror synchronization has happened, the event will be removed
@@ -316,30 +317,8 @@ This step is optional if you don't want to send the logs to CloudWatch.
 
 #### Create a Webhook payload configuration file
 If you want the program to send alerts to a webhook endpoint, you can create a webhook payload configuration file
-that specifies what should be send as the payload to the webhook. The format of the file is just plan text, however you can specify various
-placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
-them within curly braces `{}`. Here is a list of the available placeholders:
-
-| Placeholder   | Description |
-|:--------------|:------------|
-| cluster\_name | The name of the ONTAP system. |
-| severity      | The severity of the event. |
-| account\_id   | The AWS account ID set via the `awsAccountId` configuration parameter. |
-| alert\_category | The category of the alert. It is determined by the "service" being monitored (e.g. EMS, SnapMirror, storage, system health)|
-| message       | The alert message. |
-| message\_hash | A hash value that uniquely identifies the event. It is used to prevent duplicate alerts for the same event. |
-
-If you don't provide a webhook payload configuration file, the program will use the following default payload:
-```
-{
-    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}). | {alert_category}",
-    "INC__manager": "FSxONTAP",
-    "INC__severity": "3",
-    "INC__identifier": "FSx ONTAP Monitoring Services alert for cluster {cluster_name}({account_id}) - {message_hash}",
-    "INC__configurationItem": "{cluster_name}",
-    "INC__fullMessageText": "{message}"
-}
-```
+that specifies what should be send as the payload to the webhook. You can see the format of this file in the
+[Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section below.
 
 #### Create any needed AWS Service Endpoints
 Since the monitoring Lambda function has to communicate with the ONTAP system withing your network, it will have to run within a VPC that has connectivity to the file
@@ -418,6 +397,8 @@ Next, create the controller Lambda function by going to the AWS Lambda service a
     - `FSxNList` - Set to the name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor.
     - `MOSLambdaFunctionName` - Set to the name of the monitoring Lambda function you created above.
     - `snsTopicArn` - Set to the ARN of the SNS topic you created above.
+    - `ServerSideEncryption` - Optional. Set to `aws:kms` or `aws:kms:dsse` if you want to use AWS KMS for server-side encryption of the S3 bucket, or `AES256` if you want to use the default S3 server-side encryption. If you don't set this environment variable AES256 will be used.
+    - `SSEKMSKeyId` - Optional. If you set `ServerSideEncryption` to `aws:kms` or `aws:kms:dsse` then set this to the KMS key ID of the KMS key you want to use for server-side encryption of the S3 bucket.
 
 #### Final Steps
 1. Create the matching conditions file and upload it to the S3 bucket you created above. The format of the file is
@@ -466,7 +447,7 @@ The format of the file is as follows:
 ...
 ```
 Where:
-- `<OntapAdminServer>` is the full qualified hostname, or IP address, of the ONTAP system management endpoint you want to monitor.
+- `<OntapAdminServer>` is the fullly qualified hostname, or IP address, of the ONTAP system management endpoint you want to monitor.
 - `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the ONTAP system.
 - `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
     The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
@@ -494,6 +475,32 @@ param2=value2
 ...
 ```
 Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
+
+### Webhook Payload Configuration File Format
+The format of the webhook payload conifguration template file is just plan text, however you can specify various
+placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
+them within curly braces `{}`. Here is a list of the available placeholders:
+
+| Placeholder   | Description |
+|:--------------|:------------|
+| cluster\_name | The name of the ONTAP system. |
+| severity      | The severity of the event. |
+| account\_id   | The AWS account ID set via the `awsAccountId` configuration parameter. |
+| alert\_category | The category of the alert. It is determined by the "service" being monitored (e.g. EMS, SnapMirror, storage, system health)|
+| message       | The alert message. |
+| message\_hash | A hash value that uniquely identifies the event. It is used to prevent duplicate alerts for the same event. |
+
+If you don't provide a webhook payload configuration file, the program will use the following default payload:
+```
+{
+    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}). | {alert_category}",
+    "INC__manager": "FSxONTAP",
+    "INC__severity": "3",
+    "INC__identifier": "FSx ONTAP Monitoring Services alert for cluster {cluster_name}({account_id}) - {message_hash}",
+    "INC__configurationItem": "{cluster_name}",
+    "INC__fullMessageText": "{message}"
+}
+```
 
 ### Monitoring Configuration Parameters
 Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
@@ -526,27 +533,27 @@ Then your FSxN\_List file can look like this:
 
 |Parameter Name            | Required | Default Value | Description |
 |:-------------------------|:--------:|:--------------|:------------|
-| s3BucketName             | No       | The S3 bucket the controller uses | Set to the name of the S3 bucket where you want the program to store status files to. It will also read the matching configuration file from this bucket. |
-| s3BucketRegion           | No       | The S3 bucket the controller uses | Set to the region where the S3 bucket is located. |
+| s3BucketName             | No       | The S3 bucket the controller uses | Set to the name of the S3 bucket where you want the program to store status files to. It will also read the matching configuration file from this bucket. This isn't required since the controller function will pass the bucket it is using to get the FSxNList file from.|
+| s3BucketRegion           | No       | The S3 bucket the controller uses | Set to the region where the S3 bucket is located. This isn't required since the controller function will pass the bucket it is using to get the FSxNList file from.|
 | OntapAdminServer         | Yes      | None          | Set to the DNS name, or IP address, of the ONTAP server you wish to monitor. This is the first parameter of the FSxN List file.|
 | secretArn                | Yes      | None          | Set to the ARN of the secret within the AWS Secrets Manager that holds the ONTAP system credentials. This is the second parameter of the FSxN list file.|
 | secretUsernameKey        | No       | username      | Set to the key name within the AWS Secrets Manager secret that holds the username portion of the credentials. |
 | secretPasswordKey        | No       | password      | Set to the key name within the AWS Secrets Manager secret that holds the password portion of the credentials. |
 | configFilename           | No       | OntapAdminServer + "-config" | Set to the filename (S3 object) that contains parameter assignments. |
 | conditionsFilename       | No       | OntapAdminServer + "-conditions" | Set to the filename (S3 object) where you want the program to read the matching condition information from. |
-| snsTopicArn              | Yes      | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. |
+| snsTopicArn              | No       | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. This isn't required since the controller function will pass the SNS topic ARN that it was configured with. |
 | cloudWatchLogGroupArn    | No       | None          | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | syslogIP                 | No       | None          | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
 | webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 | webhookSeverity          | No       | INFO          | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
 | webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Create a Webhook payload configuration file](#create-a-webhook-payload-configuration-file) section below. If left blank a default payload will be used.|
-| webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the wehhook host. If left blank no authentication header will be sent. If the username is `bearer` then a "Bearer authentication header will be sent, otherwise a "basic" authenication header will be sent. |
+| webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the wehhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authenication header will be sent. |
 | webhookSecretUsernameKey | No       | username      | Set to the key in the Secrets Manager secret that holds the username to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "username" will be used.|
 | webhookSecretPasswordKey | No       | password      | Set to the key in the Secrets Manager secret that holds the password to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "password" will be used.|
 | awsAccountId             | No       | None          | Set to the AWS account ID where the ONTAP file system is located. This is purely for documentation purposes and serves no other purpose.|
 | emsEventsFilename        | No       | OntapAdminServer + "-emsEvents" | Set to the filename (S3 object) where you want the program to store the EMS events that it has alerted on. This file will be created as necessary. |
-| smEventsFilesname        | No       | OntapAdminServer + "-smEvents" | Set to the filename (S3 object) where you want the program to store the SnapMirror that it has alerted on. This file will be created as necessary.  |
-| smRelationshipsFilename  | No       | OntapAdminServer + "-smRelationships" | Set to the filename (S3 object) where you want the program to store the SnapMirror relationships into. This file is used to track the number of bytes transferred so it can detect stalled SnapMirror updates. This file will be created as necessary. |
+| smEventsFilesname        | No       | OntapAdminServer + "-smEvents" | Set to the filename (S3 object) where you want the program to store the SnapMirror events that it has alerted on. This file will be created as necessary.  |
+| smRelationshipsFilename  | No       | OntapAdminServer + "-smRelationships" | Set to the filename (S3 object) where you want the program to store the SnapMirror relationships information into. This file is used to track the number of bytes transferred so it can detect stalled SnapMirror updates. This file will be created as necessary. |
 | storageEventsFilename    | No       | OntapAdminServer + "-storageEvents" | Set to the filename (S3 object) where you want the program to store the Storage Utilization events it has alerted on. This file will be created as necessary. |
 | quotaEventsFilename      | No       | OntapAdminServer + "-quotaEvents" | Set to the filename (S3 object) where you want the program to store the Quota Utilization events it has alerted on. This file will be created as necessary. |
 | vserverEventsFilename    | No       | OntapAdminServer + "-vserverEvents" | Set to the filename (S3 object) where you want the program to store the vserver events it has alerted on. This file will be created as necessary. |
@@ -589,16 +596,18 @@ Each rule should be an object with three keys, with an optional 4th key:
 Note that all values to each of the keys are used as a regular expressions against the associated EMS component. For
 example, if you want to match on any event message text that starts with “snapmirror” then you would put `^snapmirror`.
 The `^` character matches the beginning on the string. If you want to match on a specific EMS event name, then you should
-anchor it with a regular express that starts with `^` for the beginning of the string and ends with `$` for the end of
-the string. For example, `^arw.volume.state$`.  For a complete explanation of the regular expression syntax and special
-characters, please refer to the [Python documentation](https://docs.python.org/3/library/re.html).
+anchor it with a regular expression that starts with `^` for the beginning of the string and ends with `$` for the end of
+the string. For example, `^arw.volume.state$`.  If you want to match on mulitple things, separeate them with a virutal bar `|`.
+For example, to match on only EMS message names that start with 'snapmirror' or 'arw' then set the "name" key to "^snapmirror|^arw".
+For a complete explanation of the regular expression syntax and special characters, please refer to the
+[Python documentation](https://docs.python.org/3/library/re.html).
 
 #### Matching condition schema for SnapMirror relationships (snapmirror)
 Each rule should be an object with one, or more, of the following keys:
 
 |Key Name|Value Type|Notes|
 |---|---|---|
-|maxLagTime|Integer|Specifies the maximum allowable time, in seconds, since the last successful SnapMirror update before an alert will be sent. Only used if maxLagTimePercent hasn't been provide, or if the SnapMirror relationship, and the policy it is assigned to, don't have a schedule associated with them. Best practice is to provide both maxLagTime and maxLagTimePercent to ensure all relationships get monitored, in case a schedule gets accidentally removed.|
+|maxLagTime|Integer|Specifies the maximum allowable time, in seconds, since the last successful SnapMirror update before an alert will be sent. Only used if maxLagTimePercent hasn't been provided, or if the SnapMirror relationship, and the policy it is assigned to, don't have a schedule associated with them. Best practice is to provide both maxLagTime and maxLagTimePercent to ensure all relationships get monitored, in case a schedule gets accidentally removed.|
 |maxLagTimePercent|Integer|Specifies the maximum allowable time, in terms of percent of the amount of time since the last scheduled SnapMirror update, before an alert will be sent. Should be over 100. For example, a value of 200 means 2 times the period since the last scheduled update and if that was supposed to have happen 1 hour ago, it would alert if the relationship hasn't been updated within 2 hours.|
 |stalledTransferSeconds|Integer|Specifies the minimum number of seconds that have to transpire before a SnapMirror transfer will be considered stalled.|
 |healthy|Boolean|If `true` will alert with the relationship is healthy. If `false` will alert with the relationship is unhealthy.|
