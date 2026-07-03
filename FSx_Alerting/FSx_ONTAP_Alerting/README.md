@@ -9,7 +9,7 @@ a syslog message, a webhook, as well as store the event information into a Cloud
 The program takes measures to ensure it doesn't send multiple messages for the same event.
 
 While this program was originally written to monitor AWS FSx for NetApp ONTAP file systems, it can also be used
-to monitor on-premises ONTAP clusters as well. And in fact, if is is used to monitor an on-premises ONTAP cluster,
+to monitor on-premises ONTAP clusters as well. And in fact, if it is used to monitor an on-premises ONTAP cluster,
 it can monitor more services than it can for FSx for ONTAP file systems. Specifically, it can monitor the
 health of the FRUs (field replaceable units) and disks in the cluster.
 
@@ -73,10 +73,10 @@ that you don't disable them.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
     - **IMPORTANT** You must download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`. It contains some of the utilities that monitoring program depends on.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnets you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
-- An SNS topic to send the alerts to.
 - An AWS Secrets Manager secret(s) that holds the ONTAP system credentials. There should be two keys in each secret, one for the username and one for the password.
 - Create an object (file) in the S3 bucket that contains the list of file systems you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File_Format](#fsxn-list-file-format) section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
+    - An SNS topic to send the alerts to.
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
@@ -261,7 +261,7 @@ Below is the specific list of permissions needed.
 
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
-and send SNS messages if it failes to invoke the monitoring function.
+and send SNS messages if it fails to invoke the monitoring function.
 
 | Permission                    | Minimal Resources | Reason     |
 |:------------------------------|:----------------|:--|
@@ -479,7 +479,7 @@ param2=value2
 Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
 
 ### Webhook Payload Configuration File Format
-The format of the webhook payload conifguration template file is just plan text, however you can specify various
+The format of the webhook payload configuration template file is just plain text, however you can specify various
 placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
 them within curly braces `{}`. Here is a list of the available placeholders:
 
@@ -599,7 +599,7 @@ Note that all values to each of the keys are used as a regular expressions again
 example, if you want to match on any event message text that starts with “snapmirror” then you would put `^snapmirror`.
 The `^` character matches the beginning on the string. If you want to match on a specific EMS event name, then you should
 anchor it with a regular expression that starts with `^` for the beginning of the string and ends with `$` for the end of
-the string. For example, `^arw.volume.state$`.  If you want to match on mulitple things, separeate them with a virutal bar `|`.
+the string. For example, `^arw.volume.state$`.  If you want to match on multiple things, separate them with a vertical bar `|`.
 For example, to match on only EMS message names that start with 'snapmirror' or 'arw' then set the "name" key to "^snapmirror|^arw".
 For a complete explanation of the regular expression syntax and special characters, please refer to the
 [Python documentation](https://docs.python.org/3/library/re.html).
