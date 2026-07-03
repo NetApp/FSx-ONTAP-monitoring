@@ -3,7 +3,7 @@
 ## Introduction
 
 FSx for NetApp ONTAP is an AWS managed service providing a comprehensive set of advanced storage features purposely
-built to maximize cost, performance, resilience, and accessibility in business-critical workloads.
+built to minimize cost and maximize performance, resilience, and accessibility in business-critical workloads.
 
 This repository contains utilities for monitoring, alerting and auditing of FSx for ONTAP file systems.
 
