@@ -929,7 +929,7 @@ Resources:
                   - "*"
               - Effect: "Allow"
                 Action:
-                  - "secretsManager:GetSecretValue"
+                  - "secretsmanager:GetSecretValue"
                   - "s3:GetObject"
                   - "s3:PutObject"
                   - "s3:ListBucket"
