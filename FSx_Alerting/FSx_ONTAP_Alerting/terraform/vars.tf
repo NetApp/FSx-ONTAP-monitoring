@@ -31,6 +31,7 @@ variable "securityGroupIds" {
 variable "snsTopicArn" {
     description = "The ARN of the SNS topic where you want alerts sent to."
     type        = string
+    default     = null
 }
 
 variable "secretArnPattern" {
@@ -99,6 +100,18 @@ variable "memorySize" {
         condition     = var.memorySize >= 128 && var.memorySize <= 10240
         error_message = "The memorySize variable must be between 128 and 10240 MB."
     }
+}
+
+variable "ServerSideEncryption" {
+    description = "The server-side encryption algorithm to use for the S3 bucket. Valid values are 'AES256', 'aws:kms' or 'awm:kms:dsse'."
+    type        = string
+    default     = "AES256"
+}
+
+variable "SSEKMSKeyArn" {
+    description = "The KMS key ARN to use for server-side encryption with AWS KMS. This is only needed if ServerSideEncryption is set to 'aws:kms'."
+    type        = string
+    default     = null
 }
 
 variable "createSecretsManagerEndpoint" {
