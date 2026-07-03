@@ -249,11 +249,13 @@ Below is the specific list of permissions needed.
 |logs:PutLogEvents              | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to put log events into the log stream. |
 |logs:DescribeLogStreams        | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to see if a log stream already exists before attempting to send events to it. |
 |ec2:CreateNetworkInterface     | \* | Since the program runs as a Lambda function within your VPC, it needs to be able to create a network interface in your VPC. You can read more about that [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html). |
-|ec2:DescribeSubnets          | \* | So it can get information about the subnets it is running in. |
-|ec2:AssignPrivateIpAddresses | \* | So it can assign a private IP address to the network interface it created. |
+|ec2:DescribeSubnets            | \* | So it can get information about the subnets it is running in. |
+|ec2:AssignPrivateIpAddresses   | \* | So it can assign a private IP address to the network interface it created. |
 |ec2:UnassignPrivateIpAddresses | \* | So it can unassign the private IP address from the network interface when it is not needed anymore. |
 |ec2:DeleteNetworkInterface     | \* | Since it created a network interface, it needs to be able to delete it when not needed anymore. If you want to strict the scope of this permission, you can add a condition that it has to be within the same subnet.|
 |ec2:DescribeNetworkInterfaces  | \* | So it can check to see if a network interface already exists. |
+|kms:Decrypt                    | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
+|kms:GenerateDataKey            | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
 
 :bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
 
