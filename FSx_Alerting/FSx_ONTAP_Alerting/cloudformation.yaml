@@ -22,6 +22,8 @@ Metadata:
           - lambdaLayerArn
           - maxRunTime
           - memorySize
+          - ServerSideEncryption
+          - SSEKMSKeyArn
       - Label:
           default: "AWS Endpoint Options"
         Parameters:
@@ -94,6 +96,10 @@ Metadata:
         default: "Maximum Monitoring Lambda Execution Time (seconds)"
       memorySize:
         default: "The amount of memory to allocate to the Lambda function (MB)"
+      ServerSideEncryption:
+        default: "Server Side Encryption method to use for S3 Bucket. AES256 is what AWS uses by default"
+      SSEKMSKeyArn:
+        default: "KMS Key ARN for Server Side Encryption. Only required if ServerSideEncryption is set to 'aws:kms' or 'aws:kms:dsse'"
       createSecretsManagerEndpoint:
         default: "Create Secrets Manager Endpoint"
       createSNSEndpoint:
@@ -273,6 +279,20 @@ Parameters:
     Default: 128
     MinValue: 128
     MaxValue: 10240
+
+  ServerSideEncryption:
+    Description: "The server-side encryption method to use for the S3 bucket."
+    Type: String
+    Default: "AES256"
+    AllowedValues:
+      - AES256
+      - aws:kms
+      - aws:kms:dsse
+
+  SSEKMSKeyArn:
+    Description: "The KMS key ARN to use for server-side encryption. Only needed if ServerSideEncryption is set to aws:kms or aws:kms:dsse."
+    Type: String
+    Default: ""
 
   checkInterval:
     Description: "The interval, in minutes, between checks."
@@ -454,6 +474,8 @@ Conditions:
   CreateMonitoringRole: !Equals [!Ref monitoringRoleArn, ""]
   CreateLambdaLayer: !Equals [!Ref lambdaLayerArn, ""]
   CreateControllerRole: !Equals [!Ref controllerRoleArn, ""]
+  IncludeSns: !Not [!Equals [!Ref snsTopicArn, ""]]
+  IncludeKMSKey: !Not [!Equals [!Ref SSEKMSKeyArn, ""]]
 
 Resources:
   SecretManagerEndpoint:
@@ -602,12 +624,12 @@ Resources:
                   - "lambda:InvokeFunction"
                   - "s3:GetObject"
                   - "s3:ListBucket"
-                  - "sns:Publish"
+                  - !If [IncludeSns, "sns:Publish", !Ref AWS::NoValue]
                 Resource:
                   - !GetAtt monitoringLambdaFunction.Arn
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
                   - !Sub "arn:aws:s3:::${s3BucketName}"
-                  - !Ref snsTopicArn
+                  - !If [IncludeSns, !Ref snsTopicArn, !Ref AWS::NoValue]
 
   controllerLambdaFunction:
     Type: "AWS::Lambda::Function"
@@ -625,6 +647,8 @@ Resources:
           FSxNList: !Ref FSxNListFilename
           snsTopicArn: !Ref snsTopicArn
           MOSLambdaFunctionName: !Sub "monitor-ontap-services-${AWS::StackName}"
+          ServerSideEncryption: !Ref ServerSideEncryption
+          SSEKMSKeyId: !Ref SSEKMSKeyArn
           initialVersionChangeAlert: !Ref versionChangeAlert
           initialFailoverAlert: !Ref failoverAlert
           initialFrusAlert: !Ref frusAlert
@@ -678,27 +702,26 @@ Resources:
           import logging
           
           def lambda_handler(event, context):
-              #
-              # Maximum number of allowed consecutive failed invokes before sending an alert.
-              maxAllowedFailures = 2
-          
               logging.basicConfig()
               logger = logging.getLogger("MOS_Controller")
               logger.setLevel(logging.DEBUG)
               #
+              # Initialize the base payload dictionary that will be sent to the monitoring function.
+              basePayload = {}
+              #
               # Take a sneak peek at the snsTopicArn environment variable so messages can be sent
               # to it if any of the other environment variables are missing.
               snsClient = None
-              if os.environ.get('snsTopicArn') is not None:
+              if os.environ.get('snsTopicArn') is not None and os.environ.get('snsTopicArn') != "":
                   snsTopicArn = os.environ.get('snsTopicArn')
                   snsRegion = snsTopicArn.split(':')[3]
                   snsClient = boto3.client('sns', region_name=snsRegion)
+                  basePayload['snsTopicArn'] = snsTopicArn
               #
               # Check for required environment variables and store them in the payload variable.
               # Don't really need to send some of these to the monitoring function, but it
               # doesn't hurt to do so.
-              basePayload = {}
-              for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName', 'snsTopicArn']:
+              for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName']:
                   if os.environ.get(var) is None:
                       err = f"Error, the Monitor ONTAP Service controller is missing a required environment variable {var}."
                       logger.error(err)
@@ -706,6 +729,11 @@ Resources:
                           snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
                       raise Exception(err)  # This is a critical error, so send up a flare.
                   else:
+                      basePayload[var] = os.environ[var]
+              #
+              # Add optional variables:
+              for var in ['ServerSideEncryption', 'SSEKMSKeyId']:
+                  if os.environ.get(var) is not None:
                       basePayload[var] = os.environ[var]
               #
               # Read the FSxN list from S3.
@@ -717,7 +745,8 @@ Resources:
               except botocore.exceptions.ClientError as e:
                   err = f"Error, the Monitor ONTAP Service controller was unable to fetching FSxN list from S3: {e}"
                   logger.error(err)
-                  snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
+                  if snsClient is not None:
+                      snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
                   raise Exception(err)  # This is a critical error, so send up a flare.
               #
               # Invoke the monitoring Lambda function for each FSxN in the list.
@@ -760,7 +789,8 @@ Resources:
                       )
                       logger.info(f"Invoked Monitoring Lambda function for {OntapAdminServer}.")
                   except botocore.exceptions.ClientError as e:
-                      snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error: Failed to invoke monitoring function", Message=e)
+                      if snsClient is not None:
+                          snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error: Failed to invoke monitoring function", Message=e)
                       logger.error(f"Error invoking Monitoring Lambda function for {OntapAdminServer}: {e}")
           
           if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:
@@ -816,7 +846,7 @@ Resources:
       Threshold: 0.5
       ComparisonOperator: "GreaterThanThreshold"
       AlarmActions:
-        - !Ref snsTopicArn
+        - !If [IncludeSns, !Ref snsTopicArn, !Ref AWS::NoValue]
   #
   # This is the CloudWatch alarm that will trigger when the controller
   # Lambda function fails to run successfully. It will invoke the watchdogLambdaFunction
@@ -867,7 +897,7 @@ Resources:
       Threshold: 0.5
       ComparisonOperator: "GreaterThanThreshold"
       AlarmActions:
-        - !Ref snsTopicArn
+        - !If [ IncludeSns, !Ref snsTopicArn, !Ref AWS::NoValue ]
   #
   # This is the role that will be assigned to the monitoring Lambda.
   # It will only be created if the user hasn't provide a monitoring role ARN.
@@ -900,15 +930,18 @@ Resources:
               - Effect: "Allow"
                 Action:
                   - "secretsManager:GetSecretValue"
-                  - "sns:Publish"
                   - "s3:GetObject"
                   - "s3:PutObject"
                   - "s3:ListBucket"
+                  - !If [IncludeSns, "sns:Publish", !Ref "AWS::NoValue"]
+                  - !If [IncludeKMSKey, "kms:Decrypt", !Ref "AWS::NoValue"]
+                  - !If [IncludeKMSKey, "kms:GenerateDataKey", !Ref "AWS::NoValue"]
                 Resource: 
                   - !Ref secretArnPattern
-                  - !Ref snsTopicArn
                   - !Sub "arn:aws:s3:::${s3BucketName}"
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
+                  - !If [IncludeSns, !Ref snsTopicArn, !Ref "AWS::NoValue"]
+                  - !If [IncludeKMSKey, !Ref SSEKMSKeyArn, !Ref "AWS::NoValue"]
   #
   # Instead of creating a EventBridge schedule, create an EventBridge rule triggered by a schedule.
   # This way a separate role doesn't have to be created, just a Lambda permission to allow
@@ -981,7 +1014,7 @@ Resources:
           # can be run as a standalone program.
           #
           # Version: v4.38
-          # Date: 2026-06-25-17:12:07
+          # Date: 2026-07-03-10:58:16
           ################################################################################
           
           import json
@@ -1107,7 +1140,7 @@ Resources:
           # 'True'.
           ################################################################################
           def checkSystem():
-              global config, s3Client, http, headers, clusterName, clusterVersion, logger, clusterTimezone
+              global config, s3Client, http, headers, clusterName, clusterVersion, logger, clusterTimezone, SSEArgs
           
               alertCategory = "System Health Alert"
               changedEvents = False
@@ -1187,7 +1220,7 @@ Resources:
                       changedEvents = True
           
               if changedEvents:
-                  s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
+                  s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'), **SSEArgs)
               #
               # If the cluster is done, return false so the program can exit cleanly.
               return fsxStatus["systemHealth"] == 0
@@ -1201,7 +1234,7 @@ Resources:
           # ASSUMPTIONS: That checkSystem() has been called before it.
           ################################################################################
           def checkSystemHealth(service):
-              global config, s3Client, http, headers, clusterName, clusterVersion, logger, requestFailed
+              global config, s3Client, http, headers, clusterName, clusterVersion, logger, requestFailed, SSEArgs
           
               alertCategory = "System Health Alert"
               changedEvents = False
@@ -1440,13 +1473,13 @@ Resources:
                           logger.warning(f'Unknown System Health alert type: "{key}" found on cluster {clusterName}.')
           
               if changedEvents:
-                  s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
+                  s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'), **SSEArgs)
           
           ################################################################################
           # This function processes the EMS events.
           ################################################################################
           def processEMSEvents(service):
-              global config, s3Client, http, headers, clusterName, logger
+              global config, s3Client, http, headers, clusterName, logger, SSEArgs
           
               alertCategory = "EMS Event Alert"
               changedEvents = False
@@ -1552,7 +1585,7 @@ Resources:
               #
               # If the events array changed, save it.
               if changedEvents:
-                  s3Client.put_object(Key=config["emsEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+                  s3Client.put_object(Key=config["emsEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
           
           ################################################################################
           # This function is used to find an existing SM relationship based on the source
@@ -1708,7 +1741,7 @@ Resources:
           # This function is used to check SnapMirror relationships.
           ################################################################################
           def processSnapMirrorRelationships(service):
-              global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
+              global config, s3Client, clusterName, logger, clusterTimezone, requestFailed, SSEArgs
           
               alertCategory = "SnapMirror Health Alert"
               #
@@ -1933,8 +1966,8 @@ Resources:
                       i -= 1
                   #
                   # If any of the SM relationships changed, save it.
-                  if(updateRelationships):
-                      s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'))
+                  if updateRelationships:
+                      s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'), **SSEArgs)
                   #
                   # After processing the records, see if any events need to be removed.
                   i = len(events) - 1
@@ -1950,8 +1983,8 @@ Resources:
                       i -= 1
                   #
                   # If the events array changed, save it.
-                  if(changedEvents):
-                      s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+                  if changedEvents:
+                      s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
           
           ################################################################################
           # This function is used to make API calls that may return multiple pages of
@@ -1987,7 +2020,7 @@ Resources:
           # This function is used to check all the volume and aggregate utilization.
           ################################################################################
           def processStorageUtilization(service):
-              global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
+              global config, s3Client, clusterName, logger, clusterTimezone, requestFailed, SSEArgs
           
               alertCategory = "Storage Health Alert"
               changedEvents=False
@@ -2221,8 +2254,8 @@ Resources:
                   i -= 1
               #
               # If the events array changed, save it.
-              if(changedEvents):
-                  s3Client.put_object(Key=config["storageEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+              if changedEvents:
+                  s3Client.put_object(Key=config["storageEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
           
           ################################################################################
           # This function sends the alert to a webhook defined by the
@@ -2304,7 +2337,10 @@ Resources:
           
                   username = secrets[config['webhookSecretUsernameKey']]
                   password = secrets[config['webhookSecretPasswordKey']]
-                  webhookHeaders["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
+                  if username.lower() == "bearer":
+                      webhookHeaders["Authorization"] = "Bearer " + password
+                  else:
+                      webhookHeaders["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
               #
               # Note that the urllib3 library that AWS natively provides for their Lambda functions
               # is of the 1.* version, so we have to use the syntax for that version.
@@ -2319,7 +2355,8 @@ Resources:
                   message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']} for cluster {clusterName}."
                   logger.critical(message)
                   subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
-                  snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+                  if snsClient is not None:
+                      snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
           
               if config.get("webhookEndpoint2") is not None:
                   try:
@@ -2333,7 +2370,8 @@ Resources:
                       message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint2']} for cluster {clusterName}."
                       logger.critical(message)
                       subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
-                      snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+                      if snsClient is not None:
+                          snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
           
           ################################################################################
           # This function converts a severity string to a number value.
@@ -2375,14 +2413,12 @@ Resources:
                   logger.info(message)
               #
               # Publish to SNS.
-              if lambdaFunction:
-                  source = " Lambda "
-              else:
-                  source = " "
-              #
-              # Ensure the subject is less than 100 characters.
-              subject = f'{severity}:{source}Monitor ONTAP Services {alertCategory} for cluster {clusterName}'
-              snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+              if snsClient is not None:
+                  source = " Lambda " if lambdaFunction else " "
+                  #
+                  # Ensure the subject is less than 100 characters.
+                  subject = f'{severity}:{source}Monitor ONTAP Services {alertCategory} for cluster {clusterName}'
+                  snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
               #
               # Send to CloudWatch if defined.
               if cloudWatchClient is not None:
@@ -2422,7 +2458,7 @@ Resources:
           # This function is used to check utilization of quota limits.
           ################################################################################
           def processQuotaUtilization(service):
-              global config, s3Client, clusterName, logger, requestFailed
+              global config, s3Client, clusterName, logger, requestFailed, SSEArgs
           
               alertCategory = "Quota Utilization Alert"
               changedEvents=False
@@ -2611,12 +2647,12 @@ Resources:
               #
               # If the events array changed, save it.
               if(changedEvents):
-                  s3Client.put_object(Key=config["quotaEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+                  s3Client.put_object(Key=config["quotaEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
           
           ################################################################################
           ################################################################################
           def processVserver(service):
-              global config, s3Client, clusterName, logger, requestFailed
+              global config, s3Client, clusterName, logger, requestFailed, SSEArgs
           
               alertCategory = "Vserver health Alert"
               changedEvents=False
@@ -2762,7 +2798,7 @@ Resources:
               #
               # If the events array changed, save it.
               if(changedEvents):
-                  s3Client.put_object(Key=config["vserverEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+                  s3Client.put_object(Key=config["vserverEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
           
           ################################################################################
           # This function returns the index of the service in the conditions dictionary.
@@ -2933,12 +2969,14 @@ Resources:
               # Define a dictionary with all the required variables so we can
               # easily add them and check for their existence.
               requiredEnvVariables = {
+                  "secretArn": None,
                   "OntapAdminServer": None,
                   "s3BucketName": None,
                   "s3BucketRegion": None
                   }
           
               optionalVariables = {
+                  "snsTopicArn": None,
                   "configFilename": None,
                   "secretsManagerEndPointHostname": None,
                   "snsEndPointHostname": None,
@@ -2954,7 +2992,9 @@ Resources:
                   "webhookSecretUsernameKey": "username",
                   "webhookSecretPasswordKey": "password",
                   "secretUsernameKey": "username",
-                  "secretPasswordKey": "password"
+                  "secretPasswordKey": "password",
+                  "ServerSideEncryption": None,
+                  "SSEKMSKeyId": None
                   }
           
               filenameVariables = {
@@ -2968,10 +3008,7 @@ Resources:
                   "vserverEventsFilename": None
                   }
           
-              config = {
-                  "snsTopicArn": None,
-                  "secretArn": None
-                  }
+              config = {}
               config.update(filenameVariables)
               config.update(optionalVariables)
               config.update(requiredEnvVariables)
@@ -3090,7 +3127,7 @@ Resources:
           def lambda_handler(event, context):
               #
               # Define global variables so we don't have to pass them to all the functions.
-              global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, cloudWatchClient, clusterTimezone
+              global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, cloudWatchClient, clusterTimezone, SSEArgs
               #
               # Set up logging.
               logging.basicConfig()
@@ -3109,6 +3146,13 @@ Resources:
               #
               # Read in the configuraiton.
               readInConfig(event)   # This defines the s3Client variable.
+              #
+              # Create a dictionary of the Server Side Encryption arguments to pass to the s3Client functions.
+              # If none are provided, it will be an empty dictionary.
+              SSEArgs = {}
+              for sseVar in ["ServerSideEncryption", "SSEKMSKeyId"]:
+                  if config.get(sseVar) is not None:
+                      SSEArgs[sseVar] = config[sseVar]
               #
               # Set up the logger to log to a file and to syslog.
               if config["syslogIP"] is not None:
@@ -3164,8 +3208,10 @@ Resources:
               #
               # Create clients to the other AWS services we will be using.
               #s3Client = boto3.client('s3', config["s3BucketRegion"])  # Defined in readInConfig()
-              snsRegion = config["snsTopicArn"].split(":")[3]
-              snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
+              snsClient = None
+              if config["snsTopicArn"] is not None:
+                  snsRegion = config["snsTopicArn"].split(":")[3]
+                  snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
               cloudWatchClient = None
               if config["cloudWatchLogGroupArn"] is not None:
                   cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
@@ -3190,7 +3236,7 @@ Resources:
                       raise Exception(err)
                   else:
                       matchingConditions = buildDefaultMatchingConditions(event)
-                      s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'))
+                      s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'), **SSEArgs)
               except json.decoder.JSONDecodeError as err:
                   logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}" for cluster {config["OntapAdminServer"]}. The error message from the decoder:\n{err}\n')
                   raise Exception(err)
