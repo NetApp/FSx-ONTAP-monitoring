@@ -624,12 +624,15 @@ Resources:
                   - "lambda:InvokeFunction"
                   - "s3:GetObject"
                   - "s3:ListBucket"
-                  - !If [IncludeSns, "sns:Publish", !Ref AWS::NoValue]
+                  - !If [IncludeSns, "sns:Publish", !Ref "AWS::NoValue"]
+                  - !If [IncludeKMSKey, "kms:Decrypt", !Ref "AWS::NoValue"]
+                  - !If [IncludeKMSKey, "kms:GenerateDataKey", !Ref "AWS::NoValue"]
                 Resource:
                   - !GetAtt monitoringLambdaFunction.Arn
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
                   - !Sub "arn:aws:s3:::${s3BucketName}"
-                  - !If [IncludeSns, !Ref snsTopicArn, !Ref AWS::NoValue]
+                  - !If [IncludeSns, !Ref snsTopicArn, !Ref "AWS::NoValue"]
+                  - !If [IncludeKMSKey, !Ref SSEKMSKeyArn, !Ref "AWS::NoValue"]
 
   controllerLambdaFunction:
     Type: "AWS::Lambda::Function"

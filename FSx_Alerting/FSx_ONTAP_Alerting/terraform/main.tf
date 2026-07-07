@@ -26,7 +26,8 @@ locals {
       "s3:GetObject",
       "s3:ListBucket"
     ],
-    var.snsTopicArn != null ? ["sns:Publish"] : []
+    var.snsTopicArn != null ? ["sns:Publish"] : [],
+    var.SSEKMSKeyArn != null ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
   )
   controllerPolicyResources = concat(
     [
@@ -34,7 +35,8 @@ locals {
       "arn:aws:s3:::${var.s3BucketName}",
       "arn:aws:s3:::${var.s3BucketName}/*"
     ],
-    var.snsTopicArn != null ? [var.snsTopicArn] : []
+    var.snsTopicArn != null ? [var.snsTopicArn] : [],
+    var.SSEKMSKeyArn != null ? [var.SSEKMSKeyArn] : []
   )
   monitorPolicyActions = concat(
     [
