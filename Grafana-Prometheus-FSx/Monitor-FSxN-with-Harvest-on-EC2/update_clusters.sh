@@ -134,7 +134,7 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
           \"collectors\": [\"Rest\", \"RestPerf\", \"Ems\"],
           \"exporters\": [\"prometheus1\"],
           \"credentials_script\": {
-            \"path\": \"/opt/fetch-credentails\",
+            \"path\": \"/opt/fetch-credentials\",
             \"schedule\": \"3h\",
             \"timeout\": \"10s\"
           }
@@ -219,7 +219,7 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
             \"./cert:/opt/harvest/cert\",
             \"./harvest.yml:/opt/harvest.yml\",
             \"./conf:/opt/harvest/conf\",
-            \"./fetch-credentails:/opt/fetch-credentails\"
+            \"./fetch-credentials:/opt/fetch-credentials\"
           ],
           \"environment\": [
             \"SECRET_ARN=$secret_arn\"
