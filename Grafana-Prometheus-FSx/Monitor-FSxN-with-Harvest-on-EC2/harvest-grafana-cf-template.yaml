@@ -210,7 +210,6 @@ Resources:
             --output harvest-compose.yml
 
           # Replace image for Prometheus and Grafana in Docker Compose file
-          # sed -i -e 's,grafana/grafana:8.3.4,grafana/grafana:latest,' -e 's,prom/prometheus:v2.55.0,prom/prometheus:latest,' prom-stack.yml
           sed -i -e 's,image: grafana/grafana:[0-9\.]*,image: grafana/grafana:latest,' -e 's,image: prom/prometheus:v[0-9\.]*,image: prom/prometheus:latest,' prom-stack.yml
 
           # Download customized Grafana dashboards and overlay them with the existing dashboards.

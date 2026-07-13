@@ -98,11 +98,11 @@ This deployment creates the following AWS resources:
 
 ## Supported Dashboards
 
-Amazon FSx for NetApp ONTAP exposes a slightly reduced set of metrics than traditional ONTAP system.
+Amazon FSx for NetApp ONTAP exposes a slightly reduced set of metrics than a traditional ONTAP system.
 Therefore, some of the the out-of-the-box Harvest dashboards aren't supported. The ones tagged with `fsx`
 are currently supported for use with FSx for ONTAP.
 
-Some of these dashboard were customized especially for FSxN and put into the `FSxN` foler. There is
+Some of these dashboards were customized especially for FSxN and placed into the `FSxN` folder. There is
 also a dashboard that exposes the YACE metrics named `FSxN: Utilization`.
 
 ---
