@@ -98,16 +98,12 @@ This deployment creates the following AWS resources:
 
 ## Supported Dashboards
 
-Amazon FSx for NetApp ONTAP exposes a different set of metrics than on-premises NetApp ONTAP. 
-Therefore, only the following out-of-the-box Harvest dashboards tagged with `fsx` are currently supported for use with FSx for ONTAP. 
-Some panels in these dashboards may be missing information that is not supported:
+Amazon FSx for NetApp ONTAP exposes a slightly reduced set of metrics than traditional ONTAP system.
+Therefore, some of the the out-of-the-box Harvest dashboards aren't supported. The ones tagged with `fsx`
+are currently supported for use with FSx for ONTAP.
 
-- **FSxN_Clusters**
-- **FSxN_CW_Utilization**
-- **FSxN_Data_protection**
-- **FSxN_LUN**
-- **FSxN_SVM**
-- **FSxN_Volume**
+Some of these dashboard were customized especially for FSxN and put into the `FSxN` foler. There is
+also a dashboard that exposes the YACE metrics named `FSxN: Utilization`.
 
 ---
 
