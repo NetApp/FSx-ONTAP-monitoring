@@ -302,8 +302,8 @@ Resources:
           # Lastly, you can create an override for the SSD alarm, by creating a tag
           # with the name "SSD_Alarm_Threshold" on the file system resource.
           #
-          # Version: v2.10
-          # Date: 2026-07-14-09:44:10
+          # Version: v2.11
+          # Date: 2026-07-14-10:07:08
           #
           ################################################################################
           #
@@ -314,7 +314,7 @@ Resources:
           # Define which SNS topic you want alerts to sent to. Since CloudWatch can't
           # post messages to SNS Topics in other regions, this topic should
           # exist in all regions that you want to monitor. 
-          SNStopic''
+          SNStopic=''
           #
           # Define the AWS account ID that the SNS topic is in. This is used to
           # create the ARN for the SNS topic so CloudWatch can send messages to it.

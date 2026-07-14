@@ -39,7 +39,7 @@
 # Define which SNS topic you want alerts to sent to. Since CloudWatch can't
 # post messages to SNS Topics in other regions, this topic should
 # exist in all regions that you want to monitor. 
-SNStopic''
+SNStopic=''
 #
 # Define the AWS account ID that the SNS topic is in. This is used to
 # create the ARN for the SNS topic so CloudWatch can send messages to it.
