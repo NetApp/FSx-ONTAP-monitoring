@@ -18,16 +18,28 @@ provider "aws" {
 variable "region" {
     description = "The AWS region to deploy the Lambda function and CloudWatch Event rule."
     type        = string
+    validation {
+        condition     = length(var.region) > 0
+        error_message = "The region variable must not be empty."
+    }
 }
 
 variable "SNStopic" {
     description = "The SNS Topic name where CloudWatch will send alerts to. Note that it is assumed that the SNS topic, with the same name, will exist in all the regions where alarms are to be created."
     type        = string
+    validation {
+        condition     = length(var.SNStopic) > 0
+        error_message = "The SNStopic variable must not be empty."
+    }
 }
 
 variable "accountId" {
     description = "The AWS account ID."
     type        = string
+    validation {
+        condition     = length(var.accountId) == 12 && can(regex("^[0-9]+$", var.accountId))
+        error_message = "The accountId variable must be a 12-digit number."
+    }
 }
 
 variable "customerId" {
@@ -43,6 +55,36 @@ variable "defaultCPUThreshold" {
     validation {
         condition     = var.defaultCPUThreshold >= 0 && var.defaultCPUThreshold <= 100
         error_message = "The defaultCPUThreshold variable must be between 0 and 100."
+    }
+}
+
+variable "defaultDiskThroughputThreshold" {
+    description = "This will define the default disk throughpu utilization threshold. You can override the default by having a specific tag associated with the file system."
+    type = number
+    default = 80
+    validation {
+        condition     = var.defaultDiskThroughputThreshold >= 0 && var.defaultDiskThroughputThreshold <= 100
+        error_message = "The defaultDiskThroughputThreshold variable must be between 0 and 100."
+    }
+}
+
+variable "defaultDiskIOPSThreshold" {
+    description = "This will define the default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system."
+    type = number
+    default = 80
+    validation {
+        condition     = var.defaultDiskIOPSThreshold >= 0 && var.defaultDiskIOPSThreshold <= 100
+        error_message = "The defaultDiskIOPSThreshold variable must be between 0 and 100."
+    }
+}
+
+variable "defaultNetworkThroughputThreshold" {
+    description = "This will define the default network throughput utilization threshold. You can override the default by having a specific tag associated with the file system."
+    type = number
+    default = 80
+    validation {
+        condition     = var.defaultNetworkThroughputThreshold >= 0 && var.defaultNetworkThroughputThreshold <= 100
+        error_message = "The defaultNetworkThroughputThreshold variable must be between 0 and 100."
     }
 }
 
@@ -130,6 +172,7 @@ resource "aws_iam_role_policy" "auto_add_cw_alarms_lambda_policy" {
           "fsx:DescribeFileSystems",
           "fsx:DescribeVolumes",
           "fsx:ListTagsForResource",
+          "tag:GetResources",
           "ec2:DescribeRegions",
           "cloudwatch:DescribeAlarms",
           "cloudwatch:DescribeAlarmsForMetric",
@@ -195,6 +238,9 @@ resource "aws_lambda_function" "auto_add_cw_alarms_lambda_function" {
       accountId = var.accountId
       customerId = var.customerId
       defaultCPUThreshold = var.defaultCPUThreshold
+      defaultDiskThroughputThreshold = var.defaultDiskThroughputThreshold
+      defaultDiskIOPSThreshold = var.defaultDiskIOPSThreshold
+      defaultNetworkThroughputThreshold = var.defaultNetworkThroughputThreshold
       defaultSSDThreshold = var.defaultSSDThreshold
       defaultVolumeThreshold = var.defaultVolumeThreshold
       defaultVolumeFilesThreshold = var.defaultVolumeFilesThreshold
