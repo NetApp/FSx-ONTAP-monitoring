@@ -255,6 +255,60 @@ Once the script has been configured and invoked, it will:
     * Create a files Utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
 * Scan for the CloudWatch alarms and remove any alarms that the associated resource doesn't exist anymore.
 
+## Supplemental Extras
+There are a couple of extra programs included in the `extras` directory. They provide additional functionality that you may find useful.
+The `extras` directory contains the following programs:
+
+### Delete Alarms
+This program will delete all the CloudWatch alarms that have a name that starts with the specified prefix, which
+by default is "FSx-ONTAP-Auto".
+
+You can configure it to only delete alarms that have been in alarm state for more than a specific number of hours.
+This is useful if you have the Auto-Add-CloudWatch-Alarms program running since it will cause it to create new
+alarms that will alert again on existing issues. The idea is so persistent conditions aren't forgotten about.
+
+You can either run it as a standalone program, or as a Lambda function. As a standalone program you configure it
+via command line options or environment variables. As a Lambda function, you configure it via environment variables.
+
+|Environment Variable|Description|Command Line Option|
+|:-------------------|:----------|:-----------------|
+|basePrefix|The string that the alarm name has to start with to be a candidate to be deleted.|-b basePrefix|
+|dryRun|If set to "true", the program will only display messages showing what it would have done, and not really delete any CloudWatch alarms.|-d|
+|alarmAge|The age in hours that an alarm has to be in alarm state before it is a candidate to be deleted.|-a number|
+|regions|This is a comma separated list of AWS region names that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system.|-r region,region|
+
+If deploying it as a Lambda function, you can use a event bridge schedule to run it on a regular basis.
+
+### CloudWatch to Webhook
+This program shows how you can get a CloudWatch alarm to send an event to a webhook.
+It is currently specifically designed to work with the volume utilization alarms created by the
+Auto-Add-CloudWatch-Alarms program but could be modified to accommodate other alarms.
+
+The way to use it is to deploy the program as a Lambda function and then configure the CloudWatch
+alarm to send the events to it. Be sure to add a resources based policy to the Lambda function
+that allows CloudWatch to invoke it. The Principal to use is `lambda.alarms.cloudwatch.amazonaws.com`,
+the Action is `lambda:InvokeFunction` and the resource is the ARN of CloudWatch alarms (wild cards are permitted). 
+
+To configure the program, just set the following environment variables:
+|Environment Variable|Description|
+|:-------------------|:----------|
+|webhookEndpoint|The URL of the webhook that will receive the CloudWatch alarm event data.|
+|payloadTemnplate|Defines payload is sent to the webhook. It supports several variables that are replaced with the actual values from the CloudWatch alarm event.|
+
+The following are the variables that can be used in the payloadTemplate:
+|Variable|Description|
+|:-------|:----------|
+|volume\_id|The ID of the FSxN volume that is breaching the threshold.|
+|filesystem\_id|The ID of the FSxN file system that is breaching the threshold.|
+|threshold|The threshold that is being breached.|
+|utilization|The current utilization of the volume.|
+|alarmName|The name of the CloudWatch alarm that triggered the event.|
+
+To reference the variable in the string, put the variable name in curly braces. For example, to reference the volume ID, you would use `{volume_id}`. An example payloadTemplate is:
+```
+{"filesystem_id": "{filesystem_id}", "message": "Volume {volume_id} is more than {threshold} full at {utilization}%", "alarmName": "{alarmName}"}
+```
+
 ## Cleaning up
 If you decide you don't want to use this program anymore, you can delete the CloudFormation stack that you created
 or if you used Terraform to deploy it, you can run `terraform destroy`.
