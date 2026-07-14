@@ -73,7 +73,7 @@ To use the CloudFormation template perform the following steps:
     - `accountId` - The AWS account ID associated with the SNS topic. This is only used to compute the ARN to the SNS Topic set above.
     - `customerId` - This is optional. If provided the string entered is included in the description of every alarm created.
     - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
-    - `defaultDiskThroughputhreshold` - This will define a default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
+    - `defaultDiskThroughputThreshold` - This will define a default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultDiskIOPSThreshold` - This will define a default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultNetworkThroughputThreshold` - This will define a default Network Throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).

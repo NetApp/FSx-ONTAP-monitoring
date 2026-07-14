@@ -59,7 +59,7 @@ variable "defaultCPUThreshold" {
 }
 
 variable "defaultDiskThroughputThreshold" {
-    description = "This will define the default disk throughpu utilization threshold. You can override the default by having a specific tag associated with the file system."
+    description = "This will define the default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system."
     type = number
     default = 80
     validation {

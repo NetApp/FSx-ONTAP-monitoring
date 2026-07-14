@@ -36,12 +36,14 @@
 # either be set here, overridden via the command line options, or
 # overridden by environment variables.
 #
-# Define which SNS topic you want "volume full" message to be sent to.
-SNStopic='keiths-test-topic'
+# Define which SNS topic you want alerts to sent to. Since CloudWatch can't
+# post messages to SNS Topics in other regions, this topic should
+# exist in all regions that you want to monitor. 
+SNStopic''
 #
-# Provide the account id the SNS topic resides under:
-# MUST be a string.
-accountId='759995470648'
+# Define the AWS account ID that the SNS topic is in. This is used to
+# create the ARN for the SNS topic so CloudWatch can send messages to it.
+accountId=''
 #
 # Set the customer ID associated with the AWS account. This is used to
 # as part of the alarm name prefix so a customer ID can be associated
@@ -132,8 +134,8 @@ import json
 # for the CPU, Disk Throughput, Disk IOPS, and Network Throughput alarms.
 ################################################################################
 def add_file_system_utilization_alarm(cw, fsId, alarmMetric, alarmName, alarmDescription, threshold, region):
-    action = 'arn:aws:sns:' + region + ':' + accountId + ':' + SNStopic
     if not dryRun:
+        action = f'arn:aws:sns:{region}:{accountId}:{SNStopic}'
         cw.put_metric_alarm(
             AlarmName=alarmName,
             ActionsEnabled=True,
@@ -156,8 +158,8 @@ def add_file_system_utilization_alarm(cw, fsId, alarmMetric, alarmName, alarmDes
 # This function adds the SSD Utilization CloudWatch alarm.
 ################################################################################
 def add_ssd_alarm(cw, fsId, alarmName, alarmDescription, threshold, region):
-    action = 'arn:aws:sns:' + region + ':' + accountId + ':' + SNStopic
     if not dryRun:
+        action = f'arn:aws:sns:{region}:{accountId}:{SNStopic}'
         cw.put_metric_alarm(
             AlarmName=alarmName,
             ActionsEnabled=True,
@@ -180,8 +182,8 @@ def add_ssd_alarm(cw, fsId, alarmName, alarmDescription, threshold, region):
 # This function adds the Volume files utilization CloudWatch alarm.
 ################################################################################
 def add_volume_files_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold, region):
-    action = 'arn:aws:sns:' + region + ':' + accountId + ':' + SNStopic
     if not dryRun:
+        action = f'arn:aws:sns:{region}:{accountId}:{SNStopic}'
         cw.put_metric_alarm(
             ActionsEnabled=True,
             AlarmName=alarmName,
@@ -203,8 +205,8 @@ def add_volume_files_alarm(cw, volumeId, alarmName, alarmDescription, fsId, thre
 # This function adds the Volume utilization CloudWatch alarm.
 ################################################################################
 def add_volume_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold, region):
-    action = 'arn:aws:sns:' + region + ':' + accountId + ':' + SNStopic
     if not dryRun:
+        action = f'arn:aws:sns:{region}:{accountId}:{SNStopic}'
         cw.put_metric_alarm(
             ActionsEnabled=True,
             AlarmName=alarmName,
@@ -480,17 +482,17 @@ def getAlarms(cw):
 # have a CloudWatch alarm, and if not, add one.
 ################################################################################
 def lambda_handler(event, context):
-    global customerId, regions, SNStopic, accountId, onlyFilesystemId
+    global customerId, regions, SNStopic, onlyFilesystemId
+    #
+    # Check for required parameters.
+    if len(SNStopic) == 0:
+        raise Exception("You must specify a SNS topic name to send the alarm messages to.")
+    if len(accountId) == 0:
+        raise Exception("You must specify the AWS account ID to use when creating the alarms.")
     #
     # If the customer ID is set, reformat it to be used in the alarm description.
     if customerId != '':
         customerId = f", CustomerID: {customerId}"
-
-    if len(SNStopic) == 0:
-        raise Exception("You must specify a SNS topic to send the alarm messages to.")
-
-    if len(accountId) == 0:
-        raise Exception("You must specify an accountId to run this program.")
     #
     # Configure boto3 to use the more advanced "adaptive" retry method.
     boto3Config = Config(
@@ -733,7 +735,7 @@ def lambda_handler(event, context):
 # This function is used to print out the usage of the script.
 ################################################################################
 def usage():
-    print('Usage: auto_add_cw_alarms [-h|--help] [-d|--dryRun] [-c|--customerID customerID] [-a|--accountID aws_account_id] [-s|--SNSTopic SNS_Topic_Name] [-r|--region region] [-C|--CPUThreshold threshold] [-S|--SSDThreshold threshold] [-V|--VolumeThreshold threshold] [-F|--FilesThreshold threshold] [-N|--NetworkThroughputThreshold threshold] [-T|--DiskThroughputThreshold threshold] [-I|--DiskIOPSThreshold threshold]  [-f|--FileSystemID FileSystemID]')
+    print('Usage: auto_add_cw_alarms [-h|--help] [-d|--dryRun] [-c|--customerID customerID] [-a|--accountID aws_account_id] [-s|--SNStopic SNS_Topic] [-r|--region region] [-C|--CPUThreshold threshold] [-S|--SSDThreshold threshold] [-V|--VolumeThreshold threshold] [-F|--FilesThreshold threshold] [-N|--NetworkThroughputThreshold threshold] [-T|--DiskThroughputThreshold threshold] [-I|--DiskIOPSThreshold threshold]  [-f|--FileSystemID FileSystemID]')
 
 ################################################################################
 # Main logic starts here.
@@ -764,7 +766,7 @@ if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
     argumentList = sys.argv[1:]
     options = "hc:a:s:dr:C:S:V:f:F:T:N:I:"
 
-    longOptions = ["help", "customerID=", "accountID=", "SNSTopic=", "dryRun", "region=", "CPUThreshold=", "SSDThreshold=",\
+    longOptions = ["help", "customerID=", "accountID=", "SNStopic=", "dryRun", "region=", "CPUThreshold=", "SSDThreshold=",\
                    "VolumeThreshold=", "FilesThreshold=", "FileSystemID=", "DiskThroughputThreshold=", "NetworkThroughputThreshold=",\
                    "DiskIOPSThreshold="]
     skip = False
@@ -779,15 +781,15 @@ if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') == None:
                 customerId = currentValue
             elif currentArgument in ("-a", "--accountID"):
                 accountId = currentValue
-            elif currentArgument in ("-s", "--SNSTopic"):
+            elif currentArgument in ("-s", "--SNStopic"):
                 SNStopic = currentValue
             elif currentArgument in ("-C", "--CPUThreshold"):
                 defaultCPUThreshold = int(currentValue)
-            elif currentArgument in ("-N", "--NetworkThroughpuThreshold"):
+            elif currentArgument in ("-N", "--NetworkThroughputThreshold"):
                 defaultNetworkThroughputThreshold = int(currentValue)
-            elif currentArgument in ("-T", "--DiskThroughputhreshold"):
+            elif currentArgument in ("-T", "--DiskThroughputThreshold"):
                 defaultDiskThroughputThreshold = int(currentValue)
-            elif currentArgument in ("-I", "--DiskIOPSPUThreshold"):
+            elif currentArgument in ("-I", "--DiskIOPSThreshold"):
                 defaultDiskIOPSThreshold = int(currentValue)
             elif currentArgument in ("-S", "--SSDThreshold"):
                 defaultSSDThreshold = int(currentValue)
