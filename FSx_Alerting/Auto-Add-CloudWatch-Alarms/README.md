@@ -16,7 +16,7 @@ It will create alarms for the following CloudWatch metrics:
 - Volume Utilization
 - Volume Files (inodes) Utilization
 
-It is highly configurable, allowing you to specify default thresholds for each of the metrics above, as well as set custom thresholds on a per item basis by using tags.
+It is highly configurable, allowing you to specify default thresholds for each of the metrics above, as well as set per item thresholds by using tags.
 See below for the tag names to use.
 If you don't want alarms to be created for a particular metric, or if you want the program to remove them, just set the threshold to 100.
 By setting the default threshold to 100, it will only create alarms for items that have tags that specify a threshold lower than 100.
@@ -55,7 +55,7 @@ these scripts will do the following steps for you:
     - Create CloudWatch alarms.
     - Delete CloudWatch alarms that it has created (based on alarm names).
 - Create a Lambda function with the Python program that does all the work.
-- Optionally create a CloudWatch alarm that will monitor the Lambda function for errors.
+- Optionally create a CloudWatch alarm that will alert you if the Lambda function fails for any reason.
 - Create an EventBridge schedule that will run the Lambda function on a user defined basis.
 - Create a role that will allow the EventBridge schedule to trigger the Lambda function.
 
@@ -75,7 +75,7 @@ To use the CloudFormation template perform the following steps:
     - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultDiskThroughputhreshold` - This will define a default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultDiskIOPSThreshold` - This will define a default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
-    - `defaultNetworkThroughputhreshold` - This will define a default Network Throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
+    - `defaultNetworkThroughputThreshold` - This will define a default Network Throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
     - `defaultVolumeThreshold` - This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume (see below for more information).
     - `defaultVolumeFilesThreshold` - This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume (see below for more information).
@@ -201,12 +201,12 @@ Here is the list of variables, and what they define:
 |accountId | The AWS account ID associated with the SNS topic. This is only used to compute the ARN to the SNS Topic.|-a Account\_number|
 |customerId| This is just an optional string that will be added to the alarm description.|-c Customer\_String|
 |defaultCPUThreshold | This will define the default CPU utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-C number|
-|defaultDiskThroughputThreshold | This will define the default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-C number|
-|defaultDiskIOPSThreshold | This will define the default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-C number|
-|defaultNetworkThroughputThreshold | This will define the default network throughput utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-C number|
+|defaultDiskThroughputThreshold | This will define the default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-T number|
+|defaultDiskIOPSThreshold | This will define the default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-I number|
+|defaultNetworkThroughputThreshold | This will define the default network throughput utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-N number|
 |defaultSSDThreshold | This will define the default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-S number|
 |defaultVolumeThreshold | This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-V number|
-|defaultVolumeFilesThreshold | This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-f number|
+|defaultVolumeFilesThreshold | This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-F number|
 |alarmPrefixCPU | This defines the string that will be put in front of the name of every CPU utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
 |alarmPrefixSSD | This defines the string that will be put in front of the name of every SSD utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
 |alarmPrefixVolume | This defines the string that will be put in front of the name of every volume utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
@@ -231,7 +231,7 @@ Once you have Python and boto3 installed, you can run the program by executing t
 ```bash
 python3 auto_add_cw_alarms.py
 ```
-This will run the program based on all the variables set at the top of the program. If you want to change the behavior without
+This will run the program based on all the variables set at the top of the program or based on the equivalent environment variables. If you want to change the behavior without
 having to edit the program, you can either use the Command Line Options specified in the table above or you can
 set the appropriate environment variable. Note that you can give a `-h` (or `--help`) command line option
 and the program will display a list of all the available options.
