@@ -30,7 +30,7 @@ import urllib3
 def sendWebhook(volume_id, filesystem_id, threshold, utilization):
     #
     # Get the payloadTemplate and endpoint from the environment variables.
-    payload = os.environ.get("payloadTemplate", f"Alert! Volume {volId} in file system {fsId} has breached utilization threshold {threshold}%. Current utilization is {utilization}%.")
+    payload = os.environ.get("payloadTemplate", f"Alert! Volume {volume_id} in file system {filesystem_id} has breached utilization threshold {threshold}%. Current utilization is {utilization}%.")
     webhookEndpoint = os.environ.get("webhookEndpoint", "")
     #
     # If webhookEndpoint is not set, raise an exception since we can't send the webhook without an endpoint.
@@ -53,7 +53,7 @@ def sendWebhook(volume_id, filesystem_id, threshold, utilization):
         print(f'Sending webhook to {webhookEndpoint} with these headers {webhookHeaders} and the following data: {data}')
         response = http.request('POST', webhookEndpoint, headers=webhookHeaders, body=data, timeout=5)
         if response.status == 200:
-            print(f"Webhook sent successfully.")
+            print("Webhook sent successfully.")
         else:
             print(f"Error: Received a non-200 HTTP status code when sending the webhook. HTTP response code received: {response.status}. The data in the response: {response.data}.")
     except (urllib3.exceptions.ConnectTimeoutError, urllib3.exceptions.MaxRetryError):
@@ -78,7 +78,6 @@ def lambda_handler(event, context):
                         threshold = reason["threshold"]
                         print(f"Alert! Volume {volId} in file system {fsId} has breached utilization threshold {threshold}%. Current utilization is {utilization}%.")
                         sendWebhook(volId, fsId, threshold, utilization)
-    return
 #
 # Define the handle to send HTTP request with.
 http = urllib3.PoolManager()

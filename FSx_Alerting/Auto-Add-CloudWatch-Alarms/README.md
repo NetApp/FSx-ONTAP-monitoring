@@ -293,7 +293,7 @@ To configure the program, just set the following environment variables:
 |Environment Variable|Description|
 |:-------------------|:----------|
 |webhookEndpoint|The URL of the webhook that will receive the CloudWatch alarm event data.|
-|payloadTemnplate|Defines payload is sent to the webhook. It supports several variables that are replaced with the actual values from the CloudWatch alarm event.|
+|payloadTemnplate|Defines payload is send to the webhook. It supports several variables that are replaced with the actual values from the CloudWatch alarm event.|
 
 The following are the variables that can be used in the payloadTemplate:
 |Variable|Description|
@@ -304,9 +304,11 @@ The following are the variables that can be used in the payloadTemplate:
 |utilization|The current utilization of the volume.|
 |alarmName|The name of the CloudWatch alarm that triggered the event.|
 
-To reference the variable in the string, put the variable name in curly braces. For example, to reference the volume ID, you would use `{volume_id}`. An example payloadTemplate is:
+To reference the variable in the string, put the variable name in curly braces. For example, to reference the volume ID, you would use `{volume_id}`.
+
+If a payloadTemplate is not specified, the following default template will be used:
 ```
-{"filesystem_id": "{filesystem_id}", "message": "Volume {volume_id} is more than {threshold} full at {utilization}%", "alarmName": "{alarmName}"}
+Alert! Volume {volume_id} in file system {filesystem_id} has breached utilization threshold {threshold}%. Current utilization is {utilization}%.
 ```
 
 ## Cleaning up
