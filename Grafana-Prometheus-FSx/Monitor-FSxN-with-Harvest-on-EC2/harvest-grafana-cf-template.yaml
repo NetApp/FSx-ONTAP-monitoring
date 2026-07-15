@@ -210,12 +210,18 @@ Resources:
             --output harvest-compose.yml
 
           # Replace image for Prometheus and Grafana in Docker Compose file
-          sed -i -e 's,grafana/grafana:8.3.4,grafana/grafana:latest,' -e 's,prom/prometheus:v2.55.0,prom/prometheus:latest,' prom-stack.yml
+          sed -i -e 's,image: grafana/grafana:[0-9\.]*,image: grafana/grafana:latest,' -e 's,image: prom/prometheus:v[0-9\.]*,image: prom/prometheus:latest,' prom-stack.yml
 
-          # Download Grafana dashboards
+          # Download customized Grafana dashboards and overlay them with the existing dashboards.
           wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
-          unzip fsx_dashboards.zip
-          rm -rf grafana/dashboards && mv dashboards grafana/dashboards
+          (cd grafana; unzip ../fsx_dashboards.zip)
+
+          # Now, remove the ones that don't pertain to cloud deployment of ONTAP.
+          (cd grafana/dashboards; ls -1 | egrep -v 'cmode|cdot|fsxn' | while read dashboard; do rm -rf "$dashboard"; done)
+
+          # Download the fetch-credentials program
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fetch-credentials
+          chmod +x fetch-credentials
 
           # Create yace-config.yaml
           cat <<EOF > yace-config.yaml
