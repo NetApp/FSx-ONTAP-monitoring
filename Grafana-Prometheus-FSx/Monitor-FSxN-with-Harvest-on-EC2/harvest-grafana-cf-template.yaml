@@ -209,15 +209,15 @@ Resources:
             generate docker full \
             --output harvest-compose.yml
           #
-          # Replace image for Prometheus and Grafana in Docker Compose file to be the
-          # lastest and not the version that was used to generate the file.
+          # Replace the image for Prometheus and Grafana in Docker Compose file to be the
+          # lastest ones and not the hard coded versions that the "generate docker full" provides.
           sed -i -e 's,image: grafana/grafana:[0-9\.]*,image: grafana/grafana:latest,' -e 's,image: prom/prometheus:v[0-9\.]*,image: prom/prometheus:latest,' prom-stack.yml
 
-          # Download Grafana customized dashboards and overlay them with the existing dashboards.
+          # Download the customized Grafana dashboards and overlay them with the existing dashboards.
           wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fsx_dashboards.zip
           (cd grafana; unzip ../fsx_dashboards.zip)
 
-          # Now, remove the ones that don't pertain to cloud deployment of ONTAP.
+          # Now, remove the dashboards that don't pertain to cloud deployment of ONTAP.
           (cd grafana/dashboards; ls -1 | egrep -v 'cmode|cdot|fsxn' | while read dashboard; do rm -rf "$dashboard"; done)
 
           # Download the fetch-credentials program
