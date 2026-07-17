@@ -132,6 +132,9 @@ import json
 ################################################################################
 # This function adds a file system utilization CloudWatch alarm. It is used
 # for the CPU, Disk Throughput, Disk IOPS, and Network Throughput alarms.
+#
+# It creates an alarm when the average utilization of the specified
+# resource is over the specified threshold for over 30 minutes.
 ################################################################################
 def add_file_system_utilization_alarm(cw, fsId, alarmMetric, alarmName, alarmDescription, threshold, region):
     if not dryRun:
@@ -141,8 +144,8 @@ def add_file_system_utilization_alarm(cw, fsId, alarmMetric, alarmName, alarmDes
             ActionsEnabled=True,
             AlarmActions=[action],
             AlarmDescription=alarmDescription,
-            EvaluationPeriods=1,
-            DatapointsToAlarm=1,
+            EvaluationPeriods=6,
+            DatapointsToAlarm=6,
             Threshold=threshold,
             ComparisonOperator='GreaterThanThreshold',
             MetricName=alarmMetric,
@@ -224,7 +227,6 @@ def add_volume_alarm(cw, volumeId, alarmName, alarmDescription, fsId, threshold,
     else:
         print(f'Would have added volume capacity utilization alarm for {volumeId} {fsId} with name {alarmName} with threshold of {threshold} in {region} with action {action}.')
 
-
 ################################################################################
 # This function deletes a CloudWatch alarm.
 ################################################################################
@@ -262,7 +264,7 @@ def contains_fs(fsId, fss):
     return False
 
 ################################################################################
-# This function checks to see if the passed in threshold tage exist, and if so
+# This function checks to see if the passed in threshold tag exist, and if so
 # returns the value of the tag.  If not, it returns the default threshold value.
 ################################################################################
 def getAlarmThresholdTagValue(tags, arn, targetTag, defaultThreshold):
@@ -290,6 +292,14 @@ def getFileSystemId(alarm):
 ################################################################################
 # This function will returns all the tags associated with the fsx resource
 # type.
+#
+# It is designed to handle rate limit exceptions and will retry with
+# exponential backoff if it encounters one. This probably isn't neccesary
+# anymore. It was originally written this way when it was getting the tags for
+# each resource (file system, volume) separately. Now that it is using
+# resourcegroupstaggingapi, which gets all the tags for all the file systems
+# and volumes in the account with one call, it is unlikely that we will hit
+# a rate limit exception.
 ################################################################################
 def getTags(tagsClient):
     #
@@ -335,6 +345,7 @@ def getTags(tagsClient):
 # This function will return all the file systems in the region. It will handle
 # the case where there are more file systms than can be returned in a single
 # call. It will also handle the case where we get a rate limit exception.
+# See getTags() for more details as to why this function is designed this way.
 ################################################################################
 def getFss(fsx):
 
@@ -388,6 +399,7 @@ def getFss(fsx):
 # This function will return all the volumes in the region. It will handle the
 # case where there are more volumes than can be returned in a single call.
 # It will also handle the case where we get a rate limit exception.
+# See getTags() for more details as to why this function is designed this way.
 ################################################################################
 def getVolumes(fsx):
     #
@@ -434,6 +446,7 @@ def getVolumes(fsx):
 # This function will return all the alarms in the region. It will handle the
 # case where there are more alarms than can be returned in a single call.
 # It will also handle the case where we get a rate limit exception.
+# See getTags() for more details as to why this function is designed this way.
 ################################################################################
 def getAlarms(cw):
 
@@ -477,9 +490,11 @@ def getAlarms(cw):
     return alarms
 
 ################################################################################
-# This is the main logic of the program. It loops on all the regions then all
-# the fsx volumes within the region, checking to see if any of them already
-# have a CloudWatch alarm, and if not, add one.
+# This is the main logic of the program. It loops on all the regions, then all
+# the fsx volumes and file systems within the region, checking to see if any
+# of them are missing their alarms. If any are missing, it will create them.
+# Then it scans all the alarms to see if the assoicated resource still exist
+# and if not, delete the alarm.
 ################################################################################
 def lambda_handler(event, context):
     global customerId, regions, SNStopic, onlyFilesystemId
