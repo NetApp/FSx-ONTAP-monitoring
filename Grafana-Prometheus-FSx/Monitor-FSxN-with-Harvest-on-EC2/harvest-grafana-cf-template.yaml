@@ -221,7 +221,7 @@ Resources:
           (cd grafana/dashboards; ls -1 | egrep -v 'cmode|cdot|fsxn' | while read dashboard; do rm -rf "$dashboard"; done)
 
           # Download the fetch-credentials program
-          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/Monitor-FSxN-with-Harvest-on-EC2/fetch-credentials
+          wget https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Grafana-Prometheus-FSx/fetch-credentials
           chmod +x fetch-credentials
 
           # Create yace-config.yaml
