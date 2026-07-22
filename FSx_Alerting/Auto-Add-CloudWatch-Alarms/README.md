@@ -1,11 +1,24 @@
 # Automatically Add Cloud Watch Alarms to Monitor Aggregate, Volume and CPU Utilization
 
+## Table of Contents
+* [Introduction](#introduction)
+* [Tags to Override Default Thresholds](#tags-to-override-default-thresholds)
+* [Deployment Methods](#deployment-methods)
+    * [CloudFormation Deployment](#cloudformation-deployment)
+    * [Terraform Deployment](#terraform-deployment)
+    * [Manual Deployment](#manual-deployment)
+    * [Deploy as a standalone program](#deploy-as-a-standalone-program)
+* [Expected Actions](#expected-actions)
+* [Supplemental Extras](#supplemental-extras)
+    * [Delete Alarms](#delete-alarms)
+    * [CloudWatch to Webhook](#cloudwatch-to-webhook)
+* [Cleaning Up](#cleaning-up)
+
 ## Introduction
 This program is used to automatically maintain CloudWatch alarms for all your FSx for ONTAP file systems within an AWS account.
-It will scan all regions within an account looking for file system unless configured otherwise.
+Unless configured otherwise, it will scan all regions within an account looking for file system.
 It will create CloudWatch alarms for all file systems and volumes that do not already have them. And, it
 will delete any alarms that it has created for file systems or volumes that no longer exist.
-
 
 It will create alarms for the following CloudWatch metrics:
 - CPU Utilization
@@ -16,10 +29,10 @@ It will create alarms for the following CloudWatch metrics:
 - Volume Utilization
 - Volume Files (inodes) Utilization
 
-It is highly configurable, allowing you to specify default thresholds for each of the metrics above, as well as set per item thresholds by using tags.
-See below for the tag names to use.
+It is highly configurable, allowing you to specify default thresholds for each of the metrics above, as well as set per item thresholds
+by using tags (see below for the tag names to use.)
 If you don't want alarms to be created for a particular metric, or if you want the program to remove them, just set the threshold to 100.
-By setting the default threshold to 100, it will only create alarms for items that have tags that specify a threshold lower than 100.
+By setting the default threshold to 100, it will only create alarms for items that have tags that specify a threshold less than than 100.
 
 ## Tags to Override Default Thresholds
 You can create a tag on the specific resource to override the default value set by the associated threshold
@@ -28,7 +41,7 @@ variable. Here is the list of tags and where they should be located:
 |Tag|Description|Location|
 |:---|:------|:---|
 |alarm\_threshold | Sets the volume utilization threshold. | Volume |
-|files\_threshold | Sets the volume files utilization threshold. | Volume |
+|files\_threshold | Sets the volume files (inodes) utilization threshold. | Volume |
 |cpu\_alarm\_threshold| Sets the CPU utilization threshold. | File System |
 |disk\_throughput\_alarm\_threshold| Sets the disk throughput utilization threshold. | File System |
 |disk\_IOPS\_alarm\_threshold| Sets the disk IOPS utilization threshold. | File System |
@@ -38,14 +51,14 @@ variable. Here is the list of tags and where they should be located:
 :bulb: **NOTE:** When the alarm threshold is set to 100, the alarm will not be created. So, if you set the default to 100, then you can selectively add alarms by setting the appropriate tag.
 
 ## Deployment Methods
-The preferred way to run this script is as a Lambda function. That is because it is very inexpensive to run without having
-to maintain any compute resources. You can use an `EventBridge Schedule` to run it on a regular basis to
-ensure that all the CloudWatch alarms are kept up to date.
+The preferred way to run this program is as a Lambda function. That is because Lambda functions are very inexpensive
+to run and you don't have to maintain any compute resources to run them. You can use an `EventBridge Schedule` to
+run them on a regular basis to ensure that all the CloudWatch alarms are kept up to date.
 
 Since there are several steps involved in setting up a Lambda function a CloudFormation template and Terraform configuration
 files have been included in the repo. The CloudFormation template is all in one file named
 [cloudformation.yaml](cloudformation.yaml). The Terraform configuration files are in the [terraform](terraform) folder. Either of
-these scripts will do the following steps for you:
+these deployment methods will do the following steps for you:
 - Create a role that will allow the Lambda function to:
     - List AWS regions. This is so it can get a list of all the regions, so it can know which regions to scan for FSx for ONTAP file systems and volumes.
     - List the FSx for ONTAP file systems.
@@ -93,7 +106,7 @@ To use the Terraform configuration files perform the following steps:
 4. Run `terraform init` to initialize the Terraform configuration.
 5. Run `terraform apply` to apply the Terraform configuration.
 
-### Create the Lambda function manually
+### Manual Deployment
 If you prefer, you can create the Lambda function manually by following the steps below.
 
 1. Download the `auto_add_cw_alarms.py` file from this repo.
@@ -242,8 +255,8 @@ multiple times to act on multiple regions.
 You can run the program in "Dry Run" mode by specifying the `-d` (or `--dryRun`) option. This will cause the program to only display
 messages showing what it would have done, and not really create or delete any CloudWatch alarms.
 
-## Expected Action
-Once the script has been configured and invoked, it will:
+## Expected Actions
+Regardless of the deployment method you used, once the script has been configured and invoked, it will:
 * Scan for every FSx for ONTAP file systems in every region, unless you have specified a specific list of regions to scan. For every file system that it finds it will:
     * Create a CPU utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
     * Create a disk throughput utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
