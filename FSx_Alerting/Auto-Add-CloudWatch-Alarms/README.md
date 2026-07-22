@@ -2,12 +2,12 @@
 
 ## Table of Contents
 * [Introduction](#introduction)
-* [Tags to Override Default Thresholds](#tags-to-override-default-thresholds)
 * [Deployment Methods](#deployment-methods)
     * [CloudFormation Deployment](#cloudformation-deployment)
     * [Terraform Deployment](#terraform-deployment)
     * [Manual Deployment](#manual-deployment)
     * [Deploy as a standalone program](#deploy-as-a-standalone-program)
+* [Tags to Override Default Thresholds](#tags-to-override-default-thresholds)
 * [Expected Actions](#expected-actions)
 * [Supplemental Extras](#supplemental-extras)
     * [Delete Alarms](#delete-alarms)
@@ -33,22 +33,6 @@ It is highly configurable, allowing you to specify default thresholds for each o
 by using tags (see below for the tag names to use.)
 If you don't want alarms to be created for a particular metric, or if you want the program to remove them, just set the threshold to 100.
 By setting the default threshold to 100, it will only create alarms for items that have tags that specify a threshold less than than 100.
-
-## Tags to Override Default Thresholds
-You can create a tag on the specific resource to override the default value set by the associated threshold
-variable. Here is the list of tags and where they should be located:
-
-|Tag|Description|Location|
-|:---|:------|:---|
-|alarm\_threshold | Sets the volume utilization threshold. | Volume |
-|files\_threshold | Sets the volume files (inodes) utilization threshold. | Volume |
-|cpu\_alarm\_threshold| Sets the CPU utilization threshold. | File System |
-|disk\_throughput\_alarm\_threshold| Sets the disk throughput utilization threshold. | File System |
-|disk\_IOPS\_alarm\_threshold| Sets the disk IOPS utilization threshold. | File System |
-|network\_throughput\_alarm\_threshold| Sets the network throughput utilization threshold. | File System |
-|ssd\_alarm\_threshold| Sets the SSD utilization threshold. | File System |
-
-:bulb: **NOTE:** When the alarm threshold is set to 100, the alarm will not be created. So, if you set the default to 100, then you can selectively add alarms by setting the appropriate tag.
 
 ## Deployment Methods
 The preferred way to run this program is as a Lambda function. That is because Lambda functions are very inexpensive
@@ -115,19 +99,19 @@ If you prefer, you can create the Lambda function manually by following the step
 4. Choose the latest version of Python (currently Python 3.13) as the runtime and click on `Create function`.
 5. In the function code section, copy and paste the contents of the `auto_add_cw_alarms.py` file into the code editor.
 6. Click on the `Deploy` button to save the function.
-7. Click on the Configuration tag and then the "General configuration" sub tab and set the "Timeout" to be at least 3 minutes.
+7. Click on the Configuration tab and then the "General configuration" sub tab and set the "Timeout" to be at least 3 minutes.
 8. Click on the "Environment variables" tab and add the following environment variables:
     - `SNStopic` - The SNS Topic name where CloudWatch will send alerts to.
     - `createWatchdogAlarm` - If set to 'true' will create a CloudWatch alarm that will monitor the Lambda function for errors. If set to 'false' no alarm will be created.
     - `accountId` - The AWS account ID associated with the SNS topic.
     - `customerId` - This is optional. If provided the string entered is included in the description of every alarm created.
-    - `defaultCPUThreshold` - This will define a default CPU utilization threshold.
-    - `defaultDiskThroughputThreshold` - This will define a default disk throughput utilization threshold.
-    - `defaultDiskIOPSThreshold` - This will define a default disk IOPS utilization threshold.
-    - `defaultNetworkThroughputThreshold` - This will define a default network throughput utilization threshold.
-    - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold.
-    - `defaultVolumeThreshold` - This will define the default Volume utilization threshold.
-    - `defaultVolumeFilesThreshold` - This will define the default Volume files utilization threshold.
+    - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
+    - `defaultDiskThroughputThreshold` - This will define a default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
+    - `defaultDiskIOPSThreshold` - This will define a default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
+    - `defaultNetworkThroughputThreshold` - This will define a default network throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
+    - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
+    - `defaultVolumeThreshold` - This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
+    - `defaultVolumeFilesThreshold` - This will define the default Volume files utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information)
     - `alarmPrefixString` - This defines the string that will be prepended to every CloudWatch alarm name that the program creates.
     - `regions` - This is an optional comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system.
 
@@ -254,6 +238,22 @@ multiple times to act on multiple regions.
 
 You can run the program in "Dry Run" mode by specifying the `-d` (or `--dryRun`) option. This will cause the program to only display
 messages showing what it would have done, and not really create or delete any CloudWatch alarms.
+
+## Tags to Override Default Thresholds
+You can create a tag on the specific resource to override the default threshold value set by the associated threshold
+variable. Here is the list of tags and where they should be located:
+
+|Tag|Description|Location|
+|:---|:------|:---|
+|alarm\_threshold | Sets the volume utilization threshold. | Volume |
+|files\_threshold | Sets the volume files (inodes) utilization threshold. | Volume |
+|cpu\_alarm\_threshold| Sets the CPU utilization threshold. | File System |
+|disk\_throughput\_alarm\_threshold| Sets the disk throughput utilization threshold. | File System |
+|disk\_IOPS\_alarm\_threshold| Sets the disk IOPS utilization threshold. | File System |
+|network\_throughput\_alarm\_threshold| Sets the network throughput utilization threshold. | File System |
+|ssd\_alarm\_threshold| Sets the SSD utilization threshold. | File System |
+
+:bulb: **NOTE:** When the alarm threshold is set to 100, the alarm will not be created. So, if you set the default to 100, then you can selectively add alarms by setting the appropriate tag.
 
 ## Expected Actions
 Regardless of the deployment method you used, once the script has been configured and invoked, it will:
