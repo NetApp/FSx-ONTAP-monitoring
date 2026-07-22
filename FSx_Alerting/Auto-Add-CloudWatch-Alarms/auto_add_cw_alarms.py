@@ -100,7 +100,7 @@ basePrefix = os.environ.get('basePrefix', "FSx-ONTAP-Auto")
 alarmPrefixVolume=f"{basePrefix}-Volume_Utilization_for_volume_"
 #
 # Define the prefix for the volume files utilization alarm name for the CloudWatch alarms.
-alarmFilesPrefixVolume=f"{basePrefix}-Volume_Files_Utilization_for_volume_"
+alarmPrefixVolumeFiles=f"{basePrefix}-Volume_Files_Utilization_for_volume_"
 #
 # Define the prefix for the CPU utilization alarm name for the CloudWatch alarms.
 alarmPrefixCPU=f"{basePrefix}-CPU_Utilization_for_fs_"
@@ -707,7 +707,7 @@ def lambda_handler(event, context):
                         threshold = int(getAlarmThresholdTagValue(tags, volumeARN, "files_threshold", defaultVolumeFilesThreshold))
                         volumeFileThresholds[volumeId] = threshold
                         if(threshold != 100):   # No alarm if the value is set to 100.
-                            alarmName = alarmFilesPrefixVolume + volumeId
+                            alarmName = alarmPrefixVolumeFiles + volumeId
                             fsName = fsId.replace('fs-', 'FsxId')
                             alarmDescription = f"Volume files utilization alarm for volumeId {volumeId}{customerId}, File System Name: {fsName}, Volume Name: {volumeName} in region {region}."
                             if(not contains_alarm(alarmName, alarms) and onlyFilesystemId == None or
@@ -726,8 +726,8 @@ def lambda_handler(event, context):
                             print(f"Deleting alarm: {alarmName} in region {region}")
                             delete_alarm(cwClient, alarmName)
 
-                    if alarmName[:len(alarmFilesPrefixVolume)] == alarmFilesPrefixVolume:
-                        volumeId = alarmName[len(alarmFilesPrefixVolume):]
+                    if alarmName[:len(alarmPrefixVolumeFiles)] == alarmPrefixVolumeFiles:
+                        volumeId = alarmName[len(alarmPrefixVolumeFiles):]
                         if(not contains_volume(volumeId, volumes) and onlyFilesystemId == None or
                            not contains_volume(volumeId, volumes) and onlyFilesystemId != None and onlyFilesystemId == getFileSystemId(alarm) or
                            volumeFileThresholds.get(volumeId) == 100):
