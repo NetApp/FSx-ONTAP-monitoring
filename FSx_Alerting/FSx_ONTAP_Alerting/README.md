@@ -121,22 +121,6 @@ Terraform are easier to use since you only need to provide a few parameters.
 The recommended way to deploy the monitoring solution is via CloudFormation or Terraform.
 Both of these methods will create the required resources for you.
 
-#### Expected Actions
-
-If you deploy the program with either CloudFormation or Terraform, expect the following to happen:
-- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Controller Program Role Permissions](#controller-program-role-permisions) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create two Lambda functions with the Python code provided in this repository.
-- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
-    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
-- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
-    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
-    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
-- Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
 #### Installation Using CloudFormation
 
@@ -231,6 +215,22 @@ matching conditions at any time by updating the matching conditions file that is
 The default name of the conditions file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
 set for the OntapAdminServer parameter in the FSxNList file.
 
+#### Expected Actions
+
+If you deploy the program with either CloudFormation or Terraform, expect the following to happen:
+- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Controller Program Role Permissions](#controller-program-role-permissions) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create two Lambda functions with the Python code provided in this repository.
+- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
+    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
+- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
+    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
+    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
+- Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
 #### Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is
@@ -241,11 +241,11 @@ controller Lambda function ARN should have been outputted at the end of the depl
 to see the output of the deployment at anytime. Go the Lambda service in the AWS console and search for the
 controller Lambda function by name to find the controller Lambda function.
 
-Once you found the controller Lambda function click on the "Monitor" tab to see if the function has been invoked.
+Once you have found the controller Lambda function click on the "Monitor" tab to see if the function has been invoked.
 Note that it will take at least the configured iteration time before the function is invoked for the first time. If you
 don't want to wait, go to the 'Test' tab and click on the 'Test' button.
 
-Locate the "Error count and success rate(%)" chart on the Monitoring tab. Once the program has been invoked at
+Locate the "Error count and success rate(%)" chart on the Monitoring tab. Once the program has been invoked
 there should be at least one dot on that chart. Note that sometimes there is a lag between the first invocation
 and that chart being updated. If you don't see a dot on the chart, wait a few minutes and refresh the page.
 Hover your mouse over the dot and you should see the "success rate" and "number of errors."
@@ -257,9 +257,9 @@ in this repository and someone will help you.
 
 After you have checked the controller Lambda function, check the monitoring Lambda function the same way. Although,
 don't try to force the monitor program to run by clicking on the Test button on its page. The monitor program
-is designed to be invoked by the controller program since it passes it all the information it needs to monitor a file system.
-So, if you need to force the Monitor program to run again, always click on the Test button of the controller program
-and not the monitor program.
+is designed to be invoked by the controller program since the controller passes it all the information
+it needs to monitor a file system.  So, if you need to force the Monitor program to run again, always click
+on the Test button of the controller program and have it invoke the monitoring program.
 
 ---
 
@@ -272,7 +272,7 @@ you can make the required modifications using the information found below.
 #### Create an AWS Role for the Monitoring program
 The program doesn't need many AWS permissions. It just needs to be able to get the ONTAP system credentials stored in a Secrets Manager secret,
 read and write objects in an s3 bucket, be able to publish to an SNS topic, and optionally create CloudWatch log Streams and put events.
-Refer to the [Monitoring Program Role Permissions)(#monitoring-program-role-permissions) table below for the minimum permissions needed.
+Refer to the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
@@ -294,7 +294,7 @@ send the alert and store the event. Once a successful SnapMirror synchronization
 from the s3 object allowing for a new event to be created and alerted on. If you want to keep the event information
 longer than that, please configure the program to store them in a CloudWatch log group.
 
-This bucket is also used to store the [Matching Condition](#matching-conditions-file) and [FSxN List](#create-fsxn-list-file) files.
+This bucket is also used to store the [Matching Condition](#matching-conditions-file) and [FSxN List](#fsxn-list-file-format) files.
 
 #### Create FSxN List File
 The FSxN list file is used by the controller Lambda function to determine which ONTAP systems to monitor.
@@ -341,7 +341,7 @@ but it will allow access to the Internet through a NAT Gateway. Therefore, in or
 
 If you do need to deploy AWS service endpoints, keep the following in mind:
 - Since VPC endpoints can't traverse AWS regions, all AWS assets (e.g. FSx for ONTAP file system, SecretsManager Secret, S3 bucket,
-    SNS Topic and CloudWatch Log Group) must be in the same region as the VPC endpoint.
+    SNS Topic and CloudWatch Log Group) must be in the same region as the FSxN management endpoint.
 - For interface type endpoints, a network interface will be created in the VPC's subnet to allow access.
   To transparently access the service via the VPC endpoint, AWS will update its
   DNS entry for the service endpoint to point to the IP address of the VPC interface endpoint. This is only
@@ -369,13 +369,13 @@ First create the monitoring Lambda function by going to the AWS Lambda service a
 - Give it a name. It can be anything, but a recommended name would be "Monitor-ONTAP-Service-Monitor"
 - Set the runtime to be Python 3.11 or later.
 - Assign it the role you created above.
-- In the `Additional Configuration` section, set the VPC and subnets (at least two is recommended) that have access to all the ONTAP system management endpoints you want to monitor.
+- In the `Additional Configuration` section, set the VPC and subnets (at least two are recommended) that have access to all the ONTAP system management endpoints you want to monitor.
 - Assign it the security group that allows outbound traffic over TCP port 443 to the ONTAP systems and AWS services endpoints.
 - Click `Create Function`.
 
 Once you have created the function you will be able to:
 - Copy the Python code from the [monitor\_ontap\_service.py](monitor_ontap_services.py)
-    file found in this repository into the code box and deploy it.
+    file found in this repository and paste it into the code box then click on the `Deploy` button to save it.
 - Add the Lambda layer to the function. You do this by first creating a Lambda layer then adding it to your function.
     To create a Lambda layer go to the Lambda service page on the AWS console and click on the "Layers"
     tab under the "Additional resources" section. Then, click on the "Create layer" button.
@@ -386,7 +386,7 @@ Once you have created the function you will be able to:
     Once you have the layer created, you can add it to your Lambda function by going to the Lambda
     function in the AWS console, and clicking on the `Code` tab and scrolling down to the Layers section.
     Click on the "Add a layer" button. From there you can select the layer you just created.
-- Increase the total run time to at least 20 seconds. You might have to raise that if you have a lot
+- Increase the total run time to at least 60 seconds. You might have to raise that if you have a lot
     of components in your ONTAP system. However, if you have to raise it to more than a couple minutes
     and the function still times out, then it could be an issue with the endpoint causing the calls to the
     AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section above
@@ -457,17 +457,17 @@ following destinations are supported:
 
 ### Adding a Webhook
 
-The first step to adding a webhook destination is creating a payload template file in the
-[Webhook\_Payload\_configuration\_file\_format](#webhook-payload-configuration-file-format). The
+The first step to adding a webhook destination is creating a payload template file.  The
 actual contents of the file is dependent on what the webhook service is expecting to receive.
-The format of the file is described in the [Webhook\_Payload\_configuration\_file\_format](#webhook-payload-configuration-file-format)
-section just provides for a way of inserting the pertinent information into the message sent.
-Once the payload template file has been created, it needs to be uploaded to the S3 bucket.
+Refer to the [Webhook\_Payload\_configuration\_file\_format](#webhook-payload-configuration-file-format)
+section on how you can use variables in the template file to insert the pertinent information
+into the message that is sent. Once the payload template file has been created, it needs
+to be uploaded to the S3 bucket.
 
-The second step is to update the entries in the FSxN\_List file where you want the events sent
-to the webhook to include the webhook configuration parameters:
+The second step is to include the following configuration parameters to the entries in the FSxN\_List file
+for the systems that you want their events to be sent to the webhook:
 - webhookEndpoint - The URL of the webhook to send the event payload to.
-- webhookConfigFilename - The name of the S3 object that contains the payload template file create above.
+- webhookConfigFilename - The name of the object in the S3 bucket that contains the payload template file create above.
 - webhookSecretARN - If the webhook requires credentials to access it, you can store those credentials in AWS
     Secrets Manager and provide the ARN of the secret here. If the username is `bearer` then the program will
     set the Authorization header as a Bearer type with the value of the password set as the Bearer token.
@@ -478,16 +478,16 @@ to the webhook to include the webhook configuration parameters:
 
 ### Adding a Syslog Server
 
-To add a syslog server, you just need to add the syslogIP configuration parameters to the
-FSxN\_List file for each ONTAP system you want to send events to a syslog server.
+To add a syslog server you just need to add the syslogIP configuration parameters to the
+FSxN\_List file for all ONTAP systems you want their events sent to the syslog server.
 Note that the monitoring program will send the events to that IP address over UDP port 514.
 
 ### Adding a CloudWatch Log Stream
 
 To have the program send a copy of every event to a CloudWatch log stream, you just need to
-add the cloudWatchLogGroupArn configuration parameters to the FSxN\_List file for each ONTAP
-system you want to send events to a CloudWatch log stream. You might have to add the appropriate
-permissions to the Lambda function's execution role to allow it to write to the log stream.
+add the cloudWatchLogGroupArn configuration parameter to the FSxN\_List file for each ONTAP
+system you want its events to send to a CloudWatch log stream. You might have to add the appropriate
+permissions to the Lambda function's role to allow it to write to the log stream.
 See the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section for more information.
 
 ## Upgrading the monitoring program
@@ -613,7 +613,7 @@ Then your FSxN\_List file can look like this:
 | syslogIP                 | No       | None          | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
 | webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 | webhookSeverity          | No       | INFO          | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
-| webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Create a Webhook payload configuration file](#create-a-webhook-payload-configuration-file) section below. If left blank a default payload will be used.|
+| webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section. If left blank a default payload will be used.|
 | webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the wehhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authenication header will be sent. |
 | webhookSecretUsernameKey | No       | username      | Set to the key in the Secrets Manager secret that holds the username to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "username" will be used.|
 | webhookSecretPasswordKey | No       | password      | Set to the key in the Secrets Manager secret that holds the password to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "password" will be used.|
