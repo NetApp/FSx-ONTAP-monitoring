@@ -12,6 +12,10 @@
         - [Post Deployment Checks](#post-deployment-checks)
     - [Manual Installation](#manual-installation)
 - [Maintaining the list of systems to monitor](#maintaining-the-list-of-systems-to-monitor)
+- [Added Destinations](#added-destinations)
+    - [Adding a Webhook](#adding-a-webhook)
+    - [Adding a Syslog Server](#adding-a-syslog-server)
+    - [Adding a CloudWatch Log Stream](#adding-a-cloudwatch-log-stream)
 - [Upgrading the monitoring program](#upgrading-the-monitoring-program)
 - [References](#references)
     - [FSxN List File Format](#fsxn-list-file-format)
@@ -124,7 +128,7 @@ If you deploy the program with either CloudFormation or Terraform, expect the fo
     is outlined in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Controller Program Role Permissions](#controller-program-role-permisisons) section below.
+    is outlined in the [Controller Program Role Permissions](#controller-program-role-permisions) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create two Lambda functions with the Python code provided in this repository.
 - Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
@@ -157,6 +161,7 @@ To install the program using the CloudFormation template, you will need to do th
     clicked on the confirmation check box click the "Next" button.
 7. The final page will allow you to review all configuration parameters you provided.
     If everything looks good, click on the "Create stack" button.
+8. Perform the steps in the [Post installation Checks](#post-installation-checks) section below to ensure a successful installation.
 
 ##### Deploying the CloudFormation stack via the command line
 
@@ -180,6 +185,7 @@ To install the program using Terraform, you will need to do the following:
     [Deployment Configuration Parameters](#deployment-configuration-parameters) section list below.
 1. Run `terraform init` to initialize the Terraform working directory.
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
+1. Perform the steps in the [Post installation Checks](#post-installation-checks) section below to ensure a successful installation.
 
 #### Deployment Configuration Parameters
 For both the CloudFormation and Terraform deployment methods, there are several parameters that you can provide values
@@ -191,7 +197,7 @@ describes each parameter and any notes about it.
 |Stackname\*|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
 |Region\*\*|The AWS region where you want to deploy the program.|
 |S3BucketName|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
-|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
+|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [FSxN\_List File Format](#fsxn_list-file-format) section below.|
 |SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the ONTAP systems management endpoints that you wish to monitor. It is recommended to select at least two.|
 |SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group only needs to allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the ONTAP file systems you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
@@ -200,8 +206,8 @@ describes each parameter and any notes about it.
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
-|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Controller program](#create-an-aws-role-for-the-controller-program) section below. If left blank a role will be created for you.|
-|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below. If left blank a role will be created for you.|
+|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Controller Program Role Permissions](#controller-program-role-permissions) section below. If left blank a role will be created for you.|
+|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda\_layer.zip found in your S3 bucket.|
 |maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your ONTAP system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
 |memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your ONTAP system.|
@@ -228,20 +234,32 @@ set for the OntapAdminServer parameter in the FSxNList file.
 
 #### Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is
-not in an error state. To find the controller Lambda function go to the Resources tab of the CloudFormation
-stack and click on the "Physical ID" of the "ControllerLambdaFunction." This should bring you to the Lambda service in the AWS
-console. Once there, click on the "Monitor" tab to see if the function has been invoked. Note that it will take
-at least the configured iteration time before the function is invoked for the first time. Locate the
-"Error count and success rate(%)" chart, which is usually found at the top right corner of the "Monitor" dashboard.
-After  the "CheckInterval" number of minutes there should be at least one dot on that chart.
+not in an error state. If you used CloudFormation to deploy the stack to find the controller Lambda function
+go to the Resources tab of the CloudFormation stack and click on the "Physical ID" of the "ControllerLambdaFunction."
+This should bring you to the Lambda service in the AWS console. If you used Terraform to deploy the stack then the
+controller Lambda function ARN should have been outputted at the end of the deployment. You can run `terraform output`
+to see the output of the deployment at anytime. Go the Lambda service in the AWS console and search for the
+controller Lambda function by name to find the controller Lambda function.
+
+Once you found the controller Lambda function click on the "Monitor" tab to see if the function has been invoked.
+Note that it will take at least the configured iteration time before the function is invoked for the first time. If you
+don't want to wait, go to the 'Test' tab and click on the 'Test' button.
+
+Locate the "Error count and success rate(%)" chart on the Monitoring tab. Once the program has been invoked at
+there should be at least one dot on that chart. Note that sometimes there is a lag between the first invocation
+and that chart being updated. If you don't see a dot on the chart, wait a few minutes and refresh the page.
 Hover your mouse over the dot and you should see the "success rate" and "number of errors."
-The success rate should be 100% and the number of errors should be 0. If it is not, then scroll up a little bit and
+The success rate should be 100% and the number of errors should be 0. If it is not, then scroll up a little and
 click on "View CloudWatch Logs" link. Once on this page, click on the first LogStream and review any output.
 If there are any errors, they will be displayed there. If you can't figure out what is causing an error,
 please create an issue on the [Issues](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) section
 in this repository and someone will help you.
 
-After you have checked the controller Lambda function, check the monitoring Lambda function the same way.
+After you have checked the controller Lambda function, check the monitoring Lambda function the same way. Although,
+don't try to force the monitor program to run by clicking on the Test button on its page. The monitor program
+is designed to be invoked by the controller program since it passes it all the information it needs to monitor a file system.
+So, if you need to force the Monitor program to run again, always click on the Test button of the controller program
+and not the monitor program.
 
 ---
 
@@ -308,7 +326,7 @@ This step is optional if you don't want to send the logs to CloudWatch.
 
 #### Create a Webhook payload configuration file
 If you want the program to send alerts to a webhook endpoint, you can create a webhook payload configuration file
-that specifies what should be send as the payload to the webhook. You can see the format of this file in the
+that specifies what should be sent as the payload to the webhook. You can see the format of this file in the
 [Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section below.
 
 #### Create any needed AWS Service Endpoints
@@ -346,7 +364,7 @@ If you do need to deploy AWS service endpoints, keep the following in mind:
 **NOTE:** One indication that the Lambda function doesn't have access to an AWS service endpoint is if the Lambda function
 times out, even after adjusting the timeout to more than several minutes.
 
-#### Create Lambda Functions
+#### Create Monitoring Lambda Functions
 First create the monitoring Lambda function by going to the AWS Lambda service and creating a new function with:
 - Give it a name. It can be anything, but a recommended name would be "Monitor-ONTAP-Service-Monitor"
 - Set the runtime to be Python 3.11 or later.
@@ -403,7 +421,7 @@ matching conditions file for each ONTAP system or one common one for all, or mos
 You can do this by going to the `Test` tab of the controller Lambda function and Clicking on the `Test` button.
 You will see any error it has invoking the monitoring function on that page. Resolve any issues you find.
 
-3. Test the Monitoring Lambda function to ensure it ran properly. Click on the "Monitor" tab of the monitoring
+3. Check that the Monitoring Lambda function ran properly. Click on the "Monitor" tab of the monitoring
 Lambda function and check the "Error count and success rate(%)" chart to ensure it it has zero errors. If there are
 any errors, click on the "View CloudWatch Logs" link to see the error messages. If you can't figure out what is causing an error,
 create an issue on the [Issues](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) section
@@ -431,11 +449,53 @@ Lambda functions.
 If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#fsxn_list-file-format) stored in the S3 bucket.
 The controller will pick up on the changes to the FSxN\_List file the next time it runs.
 
+## Added Destinations
+
+If after the initial deployment you want to add additional destinations for the monitoring program to send
+events to, you can do that by adding the appropriate configuration parameters to the FSxN\_List file. The
+following destinations are supported:
+
+### Adding a Webhook
+
+The first step to adding a webhook destination is creating a payload template file in the
+[Webhook\_Payload\_configuration\_file\_format](#webhook-payload-configuration-file-format). The
+actual contents of the file is dependent on what the webhook service is expecting to receive.
+The format of the file is described in the [Webhook\_Payload\_configuration\_file\_format](#webhook-payload-configuration-file-format)
+section just provides for a way of inserting the pertinent information into the message sent.
+Once the payload template file has been created, it needs to be uploaded to the S3 bucket.
+
+The second step is to update the entries in the FSxN\_List file where you want the events sent
+to the webhook to include the webhook configuration parameters:
+- webhookEndpoint - The URL of the webhook to send the event payload to.
+- webhookConfigFilename - The name of the S3 object that contains the payload template file create above.
+- webhookSecretARN - If the webhook requires credentials to access it, you can store those credentials in AWS
+    Secrets Manager and provide the ARN of the secret here. If the username is `bearer` then the program will
+    set the Authorization header as a Bearer type with the value of the password set as the Bearer token.
+    Otherwise the program will set the Authorization header as a Basic type with the credentials sent as base64 
+    encoded username:password.
+
+:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+
+### Adding a Syslog Server
+
+To add a syslog server, you just need to add the syslogIP configuration parameters to the
+FSxN\_List file for each ONTAP system you want to send events to a syslog server.
+Note that the monitoring program will send the events to that IP address over UDP port 514.
+
+### Adding a CloudWatch Log Stream
+
+To have the program send a copy of every event to a CloudWatch log stream, you just need to
+add the cloudWatchLogGroupArn configuration parameters to the FSxN\_List file for each ONTAP
+system you want to send events to a CloudWatch log stream. You might have to add the appropriate
+permissions to the Lambda function's execution role to allow it to write to the log stream.
+See the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section for more information.
+
 ## Upgrading the monitoring program
 
-If you want to upgrade the monitoring program to a newer version, and you used CloudFormation or Terraform to deploy it,
+If you want to upgrade the monitoring program to a newer version and you used CloudFormation or Terraform to deploy it,
 the easiest way is to just delete the stack and redeploy it using the same deployment parameter values. This will not
-delete or change any of the configuration files, or event state files, in the S3 bucket.
+delete or change any of the configuration files, or event state files, in the S3 bucket. So, the new version of the program
+should pick up right where the old one left off.
 
 If you deployed it manually, you can use the AWS console to update the code of the Lambda functions, both the monitor and controller,
 with the new code found in the repo.
