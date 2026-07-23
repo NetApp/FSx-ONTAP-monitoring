@@ -1,5 +1,26 @@
 # ONTAP System Alerting
 
+## Table of Contents
+- [Introduction](#introduction)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Deployment Methods](#deployment-methods)
+    - [Using CloudFormation](#installation-using-cloudformation)
+    - [Using Terraform](#installation-using-terraform)
+        - [Configuration Parameters](#deployment-configuration-parameters)
+        - [Post Deployment Checks](#post-deployment-checks)
+    - [Manual Installation](#manual-installation)
+- [Maintaining the list of systems to monitor](#maintaining-the-list-of-systems-to-monitor)
+- [Upgrading the monitoring program](#upgrading-the-monitoring-program)
+- [References](#references)
+    - [FSxN List File Format](#fsxn-list-file-format)
+    - [Configuration File Format](#configuration-file-format)
+    - [Webhook Configuration File Format](#webhook-configuration-file-format)
+    - [Monitoring Program Role Permissions](#monitor-program-role-permissions)
+    - [Controller Program Role Permissions](#controller-program-role-permissions)
+    - [Configuration Parameters](#monitoring-configuration-parameters)
+    - [Matching Conditions File](#matching-conditions-file)
+
 ## Introduction
 This program is used to monitor various services of a NetApp ONTAP system and alert you if anything
 is outside of the specified conditions. It uses the ONTAP APIs to obtain the required information to
@@ -80,8 +101,8 @@ that you don't disable them.
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
-## Installation
-There are three ways to install this program. You can either perform all the steps shown in the
+## Deployment Methods
+There are three ways to deploy this program. You can either perform all the steps shown in the
 [Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
 the [CloudFormation template](cloudformation.yaml) file that is provided in this repository,
 or deploy using Terraform using the Terraform configuration files found in the [terraform](terraform)
@@ -89,7 +110,7 @@ directory. The manual installation is more involved, but it gives you the most c
 make changes to settings that aren't available with the other methods. The CloudFormation and
 Terraform are easier to use since you only need to provide a few parameters.
 
-### Installation using the CloudFormation template
+### Installation using CloudFormation
 The CloudFormation template will do the following:
 - Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
     is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
@@ -163,7 +184,7 @@ To install the program using Terraform, you will need to do the following:
 1. Run `terraform init` to initialize the Terraform working directory.
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 
-### Deployment Configuration Parameters
+#### Deployment Configuration Parameters
 For both the CloudFormation and Terraform deployment methods, there are several parameters that you can provide values
 for to customize the deployment. Some of them are required, while others have default values. Below is a table that
 describes each parameter and any notes about it.
@@ -208,7 +229,7 @@ The default name of the conditions file will be `<OntapAdminServer>-conditions` 
 set for the OntapAdminServer parameter in the FSxNList file.
 
 
-### Post Installation Checks
+#### Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is
 not in an error state. To find the controller Lambda function go to the Resources tab of the CloudFormation
 stack and click on the "Physical ID" of the "ControllerLambdaFunction." This should bring you to the Lambda service in the AWS
@@ -234,43 +255,14 @@ the recommended course of action is to use the CloudFormation method of deployin
 you can make the required modifications using the information found below.
 
 #### Create an AWS Role for the Monitoring program
-The program doesn't need many AWS permissions. It just needs to be able to read the ONTAP system credentials stored in a Secrets Manager secret,
-read and write objects in an s3 bucket, be able to publish SNS messages, and optionally create CloudWatch log Streams and put events.
-Below is the specific list of permissions needed.
-
-| Permission                    | Minimal Resources | Reason     |
-|:------------------------------|:-----------------:|:----------------|
-|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service.|
-|sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
-|s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
-|s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve previous state information, as well as configuration files, from various s3 objects. |
-|s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
-|logs:CreateLogStream           | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to create a log stream. |
-|logs:PutLogEvents              | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to put log events into the log stream. |
-|logs:DescribeLogStreams        | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to see if a log stream already exists before attempting to send events to it. |
-|ec2:CreateNetworkInterface     | \* | Since the program runs as a Lambda function within your VPC, it needs to be able to create a network interface in your VPC. You can read more about that [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html). |
-|ec2:DescribeSubnets            | \* | So it can get information about the subnets it is running in. |
-|ec2:AssignPrivateIpAddresses   | \* | So it can assign a private IP address to the network interface it created. |
-|ec2:UnassignPrivateIpAddresses | \* | So it can unassign the private IP address from the network interface when it is not needed anymore. |
-|ec2:DeleteNetworkInterface     | \* | Since it created a network interface, it needs to be able to delete it when not needed anymore. If you want to strict the scope of this permission, you can add a condition that it has to be within the same subnet.|
-|ec2:DescribeNetworkInterfaces  | \* | So it can check to see if a network interface already exists. |
-|kms:Decrypt                    | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
-|kms:GenerateDataKey            | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
-
-:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+The program doesn't need many AWS permissions. It just needs to be able to get the ONTAP system credentials stored in a Secrets Manager secret,
+read and write objects in an s3 bucket, be able to publish to an SNS topic, and optionally create CloudWatch log Streams and put events.
+Refer to the [Monitoring Program Role Permissions)(#monitoring-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
 and send SNS messages if it fails to invoke the monitoring function.
-
-| Permission                    | Minimal Resources | Reason     |
-|:------------------------------|:----------------|:--|
-|lambda:InvokeFunction          | The ARN to the Monitoring Lambda function. | To be able to invoke the monitoring Lambda function.|
-|sns:Publish                    | The ARN to the SNS topic you wish to publish alerts to | To allow it to send messages (alerts) via SNS if it is unable to invoke the monitoring function.|
-|s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve FSxN List file. |
-|s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
-
-:bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
+Refer to the [Controller Program Role Permissions](#controller-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an S3 Bucket
 The first use of the s3 bucket will be to store the Lambda layer zip file. This is required to include some dependencies that
@@ -435,11 +427,27 @@ Click on the "Select metric" button. This will bring you to a page where you can
 The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` set be set to `Greater`. Under the `than..` label
 put `0.5` in the text box. This will set the alarm to trigger if there are any errors. Do this for both the controller and monitoring
 Lambda functions.
+---
+
+## Maintaining the list of systems to monitor
+
+If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#fsxn_list-file-format) stored in the S3 bucket.
+The controller will pick up on the changes to the FSxN\_List file the next time it runs.
+
+## Upgrading the monitoring program
+
+If you want to upgrade the monitoring program to a newer version, and you used CloudFormation or Terraform to deploy it,
+the easiest way is to just delete the stack and redeploy it using the same deployment parameter values. This will not
+delete or change any of the configuration files, or event state files, in the S3 bucket.
+
+If you deployed it manually, you can use the AWS console to update the code of the Lambda functions, both the monitor and controller,
+with the new code found in the repo.
 
 ---
-## Configuration Reference
+## References
 
 ### FSxN\_List File Format
+
 The FSxN\_List file specifies the ONTAP systems to monitor and any configuration parameters you want to specify for each one.
 
 The format of the file is as follows:
@@ -449,7 +457,7 @@ The format of the file is as follows:
 ...
 ```
 Where:
-- `<OntapAdminServer>` is the fullly qualified hostname, or IP address, of the ONTAP system management endpoint you want to monitor.
+- `<OntapAdminServer>` is the fully qualified hostname, or IP address, of the ONTAP system management endpoint you want to monitor.
 - `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the ONTAP system.
 - `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
     The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
@@ -564,7 +572,46 @@ Then your FSxN\_List file can look like this:
 | secretsManagerEndPointHostname | No | None          | Set to the DNS hostname assigned to the SecretsManager endpoint created above. Only needed if you had to create a VPC endpoint for the Secrets Manager service.|
 | cloudWatchLogsEndPointHostname | No | None          | Set to the DNS hostname assigned to the CloudWatch Logs endpoint created above. Only needed if you had to create a VPC endpoint for the Cloud Watch Logs service|
 
+### Monitoring Program Role Permissions
+
+The following table shows the required permissions needed for the monitoring program to run.
+
+| Permission                    | Minimal Resources | Reason     |
+|:------------------------------|:-----------------:|:----------------|
+|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service.|
+|sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
+|s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
+|s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve previous state information, as well as configuration files, from various s3 objects. |
+|s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
+|logs:CreateLogStream           | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to create a log stream. |
+|logs:PutLogEvents              | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to put log events into the log stream. |
+|logs:DescribeLogStreams        | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to see if a log stream already exists before attempting to send events to it. |
+|ec2:CreateNetworkInterface     | \* | Since the program runs as a Lambda function within your VPC, it needs to be able to create a network interface in your VPC. You can read more about that [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html). |
+|ec2:DescribeSubnets            | \* | So it can get information about the subnets it is running in. |
+|ec2:AssignPrivateIpAddresses   | \* | So it can assign a private IP address to the network interface it created. |
+|ec2:UnassignPrivateIpAddresses | \* | So it can unassign the private IP address from the network interface when it is not needed anymore. |
+|ec2:DeleteNetworkInterface     | \* | Since it created a network interface, it needs to be able to delete it when not needed anymore. If you want to strict the scope of this permission, you can add a condition that it has to be within the same subnet.|
+|ec2:DescribeNetworkInterfaces  | \* | So it can check to see if a network interface already exists. |
+|kms:Decrypt                    | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
+|kms:GenerateDataKey            | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
+
+:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+
+### Controller Program Role Permissions
+
+The following table shows the required permissions needed for the controller program to run.
+
+| Permission           | Minimal Resources | Reason |
+|:---------------------|:----------------|:--|
+|lambda:InvokeFunction | The ARN to the Monitoring Lambda function. | To be able to invoke the monitoring Lambda function.|
+|sns:Publish           | The ARN to the SNS topic you wish to publish alerts to | To allow it to send messages (alerts) via SNS if it is unable to invoke the monitoring function.|
+|s3:GetObject          | The ARN to the S3 bucket | So it can retrieve FSxN List file. |
+|s3:ListBucket         | The ARN to the S3 bucket | So it can detect if an object exist or not. |
+
+:bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
+
 ### Matching Conditions File
+
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the
 file is JSON. JSON is basically a series of "key" : "value" pairs. Where the value can be object that also has
 "key" : "value" pairs. For more information about the format of a JSON file, please refer to this [page](https://www.json.org/json-en.html).
