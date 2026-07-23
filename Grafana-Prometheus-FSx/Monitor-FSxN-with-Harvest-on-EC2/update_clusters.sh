@@ -134,7 +134,7 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
           \"collectors\": [\"Rest\", \"RestPerf\", \"Ems\"],
           \"exporters\": [\"prometheus1\"],
           \"credentials_script\": {
-            \"path\": \"/opt/fetch-credentails\",
+            \"path\": \"/opt/fetch-credentials\",
             \"schedule\": \"3h\",
             \"timeout\": \"10s\"
           }
@@ -210,7 +210,7 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
     if yq e ".services.$cluster_name" "$HARVEST_COMPOSE_FILE" | grep -q 'null'; then
         # Add new service with dynamic port
         yq -i -I 5 ".services.$cluster_name = {
-          \"image\": \"ghcr.io/tlvdevops/harvest-fsx:latest\",
+          \"image\": \"ghcr.io/netapp/harvest:latest\",
           \"container_name\": \"poller-$cluster_name\",
           \"restart\": \"unless-stopped\",
           \"ports\": [\"$current_port:$current_port\"],
@@ -218,7 +218,8 @@ for entry in "${INPUT_CLUSTERS[@]}"; do
           \"volumes\": [
             \"./cert:/opt/harvest/cert\",
             \"./harvest.yml:/opt/harvest.yml\",
-            \"./conf:/opt/harvest/conf\"
+            \"./conf:/opt/harvest/conf\",
+            \"./fetch-credentials:/opt/fetch-credentials\"
           ],
           \"environment\": [
             \"SECRET_ARN=$secret_arn\"

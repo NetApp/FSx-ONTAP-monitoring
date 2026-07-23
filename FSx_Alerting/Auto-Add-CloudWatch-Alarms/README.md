@@ -1,27 +1,48 @@
 # Automatically Add Cloud Watch Alarms to Monitor Aggregate, Volume and CPU Utilization
 
-## Introduction
-There are times when you want to be notified when a FSx for ONTAP file system, or one of its volumes, is reaching
-its capacity. AWS CloudWatch has metrics that can give you this information. The only problem is that they are
-on a per instance basis. This means as you add and delete file systems and/or volumes, you have to add and
-delete alarms. This can be tedious, and error prone. This script will automate the creation of
-AWS CloudWatch alarms that monitor the utilization of the file system and its volumes. It will also create alarms
-to monitor the CPU utilization of the file system. And if a volume or file system is removed, it will remove the associated alarms.
+## Table of Contents
+* [Introduction](#introduction)
+* [Deployment Methods](#deployment-methods)
+    * [CloudFormation Deployment](#cloudformation-deployment)
+    * [Terraform Deployment](#terraform-deployment)
+    * [Manual Deployment](#manual-deployment)
+    * [Deploy as a standalone program](#deploy-as-a-standalone-program)
+* [Tags to Override Default Thresholds](#tags-to-override-default-thresholds)
+* [Expected Actions](#expected-actions)
+* [Supplemental Extras](#supplemental-extras)
+    * [Delete Alarms](#delete-alarms)
+    * [CloudWatch to Webhook](#cloudwatch-to-webhook)
+* [Cleaning Up](#cleaning-up)
 
-To implement this, you might think to just create EventBridge rules that trigger on the creation or deletion of an FSx Volume.
-This would kind of work, but since you have command line access to the FSx for ONTAP file system, you can create
-and delete volumes without generating any CloudTrail events. So, depending on CloudTrail events would not be reliable. Therefore, instead
-of relying on those events, this script will scan all the file systems and volumes in all the regions then create and delete alarms as needed.
+## Introduction
+This program is used to automatically maintain CloudWatch alarms for all your FSx for ONTAP file systems within an AWS account.
+Unless configured otherwise, it will scan all regions within an account looking for file system.
+It will create CloudWatch alarms for all file systems and volumes that do not already have them. And, it
+will delete any alarms that it has created for file systems or volumes that no longer exist.
+
+It will create alarms for the following CloudWatch metrics:
+- CPU Utilization
+- SSD Utilization
+- Disk Throughput Utilization
+- Disk IOPS Utilization
+- Network Throughput Utilization
+- Volume Utilization
+- Volume Files (inodes) Utilization
+
+It is highly configurable, allowing you to specify default thresholds for each of the metrics above, as well as set per item thresholds
+by using tags (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for the tag names to use.)
+If you don't want alarms to be created for a particular metric, or if you want the program to remove them, just set the threshold to 100.
+By setting the default threshold to 100, it will only create alarms for items that have tags that specify a threshold less than than 100.
 
 ## Deployment Methods
-The preferred way to run this script is as a Lambda function. That is because it is very inexpensive to run without having
-to maintain any compute resources. You can use an `EventBridge Schedule` to run it on a regular basis to
-ensure that all the CloudWatch alarms are kept up to date.
+The preferred way to run this program is as a Lambda function. That is because Lambda functions are very inexpensive
+to run and you don't have to maintain any compute resources to run them. You can use an `EventBridge Schedule` to
+run them on a regular basis to ensure that all the CloudWatch alarms are kept up to date.
 
 Since there are several steps involved in setting up a Lambda function a CloudFormation template and Terraform configuration
 files have been included in the repo. The CloudFormation template is all in one file named
 [cloudformation.yaml](cloudformation.yaml). The Terraform configuration files are in the [terraform](terraform) folder. Either of
-these scripts will do the following steps for you:
+these deployment methods will do the following steps for you:
 - Create a role that will allow the Lambda function to:
     - List AWS regions. This is so it can get a list of all the regions, so it can know which regions to scan for FSx for ONTAP file systems and volumes.
     - List the FSx for ONTAP file systems.
@@ -30,7 +51,8 @@ these scripts will do the following steps for you:
     - List tags for the resources. This is so you can customize the thresholds for the alarms on a per instance basis. More on that below.
     - Create CloudWatch alarms.
     - Delete CloudWatch alarms that it has created (based on alarm names).
-- Create a Lambda function with the Python program.
+- Create a Lambda function with the Python program that does all the work.
+- Optionally create a CloudWatch alarm that will alert you if the Lambda function fails for any reason.
 - Create an EventBridge schedule that will run the Lambda function on a user defined basis.
 - Create a role that will allow the EventBridge schedule to trigger the Lambda function.
 
@@ -44,14 +66,18 @@ To use the CloudFormation template perform the following steps:
 5. Click `Next` and fill in the parameters presented on the next page. The parameters are:
     - `Stack name` - The name of the CloudFormation stack. Note this name is also used as a base name for some of the resources that are created, to make them unique, so you must keep this string under 25 characters, so the resource names don't exceed their name length limit.
     - `SNStopic` - The SNS Topic name where CloudWatch will send alerts to. Note that since CloudWatch can't send messages to an SNS topic residing in a different region, it is assumed that the SNS topic, with the same name, will exist in all the regions where alarms are to be created.
+    - `createWatchdogAlarm` - If set to 'true' will create a CloudWatch alarm that will monitor the Lambda function for errors. If set to 'false' no alarm will be created.
     - `accountId` - The AWS account ID associated with the SNS topic. This is only used to compute the ARN to the SNS Topic set above.
     - `customerId` - This is optional. If provided the string entered is included in the description of every alarm created.
-    - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
-    - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see below for more information).
-    - `defaultVolumeThreshold` - This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume (see below for more information).
-    - `defaultVolumeFilesThreshold` - This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume (see below for more information).
+    - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
+    - `defaultDiskThroughputThreshold` - This will define a default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
+    - `defaultDiskIOPSThreshold` - This will define a default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
+    - `defaultNetworkThroughputThreshold` - This will define a default Network Throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
+    - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
+    - `defaultVolumeThreshold` - This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
+    - `defaultVolumeFilesThreshold` - This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information).
     - `checkInterval` - This is the interval in minutes that the program will run.
-    - `alarmPrefixString` - This defines the string that will be prepended to every CloudWatch alarm name that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.
+    - `alarmPrefixString` - This defines the string that will be prepended to every CloudWatch alarm name that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm and allows it to create a IAM role that will ensure it can only delete the alarms it has created.
     - `regions` - This is a comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system. Note that no checking is performed to ensure that the regions you provide are valid.
 6. Click `Next`. There aren't any recommended changes to make to any of the proceeding pages, so just click `Next` again.
 7. On the final page, check the box that says `I acknowledge that AWS CloudFormation might create IAM resources with custom names.` and then click `Submit`.
@@ -64,7 +90,7 @@ To use the Terraform configuration files perform the following steps:
 4. Run `terraform init` to initialize the Terraform configuration.
 5. Run `terraform apply` to apply the Terraform configuration.
 
-### Create the Lambda function manually
+### Manual Deployment
 If you prefer, you can create the Lambda function manually by following the steps below.
 
 1. Download the `auto_add_cw_alarms.py` file from this repo.
@@ -73,15 +99,19 @@ If you prefer, you can create the Lambda function manually by following the step
 4. Choose the latest version of Python (currently Python 3.13) as the runtime and click on `Create function`.
 5. In the function code section, copy and paste the contents of the `auto_add_cw_alarms.py` file into the code editor.
 6. Click on the `Deploy` button to save the function.
-7. Click on the Configuration tag and then the "General configuration" sub tab and set the "Timeout" to be at least 3 minutes.
+7. Click on the Configuration tab and then the "General configuration" sub tab and set the "Timeout" to be at least 3 minutes.
 8. Click on the "Environment variables" tab and add the following environment variables:
     - `SNStopic` - The SNS Topic name where CloudWatch will send alerts to.
+    - `createWatchdogAlarm` - If set to 'true' will create a CloudWatch alarm that will monitor the Lambda function for errors. If set to 'false' no alarm will be created.
     - `accountId` - The AWS account ID associated with the SNS topic.
     - `customerId` - This is optional. If provided the string entered is included in the description of every alarm created.
-    - `defaultCPUThreshold` - This will define a default CPU utilization threshold.
-    - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold.
-    - `defaultVolumeThreshold` - This will define the default Volume utilization threshold.
-    - `defaultVolumeFilesThreshold` - This will define the default Volume files utilization threshold.
+    - `defaultCPUThreshold` - This will define a default CPU utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
+    - `defaultDiskThroughputThreshold` - This will define a default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
+    - `defaultDiskIOPSThreshold` - This will define a default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
+    - `defaultNetworkThroughputThreshold` - This will define a default network throughput utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
+    - `defaultSSDThreshold` - This will define a default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
+    - `defaultVolumeThreshold` - This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
+    - `defaultVolumeFilesThreshold` - This will define the default Volume files utilization threshold. You can override the default by having a specific tag associated with the file system (see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information)
     - `alarmPrefixString` - This defines the string that will be prepended to every CloudWatch alarm name that the program creates.
     - `regions` - This is an optional comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system.
 
@@ -102,7 +132,6 @@ Note it assumes that the alarmPrefixString is set to "FSx-ONTAP-Auto".
     "Version": "2012-10-17",
     "Statement": [
         {
-            "Sid": "VisualEditor0",
             "Effect": "Allow",
             "Action": [
                 "fsx:DescribeFilesystems",
@@ -112,11 +141,11 @@ Note it assumes that the alarmPrefixString is set to "FSx-ONTAP-Auto".
                 "cloudwatch:DescribeAlarmsForMetric",
                 "ec2:DescribeRegions",
                 "cloudwatch:PutMetricAlarm",
+                "tag:GetResources"
             ],
             "Resource": "*"
         },
         {
-            "Sid": "VisualEditor1",
             "Effect": "Allow",
             "Action": [
                 "cloudwatch:DeleteAlarms"
@@ -124,7 +153,6 @@ Note it assumes that the alarmPrefixString is set to "FSx-ONTAP-Auto".
             "Resource": "arn:aws:cloudwatch:*:*:alarm:FSx-ONTAP-Auto*"
         },
         {
-            "Sid": "VisualEditor2",
             "Effect": "Allow",
             "Action": [
                 "logs:CreateLogStream",
@@ -133,7 +161,6 @@ Note it assumes that the alarmPrefixString is set to "FSx-ONTAP-Auto".
             "Resource": "arn:aws:logs:*:*:log-group:*:log-stream:*"
         },
         {
-            "Sid": "VisualEditor3",
             "Effect": "Allow",
             "Action": "logs:CreateLogGroup",
             "Resource": "arn:aws:logs:*:*:log-group:*"
@@ -157,7 +184,7 @@ The easiest way to do that is:
 If you prefer, you can run this as a standalone Python program on your computer or an EC2 instance.
 
 #### Configuring the program
-There are several variables that you can configure the behavior of the program.
+There are several way you can configure the behavior of the program:
 
 * By editing the top part of the program itself where there are the following variable definitions.
 * By setting environment variables with the same names as the variables in the program.
@@ -170,32 +197,28 @@ Here is the list of variables, and what they define:
 |SNStopic  | The SNS Topic name where CloudWatch will send alerts to. Note that it is assumed that the SNS topic, with the same name, will exist in all the regions where alarms are to be created.|-s SNS\_Topic\_Name|
 |accountId | The AWS account ID associated with the SNS topic. This is only used to compute the ARN to the SNS Topic.|-a Account\_number|
 |customerId| This is just an optional string that will be added to the alarm description.|-c Customer\_String|
-|defaultCPUThreshold | This will define the default CPU utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-C number|
-|defaultSSDThreshold | This will define the default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information.|-S number|
-|defaultVolumeThreshold | This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-V number|
-|defaultVolumeFilesThreshold | This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume. See below for more information.|-f number|
+|defaultCPUThreshold | This will define the default CPU utilization threshold. You can override the default by having a specific tag associated with the file system. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-C number|
+|defaultDiskThroughputThreshold | This will define the default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-T number|
+|defaultDiskIOPSThreshold | This will define the default disk IOPS utilization threshold. You can override the default by having a specific tag associated with the file system. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-I number|
+|defaultNetworkThroughputThreshold | This will define the default network throughput utilization threshold. You can override the default by having a specific tag associated with the file system. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-N number|
+|defaultSSDThreshold | This will define the default SSD (aggregate) utilization threshold. You can override the default by having a specific tag associated with the file system. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-S number|
+|defaultVolumeThreshold | This will define the default Volume utilization threshold. You can override the default by having a specific tag associated with the volume. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-V number|
+|defaultVolumeFilesThreshold | This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume. see the [Tags to Override Default Thresholds](#tags-to-override-default-thresholds) section below for more information.|-F number|
 |alarmPrefixCPU | This defines the string that will be put in front of the name of every CPU utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
+|alarmPrefixDiskThroughput | This defines the string that will be put in front of the name of every disk throughput utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
+|alarmPrefixDiskIOPS | This defines the string that will be put in front of the name of every disk IOPS utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
+|alarmPrefixNetworkThroughput | This defines the string that will be put in front of the name of every network throughput utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
 |alarmPrefixSSD | This defines the string that will be put in front of the name of every SSD utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
 |alarmPrefixVolume | This defines the string that will be put in front of the name of every volume utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
-|regions   | This is a comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system. Note that no checking is performed to ensure that the regions you provide are valid.|-r region -r region ...|
+|alarmPrefixVolumeFiles | This defines the string that will be put in front of the name of every volume files utilization CloudWatch alarm that the program creates. Having a known prefix is how it knows it is the one maintaining the alarm.|N/A|
+|regions | This is a comma separated list of AWS region names (e.g. us-east-1) that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system. Note that no checking is performed to ensure that the regions you provide are valid.|-r region -r region ...|
 
 There are a few command line options that don't have a corresponding variable:
 |Option|Description|
 |:-----|:----------|
 |-d| This option will cause the program to run in "Dry Run" mode. In this mode, the program will only display messages showing what it would have done, and not really create or delete any CloudWatch alarms.|
-|-F filesystem\_ID| This option will cause the program to only add or remove alarms that are associated with the filesystem\_ID.|
+|-f filesystem\_ID| This option will cause the program to only add or remove alarms that are associated with the filesystem\_ID.|
 
-As mentioned with the threshold variables, you can create a tag on the specific resource to override the default value set by the associated threshold
-variable. Here is the list of tags and where they should be located:
-
-|Tag|Description|Location|
-|:---|:------|:---|
-|alarm\_threshold | Sets the volume utilization threshold. | Volume |
-|files\_threshold | Sets the volume files utilization threshold. | Volume |
-|cpu\_alarm\_threshold| Sets the CPU utilization threshold. | File System |
-|ssd\_alarm\_threshold| Sets the SSD utilization threshold. | File System |
-
-:bulb: **NOTE:** When the alarm threshold is set to 100, the alarm will not be created. So, if you set the default to 100, then you can selectively add alarms by setting the appropriate tag.
 
 #### Running on a computer
 To run the program on a computer, you must have Python installed. You will also need to install the boto3 library.
@@ -209,8 +232,8 @@ Once you have Python and boto3 installed, you can run the program by executing t
 ```bash
 python3 auto_add_cw_alarms.py
 ```
-This will run the program based on all the variables set at the top of the program. If you want to change the behavior without
-having to edit the program, you can either use the Command Line Option specified in the table above or you can
+This will run the program based on all the variables set at the top of the program or based on the equivalent environment variables. If you want to change the behavior without
+having to edit the program, you can either use the Command Line Options specified in the table above or you can
 set the appropriate environment variable. Note that you can give a `-h` (or `--help`) command line option
 and the program will display a list of all the available options.
 
@@ -220,14 +243,90 @@ multiple times to act on multiple regions.
 You can run the program in "Dry Run" mode by specifying the `-d` (or `--dryRun`) option. This will cause the program to only display
 messages showing what it would have done, and not really create or delete any CloudWatch alarms.
 
-## Expected Action
-Once the script has been configured and invoked, it will:
+## Tags to Override Default Thresholds
+You can create a tag on the specific resource to override the default threshold value set by the associated threshold
+variable. Here is the list of tags and where they should be located:
+
+|Tag|Description|Location|
+|:---|:------|:---|
+|alarm\_threshold | Sets the volume utilization threshold. | Volume |
+|files\_threshold | Sets the volume files (inodes) utilization threshold. | Volume |
+|cpu\_alarm\_threshold| Sets the CPU utilization threshold. | File System |
+|disk\_throughput\_alarm\_threshold| Sets the disk throughput utilization threshold. | File System |
+|disk\_IOPS\_alarm\_threshold| Sets the disk IOPS utilization threshold. | File System |
+|network\_throughput\_alarm\_threshold| Sets the network throughput utilization threshold. | File System |
+|ssd\_alarm\_threshold| Sets the SSD utilization threshold. | File System |
+
+:bulb: **NOTE:** When the alarm threshold is set to 100, the alarm will not be created. So, if you set the default to 100, then you can selectively add alarms by setting the appropriate tag.
+
+## Expected Actions
+Regardless of the deployment method you used, once the script has been configured and invoked, it will:
 * Scan for every FSx for ONTAP file systems in every region, unless you have specified a specific list of regions to scan. For every file system that it finds it will:
     * Create a CPU utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
+    * Create a disk throughput utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
+    * Create a disk IOPS utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
+    * Create a network throughput utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
     * Create an SSD utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
 * Scan for every FSx for ONTAP volume in every region, unless you have specified a specific list of regions to scan. For every volume it finds it will:
     * Create a Volume Utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
+    * Create a files Utilization CloudWatch alarm, unless the threshold value is set to 100 for the specific alarm.
 * Scan for the CloudWatch alarms and remove any alarms that the associated resource doesn't exist anymore.
+
+## Supplemental Extras
+There are a couple of extra programs included in the `extras` directory. They provide additional functionality that you may find useful.
+The `extras` directory contains the following programs:
+
+### Delete Alarms
+This program will delete all the CloudWatch alarms that have a name that starts with the specified prefix, which
+by default is "FSx-ONTAP-Auto".
+
+You can configure it to only delete alarms that have been in alarm state for more than a specific number of hours.
+This is useful if you have the Auto-Add-CloudWatch-Alarms program running since it will cause it to create new
+alarms that will alert again on existing issues. The idea is so persistent conditions aren't forgotten about.
+
+You can either run it as a standalone program, or as a Lambda function. As a standalone program you configure it
+via command line options or environment variables. As a Lambda function, you configure it via environment variables.
+
+|Environment Variable|Description|Command Line Option|
+|:-------------------|:----------|:-----------------|
+|basePrefix|The string that the alarm name has to start with to be a candidate to be deleted.|-b basePrefix|
+|dryRun|If set to "true", the program will only display messages showing what it would have done, and not really delete any CloudWatch alarms.|-d|
+|alarmAge|The age in hours that an alarm has to be in alarm state before it is a candidate to be deleted.|-a number|
+|regions|This is a comma separated list of AWS region names that the program will act on. If not specified, the program will scan on all regions that support an FSx for ONTAP file system.|-r region,region|
+
+If deploying it as a Lambda function, you can use a event bridge schedule to run it on a regular basis.
+
+### CloudWatch to Webhook
+This program shows how you can get a CloudWatch alarm to send an event to a webhook.
+It is currently specifically designed to work with the volume utilization alarms created by the
+Auto-Add-CloudWatch-Alarms program but could be modified to accommodate other alarms.
+
+The way to use it is to deploy the program as a Lambda function and then configure the CloudWatch
+alarm to send the events to it. Be sure to add a resources based policy to the Lambda function
+that allows CloudWatch to invoke it. The Principal to use is `lambda.alarms.cloudwatch.amazonaws.com`,
+the Action is `lambda:InvokeFunction` and the resource is the ARN of CloudWatch alarms (wild cards are permitted). 
+
+To configure the program, just set the following environment variables:
+|Environment Variable|Description|
+|:-------------------|:----------|
+|webhookEndpoint|The URL of the webhook that will receive the CloudWatch alarm event data.|
+|payloadTemnplate|Defines payload is send to the webhook. It supports several variables that are replaced with the actual values from the CloudWatch alarm event.|
+
+The following are the variables that can be used in the payloadTemplate:
+|Variable|Description|
+|:-------|:----------|
+|volume\_id|The ID of the FSxN volume that is breaching the threshold.|
+|filesystem\_id|The ID of the FSxN file system that is breaching the threshold.|
+|threshold|The threshold that is being breached.|
+|utilization|The current utilization of the volume.|
+|alarmName|The name of the CloudWatch alarm that triggered the event.|
+
+To reference the variable in the string, put the variable name in curly braces. For example, to reference the volume ID, you would use `{volume_id}`.
+
+If a payloadTemplate is not specified, the following default template will be used:
+```
+Alert! Volume {volume_id} in file system {filesystem_id} has breached utilization threshold {threshold}%. Current utilization is {utilization}%.
+```
 
 ## Cleaning up
 If you decide you don't want to use this program anymore, you can delete the CloudFormation stack that you created

@@ -16,7 +16,7 @@ Pollers:
         exporters:
             - prometheus1
         credentials_script:
-            path: /opt/fetch-credentails
+            path: /opt/fetch-credentials
             schedule: 3h
             timeout: 10s
     fsx02:
@@ -29,6 +29,6 @@ Pollers:
         exporters:
             - prometheus1
         credentials_script:
-            path: /opt/fetch-credentails
+            path: /opt/fetch-credentials
             schedule: 3h
             timeout: 10s

@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: 'Harvest FSxN'
+    orgId: 1
+    folder: 'FSxN'
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: true
+    updateIntervalSeconds: 10
+    options:
+      path: /etc/grafana/provisioning/dashboards/fsxn
