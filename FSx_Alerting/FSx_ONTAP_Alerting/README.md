@@ -5,8 +5,9 @@
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Deployment Methods](#deployment-methods)
-    - [Using CloudFormation](#installation-using-cloudformation)
-    - [Using Terraform](#installation-using-terraform)
+    - [Using IaC programs](#using-iac-programs)
+        - [Using CloudFormation](#installation-using-cloudformation)
+        - [Using Terraform](#installation-using-terraform)
         - [Configuration Parameters](#deployment-configuration-parameters)
         - [Post Deployment Checks](#post-deployment-checks)
     - [Manual Installation](#manual-installation)
@@ -95,13 +96,14 @@ that you don't disable them.
     - **IMPORTANT** You must download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`. It contains some of the utilities that monitoring program depends on.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnets you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
 - An AWS Secrets Manager secret(s) that holds the ONTAP system credentials. There should be two keys in each secret, one for the username and one for the password.
-- Create an object (file) in the S3 bucket that contains the list of file systems you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File_Format](#fsxn-list-file-format) section below. If you create it locally, make sure to upload it to the S3 bucket.
+- Create an object (file) in the S3 bucket that contains the list of file systems you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File\_Format](#fsxn_list-file-format) section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
     - An SNS topic to send the alerts to.
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
 ## Deployment Methods
+
 There are three ways to deploy this program. You can either perform all the steps shown in the
 [Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
 the [CloudFormation template](cloudformation.yaml) file that is provided in this repository,
@@ -110,13 +112,19 @@ directory. The manual installation is more involved, but it gives you the most c
 make changes to settings that aren't available with the other methods. The CloudFormation and
 Terraform are easier to use since you only need to provide a few parameters.
 
-### Installation using CloudFormation
-The CloudFormation template will do the following:
+### Using IaC programs
+
+The recommended way to deploy the monitoring solution is via CloudFormation or Terraform.
+Both of these methods will create the required resources for you.
+
+#### Expected Actions
+
+If you deploy the program with either CloudFormation or Terraform, expect the following to happen:
 - Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
+    is outlined in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
+    is outlined in the [Controller Program Role Permissions](#controller-program-role-permisisons) section below.
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create two Lambda functions with the Python code provided in this repository.
 - Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
@@ -125,6 +133,8 @@ The CloudFormation template will do the following:
     - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
     - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
 - Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+
+#### Installation Using CloudFormation
 
 To install the program using the CloudFormation template, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -148,26 +158,13 @@ To install the program using the CloudFormation template, you will need to do th
 7. The final page will allow you to review all configuration parameters you provided.
     If everything looks good, click on the "Create stack" button.
 
-#### Deploying the CloudFormation stack via the command line
+##### Deploying the CloudFormation stack via the command line
+
 If you want to deploy this program from the command line, you can use the [deployStack](deployStack) script
 found in this repository. It takes various options to set the required parameters in the
 stack. If you run the script without any parameters, it will display the usage information.
 
-### Installation using Terraform
-Deploying with Terraform will do the following:
-- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create two Lambda functions with the Python code provided in this repository.
-- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
-    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
-- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
-    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
-    - Optionally Create a role for the CloudWatch alarm so it can invoke the above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
-- Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+#### Installation using Terraform
 
 To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
