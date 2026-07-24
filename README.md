@@ -29,12 +29,16 @@ This repository contains utilities for monitoring, alerting and auditing of FSx 
     * [Ingest FSxN Administrative Audit Logs](FSx-Audit-Logs/Ingest-Administrative-Audit-Logs-CloudWatch)
     * [Ingest FSxN NAS audit logs](FSx-Audit-Logs/Ingest-NAS-Audit-Logs-CloudWatch)
 
+---
+
 If you have any requests for new content, or have any suggestions regarding existing content, please either post you ideas to the
 [Ideas](https://github.com/NetApp/FSx-ONTAP-monitoring/discussions/categories/ideas) section in the
 [Discussions](https://github.com/NetApp/FSx-ONTAP-monitoring/discussions) tab, or send us an email at
 [ng-fsxn-github-samples@netapp.com](mailto:ng-fsxn-github-samples@netapp.com).
 
 We also welcome contributions from the community! Please read our [contribution guidelines](CONTRIBUTING.md) before getting started.
+
+---
 
 ## Author Information
 
