@@ -330,7 +330,7 @@ that specifies what should be sent as the payload to the webhook. You can see th
 [Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section below.
 
 #### Create any needed AWS Service Endpoints
-Since the monitoring Lambda function has to communicate with the ONTAP system withing your network, it will have to run within a VPC that has connectivity to the file
+Since the monitoring Lambda function has to communicate with the ONTAP system within your network, it will have to run within a VPC that has connectivity to the file
 systems that you want to monitor. The monitoring Lambda function will also need access to the AWS service endpoints for the AWS services
 that it uses (S3, SNS, CloudWatch, and SecretsManager). Access to these service endpoints is typically routed through the Internet,
 however, because of the way AWS gives Lambda access to your subnet, it will not be allowed access to the Internet through an Internet Gateway
@@ -614,7 +614,7 @@ Then your FSxN\_List file can look like this:
 | webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 | webhookSeverity          | No       | INFO          | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
 | webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section. If left blank a default payload will be used.|
-| webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the wehhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authenication header will be sent. |
+| webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the webhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authentication header will be sent. |
 | webhookSecretUsernameKey | No       | username      | Set to the key in the Secrets Manager secret that holds the username to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "username" will be used.|
 | webhookSecretPasswordKey | No       | password      | Set to the key in the Secrets Manager secret that holds the password to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "password" will be used.|
 | awsAccountId             | No       | None          | Set to the AWS account ID where the ONTAP file system is located. This is purely for documentation purposes and serves no other purpose.|
@@ -684,7 +684,7 @@ Each rule should be an object with one, or more, of the following keys:
 |Key Name|Value Type|Notes|
 |---|---|---|
 |versionChange|Boolean (true, false)|If `true` the program will send an alert when the ONTAP version changes. If it is set to `false`, it will not report on version changes.|
-|failover|Boolean|If 'true' the program will send an alert if the ONTAP systemm is running on its standby node. If it is set to `false`, it will not report on failover status.|
+|failover|Boolean|If 'true' the program will send an alert if the ONTAP system is running on its standby node. If it is set to `false`, it will not report on failover status.|
 |frus|Boolean|If 'true' the program will send an alert when any FRU goes into a non "UP" state. If it is set to `false`, it will not report on FRU status. This is ignored for FSx for ONTAP file systems since the API to get FRU information is blocked.|
 |disks|Boolean|If 'true' the program will send an alert when any disks fails. If it is set to `false`, it will not report on disk status. This is ignored for FSx for ONTAP file systems since the API to get disk information is blocked.|
 |networkInterfaces|Boolean|If 'true' the program will send an alert if any of the network interfaces are down.  If it is set to `false`, it will not report on any network interfaces that are down.|

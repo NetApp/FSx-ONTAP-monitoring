@@ -26,8 +26,8 @@ locals {
       "s3:GetObject",
       "s3:ListBucket"
     ],
-    var.snsTopicArn != null ? ["sns:Publish"] : [],
-    var.SSEKMSKeyArn != null ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
+    (var.snsTopicArn != null && trim(var.snsTopicArn) != "") ? ["sns:Publish"] : [],
+    (var.SSEKMSKeyArn != null && trim(var.SSEKMSKeyArn) != "") ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
   )
   controllerPolicyResources = concat(
     [
@@ -149,9 +149,9 @@ resource "aws_lambda_function" "controller_lambda_function" {
       s3BucketRegion        = var.region
       s3BucketName          = var.s3BucketName
       FSxNList              = var.FSxNListFilename
-      snsTopicArn           = var.snsTopicArn
+      snsTopicArn           = try(var.snsTopicArn, "")
       ServerSideEncryption  = var.ServerSideEncryption
-      SSEKMSKeyId           = var.SSEKMSKeyArn
+      SSEKMSKeyId           = try(var.SSEKMSKeyArn, "")
       MOSLambdaFunctionName = aws_lambda_function.monitor_ontap_services_lambda_function.function_name
       initialVersionChangeAlert = var.versionChangeAlert
       initialFailoverAlert = var.failoverAlert
