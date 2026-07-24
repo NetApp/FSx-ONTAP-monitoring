@@ -22,27 +22,26 @@ import os
 import logging
 
 def lambda_handler(event, context):
-    #
-    # Maximum number of allowed consecutive failed invokes before sending an alert.
-    maxAllowedFailures = 2
-
     logging.basicConfig()
     logger = logging.getLogger("MOS_Controller")
     logger.setLevel(logging.DEBUG)
     #
+    # Initialize the base payload dictionary that will be sent to the monitoring function.
+    basePayload = {}
+    #
     # Take a sneak peek at the snsTopicArn environment variable so messages can be sent
     # to it if any of the other environment variables are missing.
     snsClient = None
-    if os.environ.get('snsTopicArn') is not None:
+    if os.environ.get('snsTopicArn') is not None and os.environ.get('snsTopicArn') != "":
         snsTopicArn = os.environ.get('snsTopicArn')
         snsRegion = snsTopicArn.split(':')[3]
         snsClient = boto3.client('sns', region_name=snsRegion)
+        basePayload['snsTopicArn'] = snsTopicArn
     #
     # Check for required environment variables and store them in the payload variable.
     # Don't really need to send some of these to the monitoring function, but it
     # doesn't hurt to do so.
-    basePayload = {}
-    for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName', 'snsTopicArn']:
+    for var in ['s3BucketName', 's3BucketRegion', 'FSxNList', 'MOSLambdaFunctionName']:
         if os.environ.get(var) is None:
             err = f"Error, the Monitor ONTAP Service controller is missing a required environment variable {var}."
             logger.error(err)
@@ -50,6 +49,11 @@ def lambda_handler(event, context):
                 snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
             raise Exception(err)  # This is a critical error, so send up a flare.
         else:
+            basePayload[var] = os.environ[var]
+    #
+    # Add optional variables:
+    for var in ['ServerSideEncryption', 'SSEKMSKeyId']:
+        if os.environ.get(var) is not None:
             basePayload[var] = os.environ[var]
     #
     # Read the FSxN list from S3.
@@ -61,7 +65,8 @@ def lambda_handler(event, context):
     except botocore.exceptions.ClientError as e:
         err = f"Error, the Monitor ONTAP Service controller was unable to fetching FSxN list from S3: {e}"
         logger.error(err)
-        snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
+        if snsClient is not None:
+            snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error", Message=err)
         raise Exception(err)  # This is a critical error, so send up a flare.
     #
     # Invoke the monitoring Lambda function for each FSxN in the list.
@@ -104,7 +109,8 @@ def lambda_handler(event, context):
             )
             logger.info(f"Invoked Monitoring Lambda function for {OntapAdminServer}.")
         except botocore.exceptions.ClientError as e:
-            snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error: Failed to invoke monitoring function", Message=e)
+            if snsClient is not None:
+                snsClient.publish(TopicArn=snsTopicArn, Subject="MOS Controller Error: Failed to invoke monitoring function", Message=e)
             logger.error(f"Error invoking Monitoring Lambda function for {OntapAdminServer}: {e}")
 
 if os.environ.get('AWS_LAMBDA_FUNCTION_NAME') is None:

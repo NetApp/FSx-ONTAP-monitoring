@@ -1,12 +1,43 @@
-# FSx for ONTAP Alerting
+# ONTAP System Alerting
+
+## Table of Contents
+- [Introduction](#introduction)
+- [Architecture](#architecture)
+- [Prerequisites](#prerequisites)
+- [Deployment Methods](#deployment-methods)
+    - [Using IaC programs](#using-iac-programs)
+        - [Using CloudFormation](#installation-using-cloudformation)
+        - [Using Terraform](#installation-using-terraform)
+        - [Configuration Parameters](#deployment-configuration-parameters)
+        - [Post Deployment Checks](#post-deployment-checks)
+    - [Manual Installation](#manual-installation)
+- [Maintaining the list of systems to monitor](#maintaining-the-list-of-systems-to-monitor)
+- [Added Destinations](#added-destinations)
+    - [Adding a Webhook](#adding-a-webhook)
+    - [Adding a Syslog Server](#adding-a-syslog-server)
+    - [Adding a CloudWatch Log Stream](#adding-a-cloudwatch-log-stream)
+- [Upgrading the monitoring program](#upgrading-the-monitoring-program)
+- [References](#references)
+    - [FSxN List File Format](#fsxn-list-file-format)
+    - [Configuration File Format](#configuration-file-format)
+    - [Webhook Configuration File Format](#webhook-configuration-file-format)
+    - [Monitoring Program Role Permissions](#monitor-program-role-permissions)
+    - [Controller Program Role Permissions](#controller-program-role-permissions)
+    - [Configuration Parameters](#monitoring-configuration-parameters)
+    - [Matching Conditions File](#matching-conditions-file)
 
 ## Introduction
-This program is used to monitor various services of an AWS FSx for NetApp ONTAP file system and alert you if anything
+This program is used to monitor various services of a NetApp ONTAP system and alert you if anything
 is outside of the specified conditions. It uses the ONTAP APIs to obtain the required information to
 determine if any of the conditions have been met.
 If they have, then the program will send an SNS message to the specified SNS topic. It can also send
 a syslog message, a webhook, as well as store the event information into a CloudWatch Log Stream.
 The program takes measures to ensure it doesn't send multiple messages for the same event.
+
+While this program was originally written to monitor AWS FSx for NetApp ONTAP file systems, it can also be used
+to monitor on-premises ONTAP clusters as well. And in fact, if it is used to monitor an on-premises ONTAP cluster,
+it can monitor more services than it can for FSx for ONTAP file systems. Specifically, it can monitor the
+health of the FRUs (field replaceable units) and disks in the cluster.
 
 Here is this list of services that this program can send alerts on:
 - If the file system is available.
@@ -23,25 +54,25 @@ Here is this list of services that this program can send alerts on:
 - If a volume is over a certain percentage full. You can set two thresholds (Warning and Critical).
 - If a volume is using more than a specified percentage of its inodes (files). You can set two thresholds (Warning and Critical).
 - If a volume is using a certain percentage of its snapshot reserved space. You can set two thresholds (Warning and Critical).
-- If a volume if offline.
+- If a volume is offline.
 - If any snapshots are older than a specified age.
 - If any quotas values have been breached. You can be alerted on both soft and hard limits.
-- If any FRUs (field replaceable units) are in a non-healthy state. On applies to an on-premises ONTAP cluster.
-- If any disks are in a non-healthy state. On applies to an on-premises ONTAP cluster.
+- If any FRUs (field replaceable units) are in a non-healthy state. Only applies to an on-premises ONTAP cluster.
+- If any disks are in a non-healthy state. Only applies to an on-premises ONTAP cluster.
 
 ## Architecture
 This solution is made up of two main components: the monitoring program and the controller. The monitoring
-program is used to get the information from the FSxN(s) and sends any alerts to the various destinations. The
-controller is used to invoke the monitoring program on a regular basis. It is done this way
-so you can monitor multiple FSxN file systems with just these two components.
+program is used to get the information from the ONTAP system and sends any alerts to the
+various destinations. The controller is used to invoke the monitoring program for all the specified file systems
+on a regular basis. It is done this way so you can monitor multiple file systems with just these two components.
 
 When the controller invokes the monitoring program it will send it the hostname (or IP address)
-of the FSxN file system to monitor, as well as any other specific configuration parameters for the
-particular FSxN file system that it will need to operate (e.g. the AWS Secrets Manager secret
+of the ONTAP system to monitor, as well as any other specific configuration parameters for the
+particular file system that it will need to operate (e.g. the AWS Secrets Manager secret
 to use, the targets to send alerts to, etc.)
 
 Once the monitoring program has been invoked it will use the ONTAP APIs to obtain the required information 
-from the FSxN file system. It will compare this information against the conditions that have been
+from the file system. It will compare this information against the conditions that have been
 specified in the conditions file (more information about the conditions file can be found in
 the [Matching Conditions File](#matching-conditions-file) below). If any conditions have been
 met it will send an alert to any of the specified targets (SNS Topic, syslog server, webhook endpoint,
@@ -49,11 +80,11 @@ CloudWatch Log Stream). The program stores all the conditions that are currently
 S3 bucket so it can ensure that it doesn't send duplicate messages for the same event.
 The conditions file is also kept in the S3 bucket for easy access.
 
-Since the monitoring program has to be able to communicate with
-the FSxN file system management endpoint it must run within a VPC that has
-connectivity to the FSxN file system. This requires special considerations for
-a Lambda function, both how it is deployed, and how it is able to access AWS services. You can read more about
-that in the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below.
+Since the monitoring program has to be able to communicate with the file system management endpoint
+it must run within a VPC that has connectivity to all the ONTAP systems you want to monitor.
+This requires special considerations for a Lambda function, both how it is deployed, and how it
+is able to access AWS services. You can read more about that in the
+[Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below.
 
 Here is a graphical representation of the architecture:
 
@@ -64,41 +95,34 @@ health of the Lambda functions and alert you if either of them fails. It is high
 that you don't disable them.
 
 ## Prerequisites
-- One, or more, FSx for NetApp ONTAP file system you want to monitor.
+- One, or more, NetApp ONTAP system you want to monitor.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
     - **IMPORTANT** You must download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`. It contains some of the utilities that monitoring program depends on.
 - The security group associated with the FSx for ONTAP file system must allow inbound traffic from the monitoring Lambda function over TCP port 443. It can either allow port 443 for all the possible IP addresses associated with the subnets you plan to deploy it in. Or, after the solution has been deployed, you can get the security group that was assigned to the monitoring Lambda function and allow port 443 from that security group.
-- An SNS topic to send the alerts to.
-- An AWS Secrets Manager secret(s) that holds the FSx for ONTAP file system credentials. There should be two keys in each secret, one for the username and one for the password.
-- Create an object (file) in the S3 bucket that contains the list of FSxNs you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File](#create-fsxn-list-file) section below. If you create it locally, make sure to upload it to the S3 bucket.
+- An AWS Secrets Manager secret(s) that holds the ONTAP system credentials. There should be two keys in each secret, one for the username and one for the password.
+- Create an object (file) in the S3 bucket that contains the list of file systems you want to monitor. You can name the file anything you want but the default name is `FSxNList`. The format of the file is listed in the [FSxN List File\_Format](#fsxn_list-file-format) section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
+    - An SNS topic to send the alerts to.
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
-## Installation
-There are three ways to install this program. You can either perform all the steps shown in the
+## Deployment Methods
+
+There are three ways to deploy this program. You can either perform all the steps shown in the
 [Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
 the [CloudFormation template](cloudformation.yaml) file that is provided in this repository,
 or deploy using Terraform using the Terraform configuration files found in the [terraform](terraform)
-directory. The manual installation is more involved, but it gives you most control and allows you to
+directory. The manual installation is more involved, but it gives you the most control and allows you to
 make changes to settings that aren't available with the other methods. The CloudFormation and
 Terraform are easier to use since you only need to provide a few parameters.
 
-### Installation using the CloudFormation template
-The CloudFormation template will do the following:
-- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create two Lambda functions with the Python code provided in this repository.
-- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
-    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
-- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
-    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
-    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
-- Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+### Using IaC programs
+
+The recommended way to deploy the monitoring solution is via CloudFormation or Terraform.
+Both of these methods will create the required resources for you.
+
+
+#### Installation Using CloudFormation
 
 To install the program using the CloudFormation template, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -108,35 +132,28 @@ To install the program using the CloudFormation template, you will need to do th
     cause your browser to download the file to your local computer.
 3. Go to the [CloudFormation service in the AWS console](https://us-west-2.console.aws.amazon.com/cloudformation/) and click on "Create stack (with new resources)".
     - Make sure the correct region is selected in the top right corner of the page.
-4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 1.
+4. Choose the "Upload a template file" option and select the CloudFormation template you downloaded in step 2.
 5. This should bring up a new window with several parameters to provide values to. Most have
     defaults, but some do require values to be provided. See the [Deployment Configuration Parameters](#deployment-configuration-parameters) section below for what each parameter is for.
 6. Once you have provided all the parameters, click on the "Next" button. This will bring you to a page where you can
     provide tags for the stack. Any tags specified here will be applied to all resources that are created that
     support tags. Tags are optional and can be left blank. There are other configuration parameters you can
     change here, but typically you can leave them as defaults. At the bottom of the page there will be one check box
-    that you'll need to click on, and that is to acknowledge that the template might create an IAM resources (e.g. role).
+    that you'll need to click on, and that is to acknowledge that the template might create IAM resources (e.g. a role).
     If you have provided role ARNs for the roles that are required on the parameters page, then roles will not be
     created. Of course if you don't provide role ARNs, it will attempt to create them. Once you
     clicked on the confirmation check box click the "Next" button.
 7. The final page will allow you to review all configuration parameters you provided.
     If everything looks good, click on the "Create stack" button.
+8. Perform the steps in the [Post installation Checks](#post-installation-checks) section below to ensure a successful installation.
 
-### Installation using Terraform
-Deploying with Terraform will do the following:
-- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Create an AWS role for the Controller program](#create-an-aws-role-for-the-controller-program) section below.
-    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
-- Create two Lambda functions with the Python code provided in this repository.
-- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
-    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
-- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
-    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
-    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
-- Optionally create a VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+##### Deploying the CloudFormation stack via the command line
+
+If you want to deploy this program from the command line, you can use the [deployStack](deployStack) script
+found in this repository. It takes various options to set the required parameters in the
+stack. If you run the script without any parameters, it will display the usage information.
+
+#### Installation using Terraform
 
 To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -152,27 +169,32 @@ To install the program using Terraform, you will need to do the following:
     [Deployment Configuration Parameters](#deployment-configuration-parameters) section list below.
 1. Run `terraform init` to initialize the Terraform working directory.
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
+1. Perform the steps in the [Post installation Checks](#post-installation-checks) section below to ensure a successful installation.
 
-### Deployment Configuration Parameters
+#### Deployment Configuration Parameters
+For both the CloudFormation and Terraform deployment methods, there are several parameters that you can provide values
+for to customize the deployment. Some of them are required, while others have default values. Below is a table that
+describes each parameter and any notes about it.
+
 |Parameter Name |Notes|
 |---|---|
 |Stackname\*|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
 |Region\*\*|The AWS region where you want to deploy the program.|
 |S3BucketName|The name of the S3 bucket where you want the program to store event information. It should also have a copy of the `lambda_layer.zip` file. **NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
-|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor. The format of this file is specified in the [Create FSxN List File](#create-fsxn-list-file) section below.|
-|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the FSxN file system management endpoints that you wish to monitor. It is recommended to select at least two.|
-|SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group must allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the FSxN file systems you want to monitor.|
+|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [FSxN\_List File Format](#fsxn_list-file-format) section below.|
+|SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the ONTAP systems management endpoints that you wish to monitor. It is recommended to select at least two.|
+|SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group only needs to allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the ONTAP file systems you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
-|SecretArnPattern|The ARN pattern of the SecretsManager secrets that holds the FSxN file system credentials for all the FSxNs you want to monitor.|
+|SecretArnPattern|The ARN pattern of the SecretsManager secrets that holds the ONTAP system credentials for all the ONTAP systems you want to monitor.|
 |CheckInterval|The interval, in minutes, that the EventBridge schedule will trigger the controller Lambda function. The default is 15 minutes.|
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails. **NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
-|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Controller program](#create-an-aws-role-for-the-controller-program) section below. If left blank a role will be created for you.|
-|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Create an AWS Role for the Monitoring program](#create-an-aws-role-for-the-monitoring-program) section below. If left blank a role will be created for you.|
+|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Controller Program Role Permissions](#controller-program-role-permissions) section below. If left blank a role will be created for you.|
+|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda\_layer.zip found in your S3 bucket.|
-|maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your FSxN file system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
-|memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your FSxN file system.|
+|maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your ONTAP system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
+|memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your ONTAP system.|
 |CreateSecretsManagerEndpoint|Set to "true" if you want to create a Secrets Manager endpoint. **NOTE:** If a SecretsManager Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
 |CreateSNSEndpoint|Set to "true" if you want to create an SNS endpoint. **NOTE:** If a SNS Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
 |CreateCWEndpoint|Set to "true" if you want to create a CloudWatch endpoint. **NOTE:** If a CloudWatch Endpoint already exist for the specified Subnet the endpoint creation will fail, causing the entire CloudFormation stack to fail. Please read the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) for more information.|
@@ -193,28 +215,51 @@ matching conditions at any time by updating the matching conditions file that is
 The default name of the conditions file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
 set for the OntapAdminServer parameter in the FSxNList file.
 
+#### Expected Actions
 
-### Post Installation Checks
+If you deploy the program with either CloudFormation or Terraform, expect the following to happen:
+- Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create a role for the Controller Lambda functions to use. The permissions will be the same as what
+    is outlined in the [Controller Program Role Permissions](#controller-program-role-permissions) section below.
+    **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
+- Create two Lambda functions with the Python code provided in this repository.
+- Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
+    it to run every 15 minutes, although there is a parameter that will allow you to set it to whatever interval you want.
+- Optionally create a CloudWatch alarm for each of the Lambda function that will alert you if either of them fails to run properly.
+    - Optionally create a Lambda function to send the CloudWatch alarm alert to an SNS topic. This is only needed if the SNS topic resides in another region since CloudWatch doesn't support doing that natively.
+    - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
+- Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
+
+#### Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is
-not in an error state. To find the controller Lambda function go to the Resources tab of the CloudFormation
-stack and click on the "Physical ID" of the "ControllerLambdaFunction." This should bring you to the Lambda service in the AWS
-console. Once there, click on the "Monitor" tab to see if the function has been invoked. Note that it will take
-at least the configured iteration time before the function is invoked for the first time. Locate the
-"Error count and success rate(%)" chart, which is usually found at the top right corner of the "Monitor" dashboard.
-After  the "CheckInterval" number of minutes there should be at least one dot on that chart.
+not in an error state. If you used CloudFormation to deploy the stack to find the controller Lambda function
+go to the Resources tab of the CloudFormation stack and click on the "Physical ID" of the "ControllerLambdaFunction."
+This should bring you to the Lambda service in the AWS console. If you used Terraform to deploy the stack then the
+controller Lambda function ARN should have been outputted at the end of the deployment. You can run `terraform output`
+to see the output of the deployment at anytime. Go the Lambda service in the AWS console and search for the
+controller Lambda function by name to find the controller Lambda function.
+
+Once you have found the controller Lambda function click on the "Monitor" tab to see if the function has been invoked.
+Note that it will take at least the configured iteration time before the function is invoked for the first time. If you
+don't want to wait, go to the 'Test' tab and click on the 'Test' button.
+
+Locate the "Error count and success rate(%)" chart on the Monitoring tab. Once the program has been invoked
+there should be at least one dot on that chart. Note that sometimes there is a lag between the first invocation
+and that chart being updated. If you don't see a dot on the chart, wait a few minutes and refresh the page.
 Hover your mouse over the dot and you should see the "success rate" and "number of errors."
-The success rate should be 100% and the number of errors should be 0. If it is not, then scroll up a little bit and
+The success rate should be 100% and the number of errors should be 0. If it is not, then scroll up a little and
 click on "View CloudWatch Logs" link. Once on this page, click on the first LogStream and review any output.
 If there are any errors, they will be displayed there. If you can't figure out what is causing an error,
 please create an issue on the [Issues](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) section
 in this repository and someone will help you.
 
-After you have checked the controller Lambda function, check the monitoring Lambda function the same way.
-
-### Deploying the CloudFormation stack via the command line
-If you want to deploy this program from the command line, you can use the [deployStack](deployStack) script
-found in this repository. It takes various options to set the required parameters in the
-stack. If you run the script without any parameters, it will display the usage information.
+After you have checked the controller Lambda function, check the monitoring Lambda function the same way. Although,
+don't try to force the monitor program to run by clicking on the Test button on its page. The monitor program
+is designed to be invoked by the controller program since the controller passes it all the information
+it needs to monitor a file system.  So, if you need to force the Monitor program to run again, always click
+on the Test button of the controller program and have it invoke the monitoring program.
 
 ---
 
@@ -225,40 +270,14 @@ the recommended course of action is to use the CloudFormation method of deployin
 you can make the required modifications using the information found below.
 
 #### Create an AWS Role for the Monitoring program
-The program doesn't need many AWS permissions. It just needs to be able to read the FSxN file system credentials stored in a Secrets Manager secret,
-read and write objects in an s3 bucket, be able to publish SNS messages, and optionally create CloudWatch log Streams and put events.
-Below is the specific list of permissions needed.
-
-| Permission                    | Minimal Resources | Reason     |
-|:------------------------------|:-----------------:|:----------------|
-|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials to the FSxNs you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the FSxN administrator and optionally webhook credentials.|
-|sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
-|s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
-|s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve previous state information, as well as configuration files, from various s3 objects. |
-|s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
-|logs:CreateLogStream           | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to create a log stream. |
-|logs:PutLogEvents              | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to put log events into the log stream. |
-|logs:DescribeLogStreams        | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to see if a log stream already exists before attempting to send events to it. |
-|ec2:CreateNetworkInterface     | \* | Since the program runs as a Lambda function within your VPC, it needs to be able to create a network interface in your VPC. You can read more about that [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html). |
-|ec2:DescribeSubnets          | \* | So it can get information about the subnets it is running in. |
-|ec2:AssignPrivateIpAddresses | \* | So it can assign a private IP address to the network interface it created. |
-|ec2:UnassignPrivateIpAddresses | \* | So it can unassign the private IP address from the network interface when it is not needed anymore. |
-|ec2:DeleteNetworkInterface     | \* | Since it created a network interface, it needs to be able to delete it when not needed anymore. If you want to strict the scope of this permission, you can add a condition that it has to be within the same subnet.|
-|ec2:DescribeNetworkInterfaces  | \* | So it can check to see if a network interface already exists. |
-
-:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+The program doesn't need many AWS permissions. It just needs to be able to get the ONTAP system credentials stored in a Secrets Manager secret,
+read and write objects in an s3 bucket, be able to publish to an SNS topic, and optionally create CloudWatch log Streams and put events.
+Refer to the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
-and send SNS messages if the monitoring function fails (only if using synchronous invocation).
-| Permission                    | Minimal Resources | Reason     |
-|:------------------------------|:----------------|:--|
-|lambda:InvokeFunction          | The ARN to the Monitoring Lambda function. | To be able to invoke the monitoring Lambda function.|
-|sns:Publish                    | The ARN to the SNS topic you wish to publish alerts to | To allow it to send messages (alerts) via SNS if it is unable to invoke the monitoring function.|
-|s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve FSxN List file. |
-|s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
-
-:bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
+and send SNS messages if it fails to invoke the monitoring function.
+Refer to the [Controller Program Role Permissions](#controller-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an S3 Bucket
 The first use of the s3 bucket will be to store the Lambda layer zip file. This is required to include some dependencies that
@@ -268,55 +287,36 @@ the [lambda_layer.zip](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monito
 You will refer to this file, and bucket, when you create the Lambda function.
 
 Another use of the s3 bucket is to store events that have already been reported on so they can be compared against
-to ensure program does not send multiple messages for the same event.
+to ensure that the program does not send multiple messages for the same event.
 Note that it doesn't keep every event indefinitely, it only stores them while the condition is true. So, say for
 example it sends an alert for a SnapMirror relationship that has a lag time that is too long. It will
 send the alert and store the event. Once a successful SnapMirror synchronization has happened, the event will be removed
 from the s3 object allowing for a new event to be created and alerted on. If you want to keep the event information
 longer than that, please configure the program to store them in a CloudWatch log group.
 
-This bucket is also used to store the Matching Condition file. You can read more about it in the [Matching Conditions File](#matching-conditions-file) below.
+This bucket is also used to store the [Matching Condition](#matching-conditions-file) and [FSxN List](#fsxn-list-file-format) files.
 
 #### Create FSxN List File
-The FSxN list file is used by the controller Lambda function to determine which FSxN file systems to monitor.
-The format of the file is as follows:
-```
-<OntapAdminServer1>,<SecretArn1>,<param1>=<value1>,<param2>=<value2>,...
-<OntapAdminServer2>,<SecretArn2>,<param1>=<value1>,<param2>=<value2>,...
-...
-```
-Where:
-- `<OntapAdminServer>` is the full qualified hostname, or IP address, of the FSxN file system management endpoint you want to monitor.
-- `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the FSxN file system.
-- `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
-    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
-    **Do not** put double quotes around the values.
-
-An exmaple FSxNList file:
-```
-#
-# dr:
-10.100.12.89,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-dr-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
-#
-# prod
-198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
-```
+The FSxN list file is used by the controller Lambda function to determine which ONTAP systems to monitor.
+You can find the format of this file in the [FSxN List File Format](#fsxn-list-file-format) section below.
+Once you have created the file, upload it to the S3 bucket you created in the previous step.
 
 #### Create an SNS Topic
 Since the way this program sends alerts is via an SNS topic, you need to either create SNS topic, or use an
 existing one.
 
 #### Create a Secrets Manager Secret
-Since the program issues API calls to the FSxN file systems it is going to monitor, it needs to be able to authenticate itself against them.
+Since the program issues API calls to the ONTAP systems it is going to monitor, it needs to be able to authenticate itself against them.
+Note that the program only issues "GET" API calls, so the credentials can be of a read-only user account.
 The safest way to provide credentials to the program is to use the AWS Secrets Manager service. Therefore, a Secrets Manager
-secret must be created that contains the FSxN file system credentials. Either a separate secret for each FSxN, or if they all have a 
-common user account and password, you can just use the same secret for all the FSxNs. The secret should contain two keys, one for the
+secret must be created that contains the ONTAP system credentials. Either a separate secret for each ONTAP system, or if they all have a 
+common user account and password, you can just use the same secret for all the ONTAP systems. The secret should contain two keys, one for the
 username and one for the password.
 
 The following command will create the secret for you. Just replace the values within the angle bracket `<`, `>` in the command with the appropriate strings.
 
 ```bash
-aws secretsmanager create-secret --name <SecretName> --secret-string '{"username":"<FSxN_Username>","password":"<FSxN_Password>"}'
+aws secretsmanager create-secret --name <SecretName> --secret-string '{"username":"<username>","password":"<password>"}'
 ```
 
 #### Create a CloudWatch Log Group
@@ -326,33 +326,11 @@ This step is optional if you don't want to send the logs to CloudWatch.
 
 #### Create a Webhook payload configuration file
 If you want the program to send alerts to a webhook endpoint, you can create a webhook payload configuration file
-that specifies what should be send as the payload to the webhook. The format of the file is just plan text, however you can specify various
-placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
-them within curly braces `{}`. Here is a list of the available placeholders:
-
-| Placeholder   | Description |
-|:--------------|:------------|
-| cluster\_name | The name of the FSxN cluster. |
-| severity      | The severity of the event. |
-| account\_id   | The AWS account ID set via the `awsAccountId` configuration parameter. |
-| alert\_category | The category of the alert. It is determined by the "service" being monitored (e.g. EMS, SnapMirror, storage, system health)|
-| message       | The alert message. |
-| message\_hash | A hash value that uniquely identifies the event. It is used to prevent duplicate alerts for the same event. |
-
-If you don't provide a webhook payload configuration file, the program will use the following default payload:
-```
-{
-    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}). | {alert_category}",
-    "INC__manager": "FSxONTAP",
-    "INC__severity": "3",
-    "INC__identifier": "FSx ONTAP Monitoring Services alert for cluster {cluster_name}({account_id}) - {message_hash}",
-    "INC__configurationItem": "{cluster_name}",
-    "INC__fullMessageText": "{message}"
-}
-```
+that specifies what should be sent as the payload to the webhook. You can see the format of this file in the
+[Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section below.
 
 #### Create any needed AWS Service Endpoints
-Since the monitoring Lambda function has to communicate with the FSxN withing your network, it will have to run within a VPC that has connectivity to the file
+Since the monitoring Lambda function has to communicate with the ONTAP system within your network, it will have to run within a VPC that has connectivity to the file
 systems that you want to monitor. The monitoring Lambda function will also need access to the AWS service endpoints for the AWS services
 that it uses (S3, SNS, CloudWatch, and SecretsManager). Access to these service endpoints is typically routed through the Internet,
 however, because of the way AWS gives Lambda access to your subnet, it will not be allowed access to the Internet through an Internet Gateway
@@ -363,7 +341,7 @@ but it will allow access to the Internet through a NAT Gateway. Therefore, in or
 
 If you do need to deploy AWS service endpoints, keep the following in mind:
 - Since VPC endpoints can't traverse AWS regions, all AWS assets (e.g. FSx for ONTAP file system, SecretsManager Secret, S3 bucket,
-    SNS Topic and CloudWatch Log Group) must be in the same region as the VPC endpoint.
+    SNS Topic and CloudWatch Log Group) must be in the same region as the FSxN management endpoint.
 - For interface type endpoints, a network interface will be created in the VPC's subnet to allow access.
   To transparently access the service via the VPC endpoint, AWS will update its
   DNS entry for the service endpoint to point to the IP address of the VPC interface endpoint. This is only
@@ -386,18 +364,18 @@ If you do need to deploy AWS service endpoints, keep the following in mind:
 **NOTE:** One indication that the Lambda function doesn't have access to an AWS service endpoint is if the Lambda function
 times out, even after adjusting the timeout to more than several minutes.
 
-#### Create Lambda Functions
+#### Create Monitoring Lambda Functions
 First create the monitoring Lambda function by going to the AWS Lambda service and creating a new function with:
 - Give it a name. It can be anything, but a recommended name would be "Monitor-ONTAP-Service-Monitor"
 - Set the runtime to be Python 3.11 or later.
 - Assign it the role you created above.
-- In the `Additional Configuration` section, set the VPC and subnets (at least two is recommended) that have access to the FSxN file system management endpoints you want to monitor.
-- Assign it the security group that allows outbound traffic over TCP port 443 to the FSxN file system and AWS services endpoints.
+- In the `Additional Configuration` section, set the VPC and subnets (at least two are recommended) that have access to all the ONTAP system management endpoints you want to monitor.
+- Assign it the security group that allows outbound traffic over TCP port 443 to the ONTAP systems and AWS services endpoints.
 - Click `Create Function`.
 
 Once you have created the function you will be able to:
 - Copy the Python code from the [monitor\_ontap\_service.py](monitor_ontap_services.py)
-    file found in this repository into the code box and deploy it.
+    file found in this repository and paste it into the code box then click on the `Deploy` button to save it.
 - Add the Lambda layer to the function. You do this by first creating a Lambda layer then adding it to your function.
     To create a Lambda layer go to the Lambda service page on the AWS console and click on the "Layers"
     tab under the "Additional resources" section. Then, click on the "Create layer" button.
@@ -408,8 +386,8 @@ Once you have created the function you will be able to:
     Once you have the layer created, you can add it to your Lambda function by going to the Lambda
     function in the AWS console, and clicking on the `Code` tab and scrolling down to the Layers section.
     Click on the "Add a layer" button. From there you can select the layer you just created.
-- Increase the total run time to at least 20 seconds. You might have to raise that if you have a lot
-    of components in your FSxN file system. However, if you have to raise it to more than a couple minutes
+- Increase the total run time to at least 60 seconds. You might have to raise that if you have a lot
+    of components in your ONTAP system. However, if you have to raise it to more than a couple minutes
     and the function still times out, then it could be an issue with the endpoint causing the calls to the
     AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section above
     for more information.
@@ -425,9 +403,11 @@ Next, create the controller Lambda function by going to the AWS Lambda service a
     Add the following environment variables:
     - `s3BucketName` - Set to the name of the S3 bucket you created above.
     - `s3BucketRegion` - Set to the region where the S3 bucket is located.
-    - `FSxNList` - Set to the name of the file (S3 object) within the S3 bucket that contains a list of FSxN file systems to monitor.
+    - `FSxNList` - Set to the name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor.
     - `MOSLambdaFunctionName` - Set to the name of the monitoring Lambda function you created above.
     - `snsTopicArn` - Set to the ARN of the SNS topic you created above.
+    - `ServerSideEncryption` - Optional. Set to `aws:kms` or `aws:kms:dsse` if you want to use AWS KMS for server-side encryption of the S3 bucket, or `AES256` if you want to use the default S3 server-side encryption. If you don't set this environment variable AES256 will be used.
+    - `SSEKMSKeyId` - Optional. If you set `ServerSideEncryption` to `aws:kms` or `aws:kms:dsse` then set this to the KMS key ID of the KMS key you want to use for server-side encryption of the S3 bucket.
 
 #### Final Steps
 1. Create the matching conditions file and upload it to the S3 bucket you created above. The format of the file is
@@ -435,13 +415,13 @@ described in the [Matching Conditions File](#matching-conditions-file) section b
 will look for the matching conditions file with a name of `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value
 you set for the OntapAdminServer parameter in the FSxNList file. You can change that by setting the
 `conditionsFilename` configuration parameter in the FSxNList file to a different name. This allows you to have a different
-matching conditions file for each FSxN file system or one common one for all, or most of them.
+matching conditions file for each ONTAP system or one common one for all, or most of them.
 
 2. Test the controller Lambda function to ensure it can successfully invoke the monitoring Lambda function.
 You can do this by going to the `Test` tab of the controller Lambda function and Clicking on the `Test` button.
 You will see any error it has invoking the monitoring function on that page. Resolve any issues you find.
 
-3. Test the Monitoring Lambda function to ensure it ran properly. Click on the "Monitor" tab of the monitoring
+3. Check that the Monitoring Lambda function ran properly. Click on the "Monitor" tab of the monitoring
 Lambda function and check the "Error count and success rate(%)" chart to ensure it it has zero errors. If there are
 any errors, click on the "View CloudWatch Logs" link to see the error messages. If you can't figure out what is causing an error,
 create an issue on the [Issues](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) section
@@ -462,44 +442,185 @@ Click on the "Select metric" button. This will bring you to a page where you can
 The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` set be set to `Greater`. Under the `than..` label
 put `0.5` in the text box. This will set the alarm to trigger if there are any errors. Do this for both the controller and monitoring
 Lambda functions.
+---
+
+## Maintaining the list of systems to monitor
+
+If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#fsxn_list-file-format) stored in the S3 bucket.
+The controller will pick up on the changes to the FSxN\_List file the next time it runs.
+
+## Added Destinations
+
+If after the initial deployment you want to add additional destinations for the monitoring program to send
+events to, you can do that by adding the appropriate configuration parameters to the FSxN\_List file. The
+following destinations are supported:
+
+### Adding a Webhook
+
+The first step to adding a webhook destination is creating a payload template file.  The
+actual contents of the file is dependent on what the webhook service is expecting to receive.
+Refer to the [Webhook\_Payload\_configuration\_file\_format](#webhook-payload-configuration-file-format)
+section on how you can use variables in the template file to insert the pertinent information
+into the message that is sent. Once the payload template file has been created, it needs
+to be uploaded to the S3 bucket.
+
+The second step is to include the following configuration parameters to the entries in the FSxN\_List file
+for the systems that you want their events to be sent to the webhook:
+- webhookEndpoint - The URL of the webhook to send the event payload to.
+- webhookConfigFilename - The name of the object in the S3 bucket that contains the payload template file create above.
+- webhookSecretARN - If the webhook requires credentials to access it, you can store those credentials in AWS
+    Secrets Manager and provide the ARN of the secret here. If the username is `bearer` then the program will
+    set the Authorization header as a Bearer type with the value of the password set as the Bearer token.
+    Otherwise the program will set the Authorization header as a Basic type with the credentials sent as base64 
+    encoded username:password.
+
+:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+
+### Adding a Syslog Server
+
+To add a syslog server you just need to add the syslogIP configuration parameters to the
+FSxN\_List file for all ONTAP systems you want their events sent to the syslog server.
+Note that the monitoring program will send the events to that IP address over UDP port 514.
+
+### Adding a CloudWatch Log Stream
+
+To have the program send a copy of every event to a CloudWatch log stream, you just need to
+add the cloudWatchLogGroupArn configuration parameter to the FSxN\_List file for each ONTAP
+system you want its events to send to a CloudWatch log stream. You might have to add the appropriate
+permissions to the Lambda function's role to allow it to write to the log stream.
+See the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section for more information.
+
+## Upgrading the monitoring program
+
+If you want to upgrade the monitoring program to a newer version and you used CloudFormation or Terraform to deploy it,
+the easiest way is to just delete the stack and redeploy it using the same deployment parameter values. This will not
+delete or change any of the configuration files, or event state files, in the S3 bucket. So, the new version of the program
+should pick up right where the old one left off.
+
+If you deployed it manually, you can use the AWS console to update the code of the Lambda functions, both the monitor and controller,
+with the new code found in the repo.
+
+---
+## References
+
+### FSxN\_List File Format
+
+The FSxN\_List file specifies the ONTAP systems to monitor and any configuration parameters you want to specify for each one.
+
+The format of the file is as follows:
+```
+<OntapAdminServer1>,<SecretArn1>,<param1>=<value1>,<param2>=<value2>,...
+<OntapAdminServer2>,<SecretArn2>,<param1>=<value1>,<param2>=<value2>,...
+...
+```
+Where:
+- `<OntapAdminServer>` is the fully qualified hostname, or IP address, of the ONTAP system management endpoint you want to monitor.
+- `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the ONTAP system.
+- `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
+    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) section below.
+    **Do not** put double quotes around the values.
+
+An example FSxNList file:
+```
+#
+# dr:
+10.100.12.89,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-dr-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+#
+# prod
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
+```
+
+:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+
+:bulb: **Tip** You can use the `conditionsFilename` parameters to specify a file that contains the [Matching Conditions File](#matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
+
+### Configuration File Format
+The configuration file is a simple text file that contains a list of parameter assignments. The format of the file is as follows:
+```
+param1=value1
+param2=value2
+...
+```
+Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
+
+### Webhook Payload Configuration File Format
+The format of the webhook payload configuration template file is just plain text, however you can specify various
+placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
+them within curly braces `{}`. Here is a list of the available placeholders:
+
+| Placeholder   | Description |
+|:--------------|:------------|
+| cluster\_name | The name of the ONTAP system. |
+| severity      | The severity of the event. |
+| account\_id   | The AWS account ID set via the `awsAccountId` configuration parameter. |
+| alert\_category | The category of the alert. It is determined by the "service" being monitored (e.g. EMS, SnapMirror, storage, system health)|
+| message       | The alert message. |
+| message\_hash | A hash value that uniquely identifies the event. It is used to prevent duplicate alerts for the same event. |
+
+If you don't provide a webhook payload configuration file, the program will use the following default payload:
+```
+{
+    "INC__summary": "{severity}: FSx ONTAP Monitoring Services Alert for cluster {cluster_name}({account_id}). | {alert_category}",
+    "INC__manager": "FSxONTAP",
+    "INC__severity": "3",
+    "INC__identifier": "FSx ONTAP Monitoring Services alert for cluster {cluster_name}({account_id}) - {message_hash}",
+    "INC__configurationItem": "{cluster_name}",
+    "INC__fullMessageText": "{message}"
+}
+```
 
 ### Monitoring Configuration Parameters
 Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
 while others are optional. Some of the optional ones are still required to be set to something but
 if they are not, a usable default value will be assumed.
 
-Instead of passing all these parameters via the FSxN\_List file, you can create a configuration
-file that contains the parameter assignments and then use the `configFilename` parameter in the FSxN\_List file to specify that file.
-The assignments in the configuraiton file should be of the form "parameter=value". The default filename for the configuration
-file is what you set OntapAdminServer to in the FSxN\_List file plus the string "-config". If you want to use a different
-filename, say a common file for all or most of the file systems, set the configFilename parameter to the name of your choosing.
-The file must be in the S3 bucket in order for the monitoring program to access it.
+Instead of passing all these parameters via the FSxN\_List file, you can create a [configuration file](#configuration-file-format)
+that contains the parameter assignments. The default filename for the configuration file is what you set OntapAdminServer
+to in the FSxN\_List file plus the string "-config". If you want to use a different filename, for example so you can have
+a common file for all or most of the file systems, then set the `configFilename` parameter in the FSxN\_List file to the name of your configuration file.
+**NOTE:** The file must be in the S3 bucket in order for the monitoring program to access it.
+
+For example, if you have a configuration file named `defaultConfig` in your S3 bucket with the following:
+
+```
+cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*
+conditionsFilename=defaultConditions
+webhookEndpoint=https://hooks.slack.com/services/T00000000
+webhookConfigFilename=defaultWebhookConfig
+```
+
+Then your FSxN\_List file can look like this:
+
+```
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,configFilename=defaultConfig
+198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,configFilename=defaultConfig
+```
 
 :warning: **NOTE:** Parameter names are case sensitive. 
 
 |Parameter Name            | Required | Default Value | Description |
 |:-------------------------|:--------:|:--------------|:------------|
-| s3BucketName             | No       | The S3 bucket the controller uses | Set to the name of the S3 bucket where you want the program to store status files to. It will also read the matching configuration file from this bucket. |
-| s3BucketRegion           | No       | The S3 bucket the controller uses | Set to the region where the S3 bucket is located. |
+| s3BucketName             | No       | The S3 bucket the controller uses | Set to the name of the S3 bucket where you want the program to store status files to. It will also read the matching configuration file from this bucket. This isn't required since the controller function will pass the bucket it is using to get the FSxNList file from.|
+| s3BucketRegion           | No       | The S3 bucket the controller uses | Set to the region where the S3 bucket is located. This isn't required since the controller function will pass the bucket it is using to get the FSxNList file from.|
 | OntapAdminServer         | Yes      | None          | Set to the DNS name, or IP address, of the ONTAP server you wish to monitor. This is the first parameter of the FSxN List file.|
-| secretArn                | Yes      | None          | Set to the ARN of the secret within the AWS Secrets Manager that holds the FSxN credentials. This is the second parameter of the FSxN list file.|
-| secretUsernameKey        | No       | username      | Set to the key name within the AWS Secrets Manager secret that holds the username portion of the FSxN credentials. |
-| secretPasswordKey        | No       | password      | Set to the key name within the AWS Secrets Manager secret that holds the password portion of the FSxN credentials. |
-| configFilename           | No       | OntapAdminServer + "-config" | Set to the filename (S3 object) that contains parameter assignments. It's okay if it doesn't exist, as long as there are environment variables for all the required parameters. |
+| secretArn                | Yes      | None          | Set to the ARN of the secret within the AWS Secrets Manager that holds the ONTAP system credentials. This is the second parameter of the FSxN list file.|
+| secretUsernameKey        | No       | username      | Set to the key name within the AWS Secrets Manager secret that holds the username portion of the credentials. |
+| secretPasswordKey        | No       | password      | Set to the key name within the AWS Secrets Manager secret that holds the password portion of the credentials. |
+| configFilename           | No       | OntapAdminServer + "-config" | Set to the filename (S3 object) that contains parameter assignments. |
 | conditionsFilename       | No       | OntapAdminServer + "-conditions" | Set to the filename (S3 object) where you want the program to read the matching condition information from. |
-| snsTopicArn              | Yes      | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. |
+| snsTopicArn              | No       | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. This isn't required since the controller function will pass the SNS topic ARN that it was configured with. |
 | cloudWatchLogGroupArn    | No       | None          | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | syslogIP                 | No       | None          | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
 | webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
 | webhookSeverity          | No       | INFO          | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
-| webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Create a Webhook payload configuration file](#create-a-webhook-payload-configuration-file) section below. If left blank a default payload will be used.|
-| webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create a "basic" authentication header. If left blank no authentication header will be sent.|
-| webhookSecretUsernameKey | No       | username      | Set to the key in the Secrets Manager secret that holds the username to be used to create a "basic" authentication header. If left blank and the webhookSecretARN is defined, "username" will be used.|
-| webhookSecretPasswordKey | No       | password      | Set to the key in the Secrets Manager secret that holds the password to be used to create a "basic" authentication header. If left blank and the webhookSecretARN is defined, "password" will be used.|
-| awsAccountId             | No       | None          | Set to the AWS account ID where the FSxN file system is located. This is purely for documentation purposes and serves no other purpose.|
+| webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Webhook Payload Configuration File Format](#webhook-payload-configuration-file-format) section. If left blank a default payload will be used.|
+| webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the webhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authentication header will be sent. |
+| webhookSecretUsernameKey | No       | username      | Set to the key in the Secrets Manager secret that holds the username to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "username" will be used.|
+| webhookSecretPasswordKey | No       | password      | Set to the key in the Secrets Manager secret that holds the password to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "password" will be used.|
+| awsAccountId             | No       | None          | Set to the AWS account ID where the ONTAP file system is located. This is purely for documentation purposes and serves no other purpose.|
 | emsEventsFilename        | No       | OntapAdminServer + "-emsEvents" | Set to the filename (S3 object) where you want the program to store the EMS events that it has alerted on. This file will be created as necessary. |
-| smEventsFilesname        | No       | OntapAdminServer + "-smEvents" | Set to the filename (S3 object) where you want the program to store the SnapMirror that it has alerted on. This file will be created as necessary.  |
-| smRelationshipsFilename  | No       | OntapAdminServer + "-smRelationships" | Set to the filename (S3 object) where you want the program to store the SnapMirror relationships into. This file is used to track the number of bytes transferred so it can detect stalled SnapMirror updates. This file will be created as necessary. |
+| smEventsFilesname        | No       | OntapAdminServer + "-smEvents" | Set to the filename (S3 object) where you want the program to store the SnapMirror events that it has alerted on. This file will be created as necessary.  |
+| smRelationshipsFilename  | No       | OntapAdminServer + "-smRelationships" | Set to the filename (S3 object) where you want the program to store the SnapMirror relationships information into. This file is used to track the number of bytes transferred so it can detect stalled SnapMirror updates. This file will be created as necessary. |
 | storageEventsFilename    | No       | OntapAdminServer + "-storageEvents" | Set to the filename (S3 object) where you want the program to store the Storage Utilization events it has alerted on. This file will be created as necessary. |
 | quotaEventsFilename      | No       | OntapAdminServer + "-quotaEvents" | Set to the filename (S3 object) where you want the program to store the Quota Utilization events it has alerted on. This file will be created as necessary. |
 | vserverEventsFilename    | No       | OntapAdminServer + "-vserverEvents" | Set to the filename (S3 object) where you want the program to store the vserver events it has alerted on. This file will be created as necessary. |
@@ -508,7 +629,46 @@ The file must be in the S3 bucket in order for the monitoring program to access 
 | secretsManagerEndPointHostname | No | None          | Set to the DNS hostname assigned to the SecretsManager endpoint created above. Only needed if you had to create a VPC endpoint for the Secrets Manager service.|
 | cloudWatchLogsEndPointHostname | No | None          | Set to the DNS hostname assigned to the CloudWatch Logs endpoint created above. Only needed if you had to create a VPC endpoint for the Cloud Watch Logs service|
 
+### Monitoring Program Role Permissions
+
+The following table shows the required permissions needed for the monitoring program to run.
+
+| Permission                    | Minimal Resources | Reason     |
+|:------------------------------|:-----------------:|:----------------|
+|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service.|
+|sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
+|s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
+|s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve previous state information, as well as configuration files, from various s3 objects. |
+|s3:ListBucket                  | The ARN to the S3 bucket | So it can detect if an object exist or not. |
+|logs:CreateLogStream           | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to create a log stream. |
+|logs:PutLogEvents              | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to put log events into the log stream. |
+|logs:DescribeLogStreams        | The ARN to the CloudWatch LogStream where you want to store events | If you want the program to send its logs to CloudWatch, it needs to be able to see if a log stream already exists before attempting to send events to it. |
+|ec2:CreateNetworkInterface     | \* | Since the program runs as a Lambda function within your VPC, it needs to be able to create a network interface in your VPC. You can read more about that [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html). |
+|ec2:DescribeSubnets            | \* | So it can get information about the subnets it is running in. |
+|ec2:AssignPrivateIpAddresses   | \* | So it can assign a private IP address to the network interface it created. |
+|ec2:UnassignPrivateIpAddresses | \* | So it can unassign the private IP address from the network interface when it is not needed anymore. |
+|ec2:DeleteNetworkInterface     | \* | Since it created a network interface, it needs to be able to delete it when not needed anymore. If you want to strict the scope of this permission, you can add a condition that it has to be within the same subnet.|
+|ec2:DescribeNetworkInterfaces  | \* | So it can check to see if a network interface already exists. |
+|kms:Decrypt                    | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
+|kms:GenerateDataKey            | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
+
+:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+
+### Controller Program Role Permissions
+
+The following table shows the required permissions needed for the controller program to run.
+
+| Permission           | Minimal Resources | Reason |
+|:---------------------|:----------------|:--|
+|lambda:InvokeFunction | The ARN to the Monitoring Lambda function. | To be able to invoke the monitoring Lambda function.|
+|sns:Publish           | The ARN to the SNS topic you wish to publish alerts to | To allow it to send messages (alerts) via SNS if it is unable to invoke the monitoring function.|
+|s3:GetObject          | The ARN to the S3 bucket | So it can retrieve FSxN List file. |
+|s3:ListBucket         | The ARN to the S3 bucket | So it can detect if an object exist or not. |
+
+:bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
+
 ### Matching Conditions File
+
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the
 file is JSON. JSON is basically a series of "key" : "value" pairs. Where the value can be object that also has
 "key" : "value" pairs. For more information about the format of a JSON file, please refer to this [page](https://www.json.org/json-en.html).
@@ -524,9 +684,9 @@ Each rule should be an object with one, or more, of the following keys:
 |Key Name|Value Type|Notes|
 |---|---|---|
 |versionChange|Boolean (true, false)|If `true` the program will send an alert when the ONTAP version changes. If it is set to `false`, it will not report on version changes.|
-|failover|Boolean|If 'true' the program will send an alert if the FSxN cluster is running on its standby node. If it is set to `false`, it will not report on failover status.|
-|frus|Boolean|If 'true' the program will send an alert when any FRU goes into a non "UP" state. If it is set to `false`, it will not report on FRU status. This is ignored for FSxN since the API to get FRU information is blocked.|
-|disks|Boolean|If 'true' the program will send an alert when any disks fails. If it is set to `false`, it will not report on disk status. This is ignored for FSxN since the API to get disk information is blocked.|
+|failover|Boolean|If 'true' the program will send an alert if the ONTAP system is running on its standby node. If it is set to `false`, it will not report on failover status.|
+|frus|Boolean|If 'true' the program will send an alert when any FRU goes into a non "UP" state. If it is set to `false`, it will not report on FRU status. This is ignored for FSx for ONTAP file systems since the API to get FRU information is blocked.|
+|disks|Boolean|If 'true' the program will send an alert when any disks fails. If it is set to `false`, it will not report on disk status. This is ignored for FSx for ONTAP file systems since the API to get disk information is blocked.|
 |networkInterfaces|Boolean|If 'true' the program will send an alert if any of the network interfaces are down.  If it is set to `false`, it will not report on any network interfaces that are down.|
 
 #### Matching condition schema for EMS Events (ems)
@@ -542,16 +702,18 @@ Each rule should be an object with three keys, with an optional 4th key:
 Note that all values to each of the keys are used as a regular expressions against the associated EMS component. For
 example, if you want to match on any event message text that starts with “snapmirror” then you would put `^snapmirror`.
 The `^` character matches the beginning on the string. If you want to match on a specific EMS event name, then you should
-anchor it with a regular express that starts with `^` for the beginning of the string and ends with `$` for the end of
-the string. For example, `^arw.volume.state$`.  For a complete explanation of the regular expression syntax and special
-characters, please refer to the [Python documentation](https://docs.python.org/3/library/re.html).
+anchor it with a regular expression that starts with `^` for the beginning of the string and ends with `$` for the end of
+the string. For example, `^arw.volume.state$`.  If you want to match on multiple things, separate them with a vertical bar `|`.
+For example, to match on only EMS message names that start with 'snapmirror' or 'arw' then set the "name" key to "^snapmirror|^arw".
+For a complete explanation of the regular expression syntax and special characters, please refer to the
+[Python documentation](https://docs.python.org/3/library/re.html).
 
 #### Matching condition schema for SnapMirror relationships (snapmirror)
 Each rule should be an object with one, or more, of the following keys:
 
 |Key Name|Value Type|Notes|
 |---|---|---|
-|maxLagTime|Integer|Specifies the maximum allowable time, in seconds, since the last successful SnapMirror update before an alert will be sent. Only used if maxLagTimePercent hasn't been provide, or if the SnapMirror relationship, and the policy it is assigned to, don't have a schedule associated with them. Best practice is to provide both maxLagTime and maxLagTimePercent to ensure all relationships get monitored, in case a schedule gets accidentally removed.|
+|maxLagTime|Integer|Specifies the maximum allowable time, in seconds, since the last successful SnapMirror update before an alert will be sent. Only used if maxLagTimePercent hasn't been provided, or if the SnapMirror relationship, and the policy it is assigned to, don't have a schedule associated with them. Best practice is to provide both maxLagTime and maxLagTimePercent to ensure all relationships get monitored, in case a schedule gets accidentally removed.|
 |maxLagTimePercent|Integer|Specifies the maximum allowable time, in terms of percent of the amount of time since the last scheduled SnapMirror update, before an alert will be sent. Should be over 100. For example, a value of 200 means 2 times the period since the last scheduled update and if that was supposed to have happen 1 hour ago, it would alert if the relationship hasn't been updated within 2 hours.|
 |stalledTransferSeconds|Integer|Specifies the minimum number of seconds that have to transpire before a SnapMirror transfer will be considered stalled.|
 |healthy|Boolean|If `true` will alert with the relationship is healthy. If `false` will alert with the relationship is unhealthy.|

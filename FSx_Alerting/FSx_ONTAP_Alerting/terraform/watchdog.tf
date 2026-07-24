@@ -27,7 +27,7 @@ resource "aws_cloudwatch_metric_alarm" "watchdog_alarm_to_sns" {
   treat_missing_data = "ignore"
   threshold          = 0.5
   comparison_operator = "GreaterThanThreshold"
-  alarm_actions      = [var.snsTopicArn]
+  alarm_actions      = (var.snsTopicArn != null && trim(var.snsTopicArn) != "") ? [var.snsTopicArn] : []
 }
 
 resource "aws_cloudwatch_metric_alarm" "watchdog_controller_alarm_to_sns" {
@@ -45,7 +45,7 @@ resource "aws_cloudwatch_metric_alarm" "watchdog_controller_alarm_to_sns" {
   treat_missing_data = "ignore"
   threshold          = 0.5
   comparison_operator = "GreaterThanThreshold"
-  alarm_actions      = [var.snsTopicArn]
+  alarm_actions      = var.snsTopicArn != null ? [var.snsTopicArn] : []
 }
 
 ################################################################################

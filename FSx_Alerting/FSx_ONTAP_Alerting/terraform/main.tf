@@ -16,6 +16,48 @@ terraform {
 provider "aws" {
   region = var.region
 }
+#
+# Using local variables so that the policy can be built dynamically based on whether
+# the user has provided an SNS topic ARN, a SSEKMSKeyArn or not.
+locals {
+  controllerPolicyActions = concat(
+    [
+      "lambda:InvokeFunction",
+      "s3:GetObject",
+      "s3:ListBucket"
+    ],
+    (var.snsTopicArn != null && trim(var.snsTopicArn) != "") ? ["sns:Publish"] : [],
+    (var.SSEKMSKeyArn != null && trim(var.SSEKMSKeyArn) != "") ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
+  )
+  controllerPolicyResources = concat(
+    [
+      aws_lambda_function.monitor_ontap_services_lambda_function.arn,
+      "arn:aws:s3:::${var.s3BucketName}",
+      "arn:aws:s3:::${var.s3BucketName}/*"
+    ],
+    var.snsTopicArn != null ? [var.snsTopicArn] : [],
+    var.SSEKMSKeyArn != null ? [var.SSEKMSKeyArn] : []
+  )
+  monitorPolicyActions = concat(
+    [
+      "secretsmanager:GetSecretValue",
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:ListBucket"
+    ],
+    var.snsTopicArn != null ? ["sns:Publish"] : [],
+    var.SSEKMSKeyArn != null ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
+  )
+  monitorPolicyResources = concat(
+    [
+      var.secretArnPattern,
+      "arn:aws:s3:::${var.s3BucketName}",
+      "arn:aws:s3:::${var.s3BucketName}/*",
+    ],
+    var.snsTopicArn != null ? [var.snsTopicArn] : [],
+    var.SSEKMSKeyArn != null ? [var.SSEKMSKeyArn] : []
+  )
+}
 
 resource "random_integer" "unique_id" {
   min = 1
@@ -31,11 +73,11 @@ resource "aws_iam_role" "controller_role" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
+        Effect    = "Allow"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
-        Action = "sts:AssumeRole"
+        Action    = "sts:AssumeRole"
       }
     ]
   })
@@ -48,19 +90,9 @@ resource "aws_iam_role_policy" "controller_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
-          "lambda:InvokeFunction",
-          "s3:GetObject",
-          "s3:ListBucket",
-          "sns:Publish"
-        ]
-        Resource = [
-          var.snsTopicArn,
-          aws_lambda_function.monitor_ontap_services_lambda_function.arn,
-          "arn:aws:s3:::${var.s3BucketName}",
-          "arn:aws:s3:::${var.s3BucketName}/*"
-        ]
+        Effect   = "Allow"
+        Action   = local.controllerPolicyActions
+        Resource = local.controllerPolicyResources
       }
     ]
   })
@@ -117,7 +149,9 @@ resource "aws_lambda_function" "controller_lambda_function" {
       s3BucketRegion        = var.region
       s3BucketName          = var.s3BucketName
       FSxNList              = var.FSxNListFilename
-      snsTopicArn           = var.snsTopicArn
+      snsTopicArn           = try(var.snsTopicArn, "")
+      ServerSideEncryption  = var.ServerSideEncryption
+      SSEKMSKeyId           = try(var.SSEKMSKeyArn, "")
       MOSLambdaFunctionName = aws_lambda_function.monitor_ontap_services_lambda_function.function_name
       initialVersionChangeAlert = var.versionChangeAlert
       initialFailoverAlert = var.failoverAlert
@@ -178,19 +212,8 @@ resource "aws_iam_role_policy" "monitoring_lambda_policy" {
     Statement = [
       {
         Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "sns:Publish",
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          var.secretArnPattern,
-          var.snsTopicArn,
-          "arn:aws:s3:::${var.s3BucketName}",
-          "arn:aws:s3:::${var.s3BucketName}/*"
-        ]
+        Action = local.monitorPolicyActions
+        Resource = local.monitorPolicyResources
       },
       {
         Effect = "Allow"
