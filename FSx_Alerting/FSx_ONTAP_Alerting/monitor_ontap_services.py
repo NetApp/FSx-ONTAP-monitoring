@@ -179,7 +179,7 @@ def checkSystem():
     logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}.")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
-        response = http.request('GET', endpoint, headers=headers, timeout=5.0)
+        response = http.request('GET', endpoint, headers=headers, timeout=10.0)
         if response.status == 200:
             if fsxStatus["systemHealth"] != 0:
                 fsxStatus["systemHealth"] = 0
@@ -1351,7 +1351,7 @@ def sendWebHook(message, severity, alert_category):
     # is of the 1.* version, so we have to use the syntax for that version.
     try:
         logger.debug(f'Sending webhook to {config["webhookEndpoint"]} with these headers {webhookHeaders} and the following data: {data}')
-        response = http.request('POST', config['webhookEndpoint'], headers=webhookHeaders, body=data, timeout=5)
+        response = http.request('POST', config['webhookEndpoint'], headers=webhookHeaders, body=data, timeout=10.0)
         if response.status == 200:
             logger.info(f"Webhook sent successfully for {clusterName}.")
         else:
@@ -1366,7 +1366,7 @@ def sendWebHook(message, severity, alert_category):
     if config.get("webhookEndpoint2") is not None:
         try:
             logger.debug(f'Sending webhook to {config["webhookEndpoint2"]} with these headers {webhookHeaders} and the following data: {data}')
-            response = http.request('POST', config['webhookEndpoint2'], headers=webhookHeaders, body=data, timeout=5)
+            response = http.request('POST', config['webhookEndpoint2'], headers=webhookHeaders, body=data, timeout=10.0)
             if response.status == 200:
                 logger.info(f"Webhook sent successfully for {clusterName}.")
             else:
