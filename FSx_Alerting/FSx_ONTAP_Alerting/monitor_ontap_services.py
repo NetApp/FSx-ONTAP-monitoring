@@ -645,10 +645,12 @@ def convertArrayToString(array):
     return text if text != "" else "*"
 
 ################################################################################
-# This function takes a schedule dictionary and returns the last time it should
-# run. It returns the time in seconds since the UNIX epoch.
+# This function takes a schedule dictionary and returns the number of seconds
+# between the last two runs of the schedule. It assumes the schedule will have
+# a consistent time between runs (e.g. every 30 minutes, every hour) and not
+# a schedule like 10AM, 2PM and 4PM.
 ################################################################################
-def getLastRunTime(scheduleUUID):
+def getSecondsBetweenRuns(scheduleUUID):
     global config, http, headers, logger, clusterTimezone
 
     minutes = ""
@@ -699,7 +701,13 @@ def getLastRunTime(scheduleUUID):
         # Get the last run time.
         lastRunTime = next(it)
         lastRunTimeSec = lastRunTime.timestamp()
-        return int(lastRunTimeSec)
+        #
+        # Now, go back one more time and get the difference between the two runs.
+        NextToTheLastRunTime = next(it)
+        NextToTheLastRunTimeSec = NextToTheLastRunTime.timestamp()
+        #
+        # Now, return the difference:
+        return int(lastRunTimeSec - NextToTheLastRunTimeSec)
     else:
         logger.error(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
         return -1
@@ -723,24 +731,24 @@ def getPolicySchedule(policyUUID):
         return None
 
 ################################################################################
-# This function is used to find the last time a SnapMirror relationship should
-# have been updated. It returns the time in seconds since the UNIX epoch.
+# This function is used to get the expected lag time for a SnapMirror
+# relationship. It returns the number of expected seconds between updates.
 ################################################################################
-def getLastScheduledUpdate(record):
+def getExpectedLag(record):
     #
     # First check to see if there is a schedule associated with the SM relationship.
     if record.get("transfer_schedule") is not None:
-        lastRunTime = getLastRunTime(record["transfer_schedule"]["uuid"])
+        expectedLagTime = getSecondsBetweenRuns(record["transfer_schedule"]["uuid"])
     else:
         #
         # If there is no schedule at the relationship level, check to see
         # if the policy has one.
         scheduleUUID = getPolicySchedule(record["policy"]["uuid"])
         if scheduleUUID is not None:
-            lastRunTime = getLastRunTime(scheduleUUID)
+            expectedLagTime = getSecondsBetweenRuns(scheduleUUID)
         else:
-            lastRunTime = -1
-    return lastRunTime
+            expectedLagTime = -1
+    return expectedLagTime
 
 ################################################################################
 # This function is used to check SnapMirror relationships.
@@ -836,19 +844,20 @@ def processSnapMirrorRelationships(service):
             if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
                 lagSeconds = parseLagTime(record["lag_time"])
                 if maxLagTimePercent is not None:
-                    lastScheduledUpdate = getLastScheduledUpdate(record)
-                    if lastScheduledUpdate != -1:
+                    expectedLag = getExpectedLag(record)
+                    if expectedLag != -1:
                         processedLagTime = True
-                        if lagSeconds > ((curTimeSeconds - lastScheduledUpdate) * maxLagTimePercent/100):
+                        if lagSeconds > (expectedLag * (maxLagTimePercent/100)):
                             #
-                            # If the transfer is in progress, and they have stalled transfer alert enabled, we don't need to alert on the lag time.
+                            # If the transfer is in progress, and they have "stalled transfer alert"
+                            # enabled, we don't need to alert on the lag time here since if the problem
+                            # is a stalled transfer, it will be caught by that check.
                             if not (record.get("transfer") is not None and record["transfer"]["state"].lower() in ["transferring", "finalizing", "preparing", "fasttransferring"] and stalledTransferSeconds is not None):
                                 uniqueIdentifier = record["uuid"] + "_" + maxLagTimePercentKey
                                 eventIndex = eventExist(events, uniqueIdentifier)
                                 if eventIndex < 0:
                                     timeStr = lagTimeStr(lagSeconds)
-                                    asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
-                                    message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
+                                    message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr}, which is more than {maxLagTimePercent}% of its maximum expected lag time of {expectedLag} seconds, or {lagTimeStr(expectedLag)}.'
                                     sendAlert(message, "WARNING", alertCategory)
                                     changedEvents=True
                                     event = {
