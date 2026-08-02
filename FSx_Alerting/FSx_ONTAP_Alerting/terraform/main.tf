@@ -26,8 +26,8 @@ locals {
       "s3:GetObject",
       "s3:ListBucket"
     ],
-    (var.snsTopicArn != null && trim(var.snsTopicArn) != "") ? ["sns:Publish"] : [],
-    (var.SSEKMSKeyArn != null && trim(var.SSEKMSKeyArn) != "") ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
+    (var.snsTopicArn != null && trimspace(var.snsTopicArn) != "") ? ["sns:Publish"] : [],
+    (var.SSEKMSKeyArn != null && trimspace(var.SSEKMSKeyArn) != "") ? ["kms:GenerateDataKey", "kms:Decrypt"] : []
   )
   controllerPolicyResources = concat(
     [

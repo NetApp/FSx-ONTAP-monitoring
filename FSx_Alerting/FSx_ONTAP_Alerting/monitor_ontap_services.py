@@ -843,8 +843,8 @@ def processSnapMirrorRelationships(service):
             # cause a false positive.
             if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
                 lagSeconds = parseLagTime(record["lag_time"])
+                expectedLag = getExpectedLag(record)
                 if maxLagTimePercent is not None:
-                    expectedLag = getExpectedLag(record)
                     if expectedLag != -1:
                         processedLagTime = True
                         if lagSeconds > (expectedLag * (maxLagTimePercent/100)):
@@ -880,7 +880,8 @@ def processSnapMirrorRelationships(service):
                         eventIndex = eventExist(events, uniqueIdentifier)
                         if eventIndex < 0:
                             timeStr = lagTimeStr(lagSeconds)
-                            message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
+                            scheduleMes = " has no SnapMirror update schedule and" if expectedLag == -1 else ""
+                            message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]}{scheduleMes} a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime} seconds, or {lagTimeStr(maxLagTime)}.'
                             sendAlert(message, "WARNING", alertCategory)
                             changedEvents=True
                             event = {
