@@ -35,8 +35,8 @@ locals {
       "arn:aws:s3:::${var.s3BucketName}",
       "arn:aws:s3:::${var.s3BucketName}/*"
     ],
-    var.snsTopicArn != null ? [var.snsTopicArn] : [],
-    var.SSEKMSKeyArn != null ? [var.SSEKMSKeyArn] : []
+    (var.snsTopicArn != null && trimspace(var.snsTopicArn) != "") ? [var.snsTopicArn] : [],
+    (var.SSEKMSKeyArn != null && trimspace(var.SSEKMSKeyArn) != "") ? [var.SSEKMSKeyArn] : []
   )
   monitorPolicyActions = concat(
     [
