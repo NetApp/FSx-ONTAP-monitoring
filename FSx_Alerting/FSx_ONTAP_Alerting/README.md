@@ -23,7 +23,7 @@
     - [8.2 Configuration File Format](#82-configuration-file-format)
     - [8.3 Webhook Payload Configuration File Format](#83-webhook-payload-configuration-file-format)
     - [8.4 Configuration Parameters](#84-monitoring-configuration-parameters)
-    - [8.5 Monitoring Program Role Permissions](#85-monitor-program-role-permissions)
+    - [8.5 Monitoring Program Role Permissions](#85-monitoring-program-role-permissions)
     - [8.6 Controller Program Role Permissions](#86-controller-program-role-permissions)
     - [8.7 Matching Conditions File](#87-matching-conditions-file)
 
@@ -110,7 +110,7 @@ that you don't disable them.
     one ONTAP system, and each system has different credentials, then you will need either
     a separate secret for each system or, specify a different key name for the username
     and/or password for each system in the FSxN List file. See the
-    [FSxN List File\_Format](#81-fsxn_list-file-format) section below for more information.
+    [FSxN List File\_Format](#81-fsxn_list-file-format) section below for more information.<br><br>
     Note that the monitoring program only needs `http` application access and only performs read-only operations.
     Therefore, you can create a user account with a read-only role. For an AWS FSx for NetApp ONTAP file system,
     you can use the `fsxadmin-readonly` role for that. For other ONTAP systems, you can
@@ -200,12 +200,12 @@ describes each parameter and any notes about it.
 |---|---|
 |Stackname<br>[Only applicable with a CloudFormation deployment]|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
 |Region<br>[Only applicable with a Terraform deployment]|The AWS region where you want to deploy the program.|
-|S3BucketName|The name of the S3 bucket where you want the program to store its event state information in. The FSxN List file and a copy of the `lambda_layer.zip` file must be stored here. The ONTAP system configuration file(s) will also be stored in this bucket.<br>**NOTE** This bucket must be in the same region where this CloudFormation stack is being created.|
+|S3BucketName|The name of the S3 bucket where you want the program to store its event status information. The FSxN List file and a copy of the `lambda_layer.zip` file must also be stored here. The ONTAP system configuration file(s) will be stored in this bucket as well.<br>**NOTE** If deploying with CloudFormation, this bucket must be in the same region where the CloudFormation stack is being created.|
 |FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [FSxN\_List File Format](#81-fsxn_list-file-format) section below.|
 |SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the ONTAP systems management endpoints that you wish to monitor. It is recommended to select at least two.|
 |SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group only needs to allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the ONTAP file systems you want to monitor.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
-|SecretArnPattern|An ARN pattern of the SecretsManager secrets that holds the ONTAP system credentials for all the ONTAP systems you want to monitor. The goal is to have a naming pattern of the secrets such that the Monitoring program will be have the IAM permissions to retrieve all the secrets associated with an ONTAP system you want to monitor, but not any secrets that aren't relative.|
+|SecretArnPattern|An ARN pattern of the SecretsManager secrets that holds the ONTAP system credentials for all the ONTAP systems you want to monitor. The goal is to have a naming convention of the secrets such that the Monitoring program will be have the IAM permissions to retrieve all the secrets associated with an ONTAP system you want to monitor, but not any secrets that aren't relative.|
 |CheckInterval|The interval, in minutes, that the EventBridge schedule will trigger the controller Lambda function. The default is 15 minutes.|
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails.<br>**NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
@@ -594,7 +594,9 @@ if they are not, a usable default value will be assumed.
 Instead of passing all these parameters via the FSxN\_List file, you can create a [configuration file](#82-configuration-file-format)
 that contains the parameter assignments. The default filename for the configuration file is what you set OntapAdminServer
 to in the FSxN\_List file plus the string "-config". If you want to use a different filename, for example so you can have
-a common file for all or most of the file systems, then set the `configFilename` parameter in the FSxN\_List file to the name of your configuration file.
+a common file for all or most of the file systems, then set the `configFilename` parameter in the FSxN\_List file to the
+name of your configuration file.
+
 **NOTE:** The file must be in the S3 bucket in order for the monitoring program to access it.
 
 For example, if you have a configuration file named `defaultConfig` in your S3 bucket with the following:
