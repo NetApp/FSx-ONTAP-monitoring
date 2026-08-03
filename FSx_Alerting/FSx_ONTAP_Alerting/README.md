@@ -23,8 +23,8 @@
     - [8.2 Configuration File Format](#8.2-configuration-file-format)
     - [8.3 Webhook Payload Configuration File Format](#8.3-webhook-payload-configuration-file-format)
     - [8.4 Configuration Parameters](#8.4-monitoring-configuration-parameters)
-    - [8.5 Monitoring Program Role Permissions](#8.5 monitor-program-role-permissions)
-    - [8.6 Controller Program Role Permissions](#8.6 controller-program-role-permissions)
+    - [8.5 Monitoring Program Role Permissions](#8.5-monitor-program-role-permissions)
+    - [8.6 Controller Program Role Permissions](#8.6-controller-program-role-permissions)
     - [8.7 Matching Conditions File](#8.7-matching-conditions-file)
 
 ## 1 Introduction
