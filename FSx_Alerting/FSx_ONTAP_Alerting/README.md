@@ -1,32 +1,32 @@
 # ONTAP System Alerting
 
 ## Table of Contents
-- [Introduction](#introduction)
-- [Architecture](#architecture)
-- [Prerequisites](#prerequisites)
-- [Deployment Methods](#deployment-methods)
-    - [Using IaC programs](#using-iac-programs)
-        - [Using CloudFormation](#installation-using-cloudformation)
-        - [Using Terraform](#installation-using-terraform)
-        - [Configuration Parameters](#deployment-configuration-parameters)
-        - [Post Deployment Checks](#post-deployment-checks)
-    - [Manual Installation](#manual-installation)
-- [Maintaining the list of systems to monitor](#maintaining-the-list-of-systems-to-monitor)
-- [Added Destinations](#added-destinations)
-    - [Adding a Webhook](#adding-a-webhook)
-    - [Adding a Syslog Server](#adding-a-syslog-server)
-    - [Adding a CloudWatch Log Stream](#adding-a-cloudwatch-log-stream)
-- [Upgrading the monitoring program](#upgrading-the-monitoring-program)
-- [References](#references)
-    - [FSxN List File Format](#fsxn-list-file-format)
-    - [Configuration File Format](#configuration-file-format)
-    - [Webhook Configuration File Format](#webhook-configuration-file-format)
-    - [Monitoring Program Role Permissions](#monitor-program-role-permissions)
-    - [Controller Program Role Permissions](#controller-program-role-permissions)
-    - [Configuration Parameters](#monitoring-configuration-parameters)
-    - [Matching Conditions File](#matching-conditions-file)
+- [1. Introduction](#1-introduction)
+- [2. Architecture](#2-architecture)
+- [3. Prerequisites](#3-prerequisites)
+- [4. Deployment Methods](#4-deployment-methods)
+    - [4.1 Using IaC programs](#4.1-using-iac-programs)
+        - [4.1.1 Using CloudFormation](#4.1.1-installation-using-cloudformation)
+        - [4.1.2 Using Terraform](#4.1.2-installation-using-terraform)
+        - [4.1.3 Configuration Parameters](#4.1.3-deployment-configuration-parameters)
+        - [4.1.4 Post Deployment Checks](#4.1.4-post-deployment-checks)
+    - [4.2 Manual Installation](#4.2-manual-installation)
+- [5. Maintaining the list of systems to monitor](#5-maintaining-the-list-of-systems-to-monitor)
+- [6. Added Destinations](#6-added-destinations)
+    - [6.1 Adding a Webhook](#6.1-adding-a-webhook)
+    - [6.2 Adding a Syslog Server](#6.2-adding-a-syslog-server)
+    - [6.3 Adding a CloudWatch Log Stream](#6.3-adding-a-cloudwatch-log-stream)
+- [7. Upgrading the monitoring program](#7-upgrading-the-monitoring-program)
+- [8. References](#8-references)
+    - [8.1 FSxN List File Format](#8.1-fsxn-list-file-format)
+    - [8.2 Configuration File Format](#8.2-configuration-file-format)
+    - [8.3 Webhook Configuration File Format](#8.3-webhook-configuration-file-format)
+    - [8.4 Monitoring Program Role Permissions](#8.4 monitor-program-role-permissions)
+    - [8.5 Controller Program Role Permissions](#8.5 controller-program-role-permissions)
+    - [8.6 Configuration Parameters](#8.6-monitoring-configuration-parameters)
+    - [8.7 Matching Conditions File](#8.7-matching-conditions-file)
 
-## Introduction
+## 1 Introduction
 This program is used to monitor various services of a NetApp ONTAP system and alert you if anything
 is outside of the specified conditions. It uses the ONTAP APIs to obtain the required information to
 determine if any of the conditions have been met.
@@ -60,7 +60,7 @@ Here is this list of services that this program can send alerts on:
 - If any FRUs (field replaceable units) are in a non-healthy state. Only applies to an on-premises ONTAP cluster.
 - If any disks are in a non-healthy state. Only applies to an on-premises ONTAP cluster.
 
-## Architecture
+## 2 Architecture
 This solution is made up of two main components: the monitoring program and the controller. The monitoring
 program is used to get the information from the ONTAP system and sends any alerts to the
 various destinations. The controller is used to invoke the monitoring program for all the specified file systems
@@ -94,7 +94,7 @@ Note that as part of this solution CloudWatch alarms will be created to monitor 
 health of the Lambda functions and alert you if either of them fails. It is highly recommended
 that you don't disable them.
 
-## Prerequisites
+## 3 Prerequisites
 - One, or more, NetApp ONTAP system you want to monitor.
 - An S3 bucket to store the configuration and event status files, as well as the Lambda layer zip file.
     - **IMPORTANT** You must download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx_Alerting/FSx_ONTAP_Alerting/lambda_layer.zip) from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`. It contains some of the utilities that monitoring program depends on.
@@ -106,7 +106,7 @@ that you don't disable them.
     - A CloudWatch Log Group to store events.
     - A syslog server to receive event messages.
 
-## Deployment Methods
+## 4 Deployment Methods
 
 There are three ways to deploy this program. You can either perform all the steps shown in the
 [Manual Installation](#manual-installation) section below, create a CloudFormation stack by using
@@ -116,13 +116,13 @@ directory. The manual installation is more involved, but it gives you the most c
 make changes to settings that aren't available with the other methods. The CloudFormation and
 Terraform are easier to use since you only need to provide a few parameters.
 
-### Using IaC programs
+### 4.1 Using IaC programs
 
 The recommended way to deploy the monitoring solution is via CloudFormation or Terraform.
 Both of these methods will create the required resources for you.
 
 
-#### Installation Using CloudFormation
+#### 4.1.1 Installation Using CloudFormation
 
 To install the program using the CloudFormation template, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -147,13 +147,13 @@ To install the program using the CloudFormation template, you will need to do th
     If everything looks good, click on the "Create stack" button.
 8. Perform the steps in the [Post installation Checks](#post-installation-checks) section below to ensure a successful installation.
 
-##### Deploying the CloudFormation stack via the command line
+##### 4.1.2 Deploying the CloudFormation stack via the command line
 
 If you want to deploy this program from the command line, you can use the [deployStack](deployStack) script
 found in this repository. It takes various options to set the required parameters in the
 stack. If you run the script without any parameters, it will display the usage information.
 
-#### Installation using Terraform
+#### 4.1.3 Installation using Terraform
 
 To install the program using Terraform, you will need to do the following:
 1. Ensure you have satisfied all the prerequisites listed in the [Prerequisites](#prerequisites) section above.
@@ -171,7 +171,7 @@ To install the program using Terraform, you will need to do the following:
 1. Run `terraform apply` to apply the Terraform configuration and create the necessary resources in your AWS account.
 1. Perform the steps in the [Post installation Checks](#post-installation-checks) section below to ensure a successful installation.
 
-#### Deployment Configuration Parameters
+#### 4.1.4 Deployment Configuration Parameters
 For both the CloudFormation and Terraform deployment methods, there are several parameters that you can provide values
 for to customize the deployment. Some of them are required, while others have default values. Below is a table that
 describes each parameter and any notes about it.
@@ -215,7 +215,7 @@ matching conditions at any time by updating the matching conditions file that is
 The default name of the conditions file will be `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value you
 set for the OntapAdminServer parameter in the FSxNList file.
 
-#### Expected Actions
+#### 4.1.5 Expected Actions
 
 If you deploy the program with either CloudFormation or Terraform, expect the following to happen:
 - Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
@@ -232,7 +232,7 @@ If you deploy the program with either CloudFormation or Terraform, expect the fo
     - Optionally Create a role for the CloudWatch alarm so it can invoke above mentioned Lambda function. **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one. The only permission in this role is to allow it to invoke the Lambda function created above.
 - Optionally create VPC Endpoints for the SNS, Secrets Manager, CloudWatch and/or S3 AWS services.
 
-#### Post Installation Checks
+#### 4.1.6 Post Installation Checks
 After the stack has been created, first check the status of the controller Lambda function to make sure it is
 not in an error state. If you used CloudFormation to deploy the stack to find the controller Lambda function
 go to the Resources tab of the CloudFormation stack and click on the "Physical ID" of the "ControllerLambdaFunction."
@@ -263,7 +263,7 @@ on the Test button of the controller program and have it invoke the monitoring p
 
 ---
 
-### Manual Installation
+### 4.2 Manual Installation
 If you want more control over the installation then you can install it manually by following the steps below. Note that these
 instructions assume you have familiarity with how to create the various AWS service mentioned below. If you do not,
 the recommended course of action is to use the CloudFormation method of deploying the program. Then, if you need to change things, 
@@ -444,18 +444,18 @@ put `0.5` in the text box. This will set the alarm to trigger if there are any e
 Lambda functions.
 ---
 
-## Maintaining the list of systems to monitor
+## 5 Maintaining the list of systems to monitor
 
 If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#fsxn_list-file-format) stored in the S3 bucket.
 The controller will pick up on the changes to the FSxN\_List file the next time it runs.
 
-## Added Destinations
+## 6 Added Destinations
 
 If after the initial deployment you want to add additional destinations for the monitoring program to send
 events to, you can do that by adding the appropriate configuration parameters to the FSxN\_List file. The
 following destinations are supported:
 
-### Adding a Webhook
+### 6.1 Adding a Webhook
 
 The first step to adding a webhook destination is creating a payload template file.  The
 actual contents of the file is dependent on what the webhook service is expecting to receive.
@@ -476,13 +476,13 @@ for the systems that you want their events to be sent to the webhook:
 
 :bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
 
-### Adding a Syslog Server
+### 6.2 Adding a Syslog Server
 
 To add a syslog server you just need to add the syslogIP configuration parameters to the
 FSxN\_List file for all ONTAP systems you want their events sent to the syslog server.
 Note that the monitoring program will send the events to that IP address over UDP port 514.
 
-### Adding a CloudWatch Log Stream
+### 6.3 Adding a CloudWatch Log Stream
 
 To have the program send a copy of every event to a CloudWatch log stream, you just need to
 add the cloudWatchLogGroupArn configuration parameter to the FSxN\_List file for each ONTAP
@@ -490,7 +490,7 @@ system you want its events to send to a CloudWatch log stream. You might have to
 permissions to the Lambda function's role to allow it to write to the log stream.
 See the [Monitoring Program Role Permissions](#monitoring-program-role-permissions) section for more information.
 
-## Upgrading the monitoring program
+## 7 Upgrading the monitoring program
 
 If you want to upgrade the monitoring program to a newer version and you used CloudFormation or Terraform to deploy it,
 the easiest way is to just delete the stack and redeploy it using the same deployment parameter values. This will not
@@ -501,9 +501,9 @@ If you deployed it manually, you can use the AWS console to update the code of t
 with the new code found in the repo.
 
 ---
-## References
+## 8 References
 
-### FSxN\_List File Format
+### 8.1 FSxN\_List File Format
 
 The FSxN\_List file specifies the ONTAP systems to monitor and any configuration parameters you want to specify for each one.
 
@@ -534,7 +534,7 @@ An example FSxNList file:
 
 :bulb: **Tip** You can use the `conditionsFilename` parameters to specify a file that contains the [Matching Conditions File](#matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
 
-### Configuration File Format
+### 8.2 Configuration File Format
 The configuration file is a simple text file that contains a list of parameter assignments. The format of the file is as follows:
 ```
 param1=value1
@@ -543,7 +543,7 @@ param2=value2
 ```
 Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
 
-### Webhook Payload Configuration File Format
+### 8.3 Webhook Payload Configuration File Format
 The format of the webhook payload configuration template file is just plain text, however you can specify various
 placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
 them within curly braces `{}`. Here is a list of the available placeholders:
@@ -569,7 +569,7 @@ If you don't provide a webhook payload configuration file, the program will use 
 }
 ```
 
-### Monitoring Configuration Parameters
+### 8.4 Monitoring Configuration Parameters
 Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
 while others are optional. Some of the optional ones are still required to be set to something but
 if they are not, a usable default value will be assumed.
@@ -629,7 +629,7 @@ Then your FSxN\_List file can look like this:
 | secretsManagerEndPointHostname | No | None          | Set to the DNS hostname assigned to the SecretsManager endpoint created above. Only needed if you had to create a VPC endpoint for the Secrets Manager service.|
 | cloudWatchLogsEndPointHostname | No | None          | Set to the DNS hostname assigned to the CloudWatch Logs endpoint created above. Only needed if you had to create a VPC endpoint for the Cloud Watch Logs service|
 
-### Monitoring Program Role Permissions
+### 8.5 Monitoring Program Role Permissions
 
 The following table shows the required permissions needed for the monitoring program to run.
 
@@ -654,7 +654,7 @@ The following table shows the required permissions needed for the monitoring pro
 
 :bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
 
-### Controller Program Role Permissions
+### 8.6 Controller Program Role Permissions
 
 The following table shows the required permissions needed for the controller program to run.
 
@@ -667,7 +667,7 @@ The following table shows the required permissions needed for the controller pro
 
 :bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
 
-### Matching Conditions File
+### 8.7 Matching Conditions File
 
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the
 file is JSON. JSON is basically a series of "key" : "value" pairs. Where the value can be object that also has
