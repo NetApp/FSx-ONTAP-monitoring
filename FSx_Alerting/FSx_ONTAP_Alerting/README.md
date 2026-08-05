@@ -31,7 +31,7 @@
 This program is used to monitor various services of a NetApp ONTAP system and alert you if anything
 is outside of the specified conditions. It uses the ONTAP APIs to obtain the required information to
 determine if any of the conditions have been met.
-If they have, then the program will send an SNS message to the specified SNS topic. It can also send
+If they have, then the program will send alerts to all the configured destinations. Currently, it can send alerts to an SNS topic,
 a syslog message, a webhook, as well as store the event information into a CloudWatch Log Stream.
 The program takes measures to ensure it doesn't send multiple messages for the same event.
 
@@ -203,8 +203,8 @@ describes each parameter and any notes about it.
 |S3BucketName|The name of the S3 bucket where you want the program to store its event status information. The FSxN List file and a copy of the `lambda_layer.zip` file must also be stored here. The ONTAP system configuration file(s) will be stored in this bucket as well.<br>**NOTE** If deploying with CloudFormation, this bucket must be in the same region where the CloudFormation stack is being created.|
 |FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [FSxN\_List File Format](#81-fsxn_list-file-format) section below.|
 |SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the ONTAP systems management endpoints that you wish to monitor. It is recommended to select at least two.|
-|SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group only needs to allow outbound traffic over port 443 to the SNS, Secrets Manager, CloudWatch and S3 AWS service endpoints, as well as the ONTAP file systems you want to monitor.|
-|SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to.|
+|SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group only needs to allow outbound traffic over port 443 to the Secrets Manager and S3, and optionally the CloudWatch and SNS, AWS service endpoints, as well as the ONTAP file systems you want to monitor. And, if you have defined a webhook, it will need to be able connect to it.|
+|SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to. While this parameter is optional note that SNS topic is used to send alerts when something goes wrong with the operation of the monitoring solution so it is highly recommended to provide one.|
 |SecretArnPattern|An ARN pattern of the SecretsManager secrets that holds the ONTAP system credentials for all the ONTAP systems you want to monitor. The goal is to have a naming convention of the secrets such that the Monitoring program will be have the IAM permissions to retrieve all the secrets associated with an ONTAP system you want to monitor, but not any secrets that aren't relative.|
 |CheckInterval|The interval, in minutes, that the EventBridge schedule will trigger the controller Lambda function. The default is 15 minutes.|
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails.<br>**NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
@@ -286,15 +286,33 @@ instructions assume you have familiarity with how to create the various AWS serv
 the recommended course of action is to use the CloudFormation method of deploying the program. Then, if you need to change things, 
 you can make the required modifications using the information found below.
 
-#### Create an AWS Role for the Monitoring program
-The program doesn't need many AWS permissions. It just needs to be able to get the ONTAP system credentials stored in a Secrets Manager secret,
-read and write objects in an s3 bucket, be able to publish to an SNS topic, and optionally create CloudWatch log Streams and put events.
-Refer to the [Monitoring Program Role Permissions](#85-monitoring-program-role-permissions) table below for the minimum permissions needed.
+Overview of the steps to manually install the monitoring solution:
+- Create AWS roles for:
+    - Controller Lambda function.
+    - Monitoring Lambda function.
+- Create an S3 bucket to hold the various components needed by the monitoring solution.
+- Create the FSxN List file to specify the ONTAP systems to monitor.
+- Create a Secrets Manager secret to hold the ONTAP system credentials.
+- Optionally create:
+    - A SNS topic to send alerts to.
+    - A CloudWatch Log Group to hold a copy of all the events.
+    - A Webhook payload configuration file if you plan to send alerts to a Webhook endpoint.
+    - Any required AWS sevice endpoints.
+- Create the Lambda functions for the controller and monitoring programs.
+- Create the matching conditions file to specify which conditions you want to alert on.
+- Test that everythig is working properly.
+- Added a EventBridge rule to invoke the controller Lambda function on a regular basis.
+- Optional by highly recommended, create a CloudWatch alarm for each of the Lambda functions to alert you if either of them fails to run properly.
 
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
 and send SNS messages if it fails to invoke the monitoring function.
 Refer to the [Controller Program Role Permissions](#86-controller-program-role-permissions) table below for the minimum permissions needed.
+
+#### Create an AWS Role for the Monitoring program
+The program doesn't need many AWS permissions. It just needs to be able to get the ONTAP system credentials stored in a Secrets Manager secret,
+read and write objects in an s3 bucket, and optionally be able to publish to an SNS topic, create CloudWatch log Streams and put events.
+Refer to the [Monitoring Program Role Permissions](#85-monitoring-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an S3 Bucket
 The first use of the s3 bucket will be to store the Lambda layer zip file. This is required to include some dependencies that
@@ -319,8 +337,11 @@ You can find the format of this file in the [FSxN List File Format](#81-fsxn-lis
 Once you have created the file, upload it to the S3 bucket you created in the previous step.
 
 #### Create an SNS Topic
-Since the way this program sends alerts is via an SNS topic, you need to either create SNS topic, or use an
-existing one.
+If you want alerts sent to an SNS topic, either have the ARN of an existing on, or create a new one.
+Of course don't forget to subscribe any email addresses where you want alerts sent to.
+Note that the SNS topic is also used to send alerts when something goes wrong with the controller or monitoring Lambda functions
+so even if you don't want to receive alerts about the ONTAP systems, you should still create an SNS topic and subscribe
+to it so you can be alerted if something goes wrong with the monitoring solution.
 
 #### Create a Secrets Manager Secret
 Since the program issues API calls to the ONTAP systems it is going to monitor, it needs to be able to authenticate itself against them.
@@ -422,7 +443,7 @@ Next, create the controller Lambda function by going to the AWS Lambda service a
     - `s3BucketRegion` - Set to the region where the S3 bucket is located.
     - `FSxNList` - Set to the name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor.
     - `MOSLambdaFunctionName` - Set to the name of the monitoring Lambda function you created above.
-    - `snsTopicArn` - Set to the ARN of the SNS topic you created above.
+    - `snsTopicArn` - Optionally set to the ARN of the SNS topic you created above.
     - `ServerSideEncryption` - Optional. Set to `aws:kms` or `aws:kms:dsse` if you want to use AWS KMS for server-side encryption of the S3 bucket, or `AES256` if you want to use the default S3 server-side encryption. If you don't set this environment variable AES256 will be used.
     - `SSEKMSKeyId` - Optional. If you set `ServerSideEncryption` to `aws:kms` or `aws:kms:dsse` then set this to the KMS key ID of the KMS key you want to use for server-side encryption of the S3 bucket.
 
@@ -621,7 +642,7 @@ Then your FSxN\_List file can look like this:
 |:-------------------------|:--------:|:--------------|:------------|
 | s3BucketName             | No       | The S3 bucket the controller uses | Set to the name of the S3 bucket where you want the program to store status files to. It will also read the matching configuration file from this bucket. This isn't required since the controller function will pass the bucket it is using to get the FSxNList file from.|
 | s3BucketRegion           | No       | The S3 bucket the controller uses | Set to the region where the S3 bucket is located. This isn't required since the controller function will pass the bucket it is using to get the FSxNList file from.|
-| OntapAdminServer         | Yes      | None          | Set to the DNS name, or IP address, of the ONTAP server you wish to monitor. This is the first parameter of the FSxN List file.|
+| OntapAdminServer         | Yes      | None          | Set to the DNS name, or IP address, of the cluster management port of the ONTAP server you wish to monitor. This is the first parameter of the FSxN List file.|
 | secretArn                | Yes      | None          | Set to the ARN of the secret within the AWS Secrets Manager that holds the ONTAP system credentials. This is the second parameter of the FSxN list file.|
 | secretUsernameKey        | No       | username      | Set to the key name within the AWS Secrets Manager secret that holds the username portion of the credentials. |
 | secretPasswordKey        | No       | password      | Set to the key name within the AWS Secrets Manager secret that holds the password portion of the credentials. |
@@ -716,7 +737,7 @@ Each rule should be an object with three keys, with an optional 4th key:
 |name|String|Regular expression that will match on an EMS event name.|
 |message|String|Regular expression that will match on an EMS event message text.|
 |severity|String|Regular expression that will match on the severity of the EMS event (debug, informational, notice, error, alert or emergency).|
-|filter|String|If any event's message text match this regular express, then the EMS event will be skipped. Try to be as specific as possible to avoid unintentional filtering. This key is optional.|
+|filter|String|If any event's message text match this regular expression, then the EMS event will be skipped. Try to be as specific as possible to avoid unintentional filtering. This key is optional.|
 
 Note that all values to each of the keys are used as a regular expressions against the associated EMS component. For
 example, if you want to match on any event message text that starts with “snapmirror” then you would put `^snapmirror`.
@@ -735,7 +756,7 @@ Each rule should be an object with one, or more, of the following keys:
 |maxLagTime|Integer|Specifies the maximum allowable time, in seconds, since the last successful SnapMirror update before an alert will be sent. Only used if maxLagTimePercent hasn't been provided, or if the SnapMirror relationship, and the policy it is assigned to, don't have a schedule associated with them. Best practice is to provide both maxLagTime and maxLagTimePercent to ensure all relationships get monitored, in case a schedule gets accidentally removed.|
 |maxLagTimePercent|Integer|Specifies the maximum allowable time, in terms of percent of the amount of time since the last scheduled SnapMirror update, before an alert will be sent. Should be over 100. For example, a value of 200 means 2 times the period since the last scheduled update and if that was supposed to have happen 1 hour ago, it would alert if the relationship hasn't been updated within 2 hours.|
 |stalledTransferSeconds|Integer|Specifies the minimum number of seconds that have to transpire before a SnapMirror transfer will be considered stalled.|
-|healthy|Boolean|If `true` will alert with the relationship is healthy. If `false` will alert with the relationship is unhealthy.|
+|healthy|Boolean|If `false` it will alert when the relationship is unhealthy.<br>**Note:** When setting this variable via CloudFormation and/or Terraform you set it to `true` to have it alert when the relationship is unhealthy.|
 
 #### Matching condition schema for Storage Utilization (storage)
 Each rule should be an object with one, or more, of the following keys:
