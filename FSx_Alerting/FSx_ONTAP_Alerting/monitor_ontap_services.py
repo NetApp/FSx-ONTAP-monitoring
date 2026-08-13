@@ -145,7 +145,7 @@ def eventExist (events, uniqueIdentifier):
 # 'True'.
 ################################################################################
 def checkSystem():
-    global config, s3Client, http, headers, clusterName, clusterVersion, logger, clusterTimezone
+    global config, s3Client, http, headers, clusterName, clusterVersion, logger, clusterTimezone, SSEArgs
 
     alertCategory = "System Health Alert"
     changedEvents = False
@@ -179,7 +179,7 @@ def checkSystem():
     logger.info(f"Checking cluster {config['OntapAdminServer']} with conditionsFile {config['conditionsFilename']}.")
     try:
         endpoint = f'https://{config["OntapAdminServer"]}/api/cluster?fields=version,name,timezone'
-        response = http.request('GET', endpoint, headers=headers, timeout=5.0)
+        response = http.request('GET', endpoint, headers=headers, timeout=10.0)
         if response.status == 200:
             if fsxStatus["systemHealth"] != 0:
                 fsxStatus["systemHealth"] = 0
@@ -225,7 +225,7 @@ def checkSystem():
             changedEvents = True
 
     if changedEvents:
-        s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
+        s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'), **SSEArgs)
     #
     # If the cluster is done, return false so the program can exit cleanly.
     return fsxStatus["systemHealth"] == 0
@@ -239,7 +239,7 @@ def checkSystem():
 # ASSUMPTIONS: That checkSystem() has been called before it.
 ################################################################################
 def checkSystemHealth(service):
-    global config, s3Client, http, headers, clusterName, clusterVersion, logger, requestFailed
+    global config, s3Client, http, headers, clusterName, clusterVersion, logger, requestFailed, SSEArgs
 
     alertCategory = "System Health Alert"
     changedEvents = False
@@ -478,13 +478,13 @@ def checkSystemHealth(service):
                 logger.warning(f'Unknown System Health alert type: "{key}" found on cluster {clusterName}.')
 
     if changedEvents:
-        s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'))
+        s3Client.put_object(Key=config["systemStatusFilename"], Bucket=config["s3BucketName"], Body=json.dumps(fsxStatus).encode('UTF-8'), **SSEArgs)
 
 ################################################################################
 # This function processes the EMS events.
 ################################################################################
 def processEMSEvents(service):
-    global config, s3Client, http, headers, clusterName, logger
+    global config, s3Client, http, headers, clusterName, logger, SSEArgs
 
     alertCategory = "EMS Event Alert"
     changedEvents = False
@@ -590,7 +590,7 @@ def processEMSEvents(service):
     #
     # If the events array changed, save it.
     if changedEvents:
-        s3Client.put_object(Key=config["emsEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+        s3Client.put_object(Key=config["emsEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
 
 ################################################################################
 # This function is used to find an existing SM relationship based on the source
@@ -645,10 +645,12 @@ def convertArrayToString(array):
     return text if text != "" else "*"
 
 ################################################################################
-# This function takes a schedule dictionary and returns the last time it should
-# run. It returns the time in seconds since the UNIX epoch.
+# This function takes a schedule dictionary and returns the number of seconds
+# between the last two runs of the schedule. It assumes the schedule will have
+# a consistent time between runs (e.g. every 30 minutes, every hour) and not
+# a schedule like 10AM, 2PM and 4PM.
 ################################################################################
-def getLastRunTime(scheduleUUID):
+def getSecondsBetweenRuns(scheduleUUID):
     global config, http, headers, logger, clusterTimezone
 
     minutes = ""
@@ -699,7 +701,13 @@ def getLastRunTime(scheduleUUID):
         # Get the last run time.
         lastRunTime = next(it)
         lastRunTimeSec = lastRunTime.timestamp()
-        return int(lastRunTimeSec)
+        #
+        # Now, go back one more time and get the difference between the two runs.
+        NextToTheLastRunTime = next(it)
+        NextToTheLastRunTimeSec = NextToTheLastRunTime.timestamp()
+        #
+        # Now, return the difference:
+        return int(lastRunTimeSec - NextToTheLastRunTimeSec)
     else:
         logger.error(f'API call to {endpoint} failed. HTTP status code: {response.status}.')
         return -1
@@ -723,30 +731,30 @@ def getPolicySchedule(policyUUID):
         return None
 
 ################################################################################
-# This function is used to find the last time a SnapMirror relationship should
-# have been updated. It returns the time in seconds since the UNIX epoch.
+# This function is used to get the expected lag time for a SnapMirror
+# relationship. It returns the number of expected seconds between updates.
 ################################################################################
-def getLastScheduledUpdate(record):
+def getExpectedLag(record):
     #
     # First check to see if there is a schedule associated with the SM relationship.
     if record.get("transfer_schedule") is not None:
-        lastRunTime = getLastRunTime(record["transfer_schedule"]["uuid"])
+        expectedLagTime = getSecondsBetweenRuns(record["transfer_schedule"]["uuid"])
     else:
         #
         # If there is no schedule at the relationship level, check to see
         # if the policy has one.
         scheduleUUID = getPolicySchedule(record["policy"]["uuid"])
         if scheduleUUID is not None:
-            lastRunTime = getLastRunTime(scheduleUUID)
+            expectedLagTime = getSecondsBetweenRuns(scheduleUUID)
         else:
-            lastRunTime = -1
-    return lastRunTime
+            expectedLagTime = -1
+    return expectedLagTime
 
 ################################################################################
 # This function is used to check SnapMirror relationships.
 ################################################################################
 def processSnapMirrorRelationships(service):
-    global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
+    global config, s3Client, clusterName, logger, clusterTimezone, requestFailed, SSEArgs
 
     alertCategory = "SnapMirror Health Alert"
     #
@@ -835,20 +843,21 @@ def processSnapMirrorRelationships(service):
             # cause a false positive.
             if record.get("lag_time") is not None and record["state"].lower() != "uninitialized":
                 lagSeconds = parseLagTime(record["lag_time"])
+                expectedLag = getExpectedLag(record)
                 if maxLagTimePercent is not None:
-                    lastScheduledUpdate = getLastScheduledUpdate(record)
-                    if lastScheduledUpdate != -1:
+                    if expectedLag != -1:
                         processedLagTime = True
-                        if lagSeconds > ((curTimeSeconds - lastScheduledUpdate) * maxLagTimePercent/100):
+                        if lagSeconds > (expectedLag * (maxLagTimePercent/100)):
                             #
-                            # If the transfer is in progress, and they have stalled transfer alert enabled, we don't need to alert on the lag time.
+                            # If the transfer is in progress, and they have "stalled transfer alert"
+                            # enabled, we don't need to alert on the lag time here since if the problem
+                            # is a stalled transfer, it will be caught by that check.
                             if not (record.get("transfer") is not None and record["transfer"]["state"].lower() in ["transferring", "finalizing", "preparing", "fasttransferring"] and stalledTransferSeconds is not None):
                                 uniqueIdentifier = record["uuid"] + "_" + maxLagTimePercentKey
                                 eventIndex = eventExist(events, uniqueIdentifier)
                                 if eventIndex < 0:
                                     timeStr = lagTimeStr(lagSeconds)
-                                    asciiTime = datetime.datetime.fromtimestamp(lastScheduledUpdate).strftime('%Y-%m-%d %H:%M:%S')
-                                    message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds ({timeStr}) which is more than {maxLagTimePercent}% of its last scheduled update at {asciiTime}.'
+                                    message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr}, which is more than {maxLagTimePercent}% of its maximum expected lag time of {expectedLag} seconds, or {lagTimeStr(expectedLag)}.'
                                     sendAlert(message, "WARNING", alertCategory)
                                     changedEvents=True
                                     event = {
@@ -871,7 +880,8 @@ def processSnapMirrorRelationships(service):
                         eventIndex = eventExist(events, uniqueIdentifier)
                         if eventIndex < 0:
                             timeStr = lagTimeStr(lagSeconds)
-                            message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]} has a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime}.'
+                            scheduleMes = " has no SnapMirror update schedule and" if expectedLag == -1 else ""
+                            message = f'Snapmirror Lag Alert: {sourceClusterName}::{record["source"]["path"]} -> {clusterName}::{record["destination"]["path"]}{scheduleMes} a lag time of {lagSeconds} seconds, or {timeStr} which is more than {maxLagTime} seconds, or {lagTimeStr(maxLagTime)}.'
                             sendAlert(message, "WARNING", alertCategory)
                             changedEvents=True
                             event = {
@@ -971,8 +981,8 @@ def processSnapMirrorRelationships(service):
             i -= 1
         #
         # If any of the SM relationships changed, save it.
-        if(updateRelationships):
-            s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'))
+        if updateRelationships:
+            s3Client.put_object(Key=config["smRelationshipsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(smRelationships).encode('UTF-8'), **SSEArgs)
         #
         # After processing the records, see if any events need to be removed.
         i = len(events) - 1
@@ -988,8 +998,8 @@ def processSnapMirrorRelationships(service):
             i -= 1
         #
         # If the events array changed, save it.
-        if(changedEvents):
-            s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+        if changedEvents:
+            s3Client.put_object(Key=config["smEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
 
 ################################################################################
 # This function is used to make API calls that may return multiple pages of
@@ -1025,7 +1035,7 @@ def getAllRecords(url, ignoreErrors=False):
 # This function is used to check all the volume and aggregate utilization.
 ################################################################################
 def processStorageUtilization(service):
-    global config, s3Client, clusterName, logger, clusterTimezone, requestFailed
+    global config, s3Client, clusterName, logger, clusterTimezone, requestFailed, SSEArgs
 
     alertCategory = "Storage Health Alert"
     changedEvents=False
@@ -1259,8 +1269,8 @@ def processStorageUtilization(service):
         i -= 1
     #
     # If the events array changed, save it.
-    if(changedEvents):
-        s3Client.put_object(Key=config["storageEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+    if changedEvents:
+        s3Client.put_object(Key=config["storageEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
 
 ################################################################################
 # This function sends the alert to a webhook defined by the
@@ -1342,13 +1352,16 @@ def sendWebHook(message, severity, alert_category):
 
         username = secrets[config['webhookSecretUsernameKey']]
         password = secrets[config['webhookSecretPasswordKey']]
-        webhookHeaders["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
+        if username.lower() == "bearer":
+            webhookHeaders["Authorization"] = "Bearer " + password
+        else:
+            webhookHeaders["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
     #
     # Note that the urllib3 library that AWS natively provides for their Lambda functions
     # is of the 1.* version, so we have to use the syntax for that version.
     try:
         logger.debug(f'Sending webhook to {config["webhookEndpoint"]} with these headers {webhookHeaders} and the following data: {data}')
-        response = http.request('POST', config['webhookEndpoint'], headers=webhookHeaders, body=data, timeout=5)
+        response = http.request('POST', config['webhookEndpoint'], headers=webhookHeaders, body=data, timeout=10.0)
         if response.status == 200:
             logger.info(f"Webhook sent successfully for {clusterName}.")
         else:
@@ -1357,12 +1370,13 @@ def sendWebHook(message, severity, alert_category):
         message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint']} for cluster {clusterName}."
         logger.critical(message)
         subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
-        snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+        if snsClient is not None:
+            snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
 
     if config.get("webhookEndpoint2") is not None:
         try:
             logger.debug(f'Sending webhook to {config["webhookEndpoint2"]} with these headers {webhookHeaders} and the following data: {data}')
-            response = http.request('POST', config['webhookEndpoint2'], headers=webhookHeaders, body=data, timeout=5)
+            response = http.request('POST', config['webhookEndpoint2'], headers=webhookHeaders, body=data, timeout=10.0)
             if response.status == 200:
                 logger.info(f"Webhook sent successfully for {clusterName}.")
             else:
@@ -1371,7 +1385,8 @@ def sendWebHook(message, severity, alert_category):
             message = f"Error: Exception occurred when sending to webhook {config['webhookEndpoint2']} for cluster {clusterName}."
             logger.critical(message)
             subject = f'CRITICAL: Monitor ONTAP Services failed to send the webhook for cluster {clusterName}'
-            snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+            if snsClient is not None:
+                snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
 
 ################################################################################
 # This function converts a severity string to a number value.
@@ -1413,14 +1428,12 @@ def sendAlert(message, severity, alertCategory):
         logger.info(message)
     #
     # Publish to SNS.
-    if lambdaFunction:
-        source = " Lambda "
-    else:
-        source = " "
-    #
-    # Ensure the subject is less than 100 characters.
-    subject = f'{severity}:{source}Monitor ONTAP Services {alertCategory} for cluster {clusterName}'
-    snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
+    if snsClient is not None:
+        source = " Lambda " if lambdaFunction else " "
+        #
+        # Ensure the subject is less than 100 characters.
+        subject = f'{severity}:{source}Monitor ONTAP Services {alertCategory} for cluster {clusterName}'
+        snsClient.publish(TopicArn=config["snsTopicArn"], Message=message, Subject=subject[:100])
     #
     # Send to CloudWatch if defined.
     if cloudWatchClient is not None:
@@ -1460,7 +1473,7 @@ def sendAlert(message, severity, alertCategory):
 # This function is used to check utilization of quota limits.
 ################################################################################
 def processQuotaUtilization(service):
-    global config, s3Client, clusterName, logger, requestFailed
+    global config, s3Client, clusterName, logger, requestFailed, SSEArgs
 
     alertCategory = "Quota Utilization Alert"
     changedEvents=False
@@ -1649,12 +1662,12 @@ def processQuotaUtilization(service):
     #
     # If the events array changed, save it.
     if(changedEvents):
-        s3Client.put_object(Key=config["quotaEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+        s3Client.put_object(Key=config["quotaEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
 
 ################################################################################
 ################################################################################
 def processVserver(service):
-    global config, s3Client, clusterName, logger, requestFailed
+    global config, s3Client, clusterName, logger, requestFailed, SSEArgs
 
     alertCategory = "Vserver health Alert"
     changedEvents=False
@@ -1800,7 +1813,7 @@ def processVserver(service):
     #
     # If the events array changed, save it.
     if(changedEvents):
-        s3Client.put_object(Key=config["vserverEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'))
+        s3Client.put_object(Key=config["vserverEventsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(events).encode('UTF-8'), **SSEArgs)
 
 ################################################################################
 # This function returns the index of the service in the conditions dictionary.
@@ -1971,12 +1984,14 @@ def readInConfig(event):
     # Define a dictionary with all the required variables so we can
     # easily add them and check for their existence.
     requiredEnvVariables = {
+        "secretArn": None,
         "OntapAdminServer": None,
         "s3BucketName": None,
         "s3BucketRegion": None
         }
 
     optionalVariables = {
+        "snsTopicArn": None,
         "configFilename": None,
         "secretsManagerEndPointHostname": None,
         "snsEndPointHostname": None,
@@ -1992,7 +2007,9 @@ def readInConfig(event):
         "webhookSecretUsernameKey": "username",
         "webhookSecretPasswordKey": "password",
         "secretUsernameKey": "username",
-        "secretPasswordKey": "password"
+        "secretPasswordKey": "password",
+        "ServerSideEncryption": None,
+        "SSEKMSKeyId": None
         }
 
     filenameVariables = {
@@ -2006,10 +2023,7 @@ def readInConfig(event):
         "vserverEventsFilename": None
         }
 
-    config = {
-        "snsTopicArn": None,
-        "secretArn": None
-        }
+    config = {}
     config.update(filenameVariables)
     config.update(optionalVariables)
     config.update(requiredEnvVariables)
@@ -2128,7 +2142,7 @@ def isIpHostname(string):
 def lambda_handler(event, context):
     #
     # Define global variables so we don't have to pass them to all the functions.
-    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, cloudWatchClient, clusterTimezone
+    global config, s3Client, snsClient, http, headers, clusterName, clusterVersion, logger, cloudWatchClient, clusterTimezone, SSEArgs
     #
     # Set up logging.
     logging.basicConfig()
@@ -2147,6 +2161,13 @@ def lambda_handler(event, context):
     #
     # Read in the configuraiton.
     readInConfig(event)   # This defines the s3Client variable.
+    #
+    # Create a dictionary of the Server Side Encryption arguments to pass to the s3Client functions.
+    # If none are provided, it will be an empty dictionary.
+    SSEArgs = {}
+    for sseVar in ["ServerSideEncryption", "SSEKMSKeyId"]:
+        if config.get(sseVar) is not None:
+            SSEArgs[sseVar] = config[sseVar]
     #
     # Set up the logger to log to a file and to syslog.
     if config["syslogIP"] is not None:
@@ -2202,8 +2223,10 @@ def lambda_handler(event, context):
     #
     # Create clients to the other AWS services we will be using.
     #s3Client = boto3.client('s3', config["s3BucketRegion"])  # Defined in readInConfig()
-    snsRegion = config["snsTopicArn"].split(":")[3]
-    snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
+    snsClient = None
+    if config["snsTopicArn"] is not None:
+        snsRegion = config["snsTopicArn"].split(":")[3]
+        snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
     cloudWatchClient = None
     if config["cloudWatchLogGroupArn"] is not None:
         cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
@@ -2228,7 +2251,7 @@ def lambda_handler(event, context):
             raise Exception(err)
         else:
             matchingConditions = buildDefaultMatchingConditions(event)
-            s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'))
+            s3Client.put_object(Key=config["conditionsFilename"], Bucket=config["s3BucketName"], Body=json.dumps(matchingConditions, indent=4).encode('UTF-8'), **SSEArgs)
     except json.decoder.JSONDecodeError as err:
         logger.error(f'Error, could not decode JSON from configuration file "{config["conditionsFilename"]}" for cluster {config["OntapAdminServer"]}. The error message from the decoder:\n{err}\n')
         raise Exception(err)
