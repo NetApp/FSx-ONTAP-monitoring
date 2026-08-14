@@ -23,6 +23,7 @@ from requests_toolbelt.multipart import decoder
 import urllib3
 import datetime
 import xmltodict
+import re
 import os
 import json
 from urllib3.util import Retry
@@ -141,7 +142,9 @@ import botocore
 #   audit_fsx_D2024-09-24-T13-00-03_0000000000.xml
 ################################################################################
 def getEpoch(filename):
-    dateStr = filename.split('_')[2][1:]
+
+    dateStr = re.search(r'D(\d{4}-\d{2}-\d{2}-T\d{2}-\d{2}-\d{2})', filename).group(1)
+
     year = int(dateStr.split('-')[0])
     month = int(dateStr.split('-')[1])
     day = int(dateStr.split('-')[2])
@@ -466,12 +469,18 @@ def checkConfig():
         secretARNs = {}
     #
     # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
+    writeSecretsARNs = False
+    readFromSecretsARNsFile = False
     if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
         try:
             response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
         except botocore.exceptions.ClientError as err:
-            raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
+            if err.response['Error']['Code'] != "NoSuchKey":
+                writeSecretsARNs = True
+            else:
+                raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
         else:
+            readFromSecretsARNsFile = True
             for line in response['Body'].iter_lines():
                 line = line.decode('utf-8')
                 line = line.strip()
@@ -481,7 +490,8 @@ def checkConfig():
                     continue
                 fsId, secretArn = line.split('=')
                 secretARNs[fsId.strip()] = secretArn.strip()
-    else:
+
+    if not readFromSecretsARNsFile:
         if config['fileSystem1ID'] is not None and config['fileSystem1SecretARN'] is not None:
             secretARNs[config['fileSystem1ID']] = config['fileSystem1SecretARN']
         if config['fileSystem2ID'] is not None and config['fileSystem2SecretARN'] is not None:
@@ -496,6 +506,16 @@ def checkConfig():
     # If there aren't any credentials, there is no point of continuing.
     if len(secretARNs) == 0 and config['defaultSecretARN'] is None:
         raise Exception("No secretARNs were specified.")
+
+    if writeSecretsARNs:
+        # Write the secretARNs to the fsxnSecretARNsFile in S3.
+        secretsString = ""
+        for fsId in secretARNs:
+            secretsString += f"{fsId}={secretARNs[fsId]}\n"
+        try:
+            s3Client.put_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'], Body=secretsString)
+        except botocore.exceptions.ClientError as err:
+            raise Exception(f"Unable to write parameter file with secrets '{config['fsxnSecretARNsFile']}' to S3 bucket '{config['s3BucketName']}': {err}")
 
 ################################################################################
 # This is the main function that checks that everything is configured correctly
@@ -528,16 +548,16 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     http = urllib3.PoolManager(cert_reqs='CERT_NONE', retries=retries)
     #
     # Get a list of FSxNs in the region.
-    fsxNs = []   # Holds the FQDN of the FSxNs management ports.
+    fsxNs = []   # Holds information for each FSxN in the region.
     fsxResponse = fsxClient.describe_file_systems()
     for fsx in fsxResponse['FileSystems']:
-        fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
+        fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
     #
     # Make sure to get them all since the response is paginated.
     while fsxResponse.get('NextToken') != None:
         fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
         for fsx in fsxResponse['FileSystems']:
-            fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
+            fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
     #
     # Get the last read stats file.
     try:
@@ -555,12 +575,21 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     #
     # Process each FSxN.
     for fsxn in fsxNs:
-        fsId = fsxn.split('.')[1]
+        fsId = fsxn['fsId']
+        hostname = fsxn['hostname']
+        dnsName = fsxn['DNSName']
         #
         # Since the format of the lastReadFile structure has changed, we need to update it.
-        if lastFileRead.get(fsxn) is not None and config['vserverName'] is not None:
-            if type(lastFileRead[fsxn]) is float:                                  # Old format
-                lastFileRead[fsxn] = {config['vserverName']: lastFileRead[fsxn]}   # New format
+        # The old format used the dnsName as the key.
+        if lastFileRead.get(dnsName) is not None and config['vserverName'] is not None:
+            if type(lastFileRead[dnsName]) is float:                                  # Old format
+                lastFileRead[fsId] = {config['vserverName']: lastFileRead[dnsName]}   # New format
+                del lastFileRead[dnsName]
+        #
+        # To be backwards compatible, update the lastFileRead list to use the fsId instead of the dnsName.
+        if lastFileRead.get(fsId) is None and lastFileRead.get(dnsName) is not None:
+            lastFileRead[fsId] = lastFileRead[dnsName]
+            del lastFileRead[dnsName]
         #
         # Get the credentials.
         if secretARNs.get(fsId) is None and config['defaultSecretARN'] is not None:
@@ -595,7 +624,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
         endpoint = f"/api/svm/svms?return_timeout=4"
         while endpoint is not None:
             try:
-                response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=5.0)
+                response = http.request('GET', f"https://{hostname}{endpoint}", headers=headersQuery, timeout=5.0)
                 if response.status == 200:
                     svmsData = json.loads(response.data.decode('utf-8'))
                     for record in svmsData['records']:
@@ -608,8 +637,8 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                         #
                         # Get the volume UUID for the audit_logs volume.
                         volumeUUID = None
-                        endpoint = f"https://{fsxn}/api/storage/volumes?name={config['volumeName']}&svm={vserverName}"
-                        response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
+                        volumeEndpoint = f"https://{hostname}/api/storage/volumes?name={config['volumeName']}&svm={vserverName}"
+                        response = http.request('GET', volumeEndpoint, headers=headersQuery, timeout=5.0)
                         if response.status == 200:
                             data = json.loads(response.data.decode('utf-8'))
                             if data['num_records'] > 0:
@@ -620,22 +649,22 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                             continue # To the next SVM.
                         #
                         # Get all the files in the volume that match the audit file pattern.
-                        endpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
+                        volumeEndpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
                         records = []
-                        while endpoint is not None:
-                            response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=16.0)
+                        while volumeEndpoint is not None:
+                            response = http.request('GET', f"https://{hostname}{volumeEndpoint}", headers=headersQuery, timeout=16.0)
                             if response.status == 200:
                                 data = json.loads(response.data.decode('utf-8'))
                                 if data.get('num_records') == 0:
                                     if len(records) == 0:
                                         print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
-                                    endpoint = None  # To break out of the get all files loop.
+                                    volumeEndpoint = None  # To break out of the get all files loop.
                                 else:
                                     records.extend(data['records'])
-                                    endpoint = data['_links'].get('next', {}).get('href', None)
+                                    volumeEndpoint = data['_links'].get('next', {}).get('href', None)
                             else:
-                                print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
-                                endpoint = None # To break out of the get all files loop.
+                                print(f"Warning: API call to https://{hostname}{volumeEndpoint} failed. HTTP status code: {response.status}.")
+                                volumeEndpoint = None # To break out of the get all files loop.
 
                         for file in records:
                             if config['maxRunTime'] is not None:
@@ -644,26 +673,26 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                     print("Notice: Running too long. Exiting...")
                                     return
                             filePath = file['name']
-                            if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
-                                localFileName = readFile(fsxn, headersDownload, volumeUUID, filePath)
+                            if lastFileRead.get(fsId) is None or lastFileRead[fsId].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsId][vserverName]:
+                                localFileName = readFile(hostname, headersDownload, volumeUUID, filePath)
                                 if localFileName is not None:
                                     if config['copyToS3']:
                                         s3Client.upload_file(localFileName, config['s3BucketName'], filePath)
                                     ingestAuditFile(localFileName, filePath)
-                                    if lastFileRead.get(fsxn) is None:
-                                        lastFileRead[fsxn] = {vserverName: getEpoch(filePath)}
+                                    if lastFileRead.get(fsId) is None:
+                                        lastFileRead[fsId] = {vserverName: getEpoch(filePath)}
                                     else:
-                                        lastFileRead[fsxn][vserverName] = getEpoch(filePath)
+                                        lastFileRead[fsId][vserverName] = getEpoch(filePath)
                                     s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastFileRead).encode('UTF-8'))
                                     os.remove(localFileName)
                     #
                     # Check to see if there are more SVMs to process.
                     endpoint = svmsData['_links'].get('next', {}).get('href', None)
                 else:
-                    print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
+                    print(f"Warning: API call to https://{hostname}{endpoint} failed. HTTP status code: {response.status}.")
                     endpoint = None # To break out of the get all SVMs loop.
             except urllib3.exceptions.MaxRetryError as err:
-                print(f"Warning: Timed out while trying to connect to, or read from, {fsxn}. {err}")
+                print(f"Warning: Timed out while trying to connect to, or read from, {fsId}. {err}")
                 endpoint = None # To break out of the get all SVMs loop.
 #
 # If this script is not running as a Lambda function, then call the lambda_handler function.
