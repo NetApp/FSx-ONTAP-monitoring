@@ -6,21 +6,23 @@ without having to NFS or CIFS mount a volume to access them. It will attempt to 
 all the FSx for Data ONTAP file systems that are within a specified region. It will skip any file systems where credentials
 haven't been provided for or SVMs that do not have the appropriate NAS auditing configuration enabled.
 
-It maintains a "stats" file in an S3 bucket that allows it to keep track of the last time it successfully ingested audit logs
+### Maintaining State
+The program maintains a "stats" file in an S3 bucket that allows it to keep track of the last time it successfully ingested audit logs
 from each SVM to ensure it doesn't process an audit file more than once.
 
+### Providing Credentials
 There are several ways to provide the Secrets Manager secret ARNs for the file systems you want to ingest
 audit logs from:
 1. You can create a file that has a line for each file system. The format should be:
-```
-FileSystemID1 = SecretARN
-FileSystemID2 = SecretARN
-```
-For example:
-```
-fs-00000000000000000=arn:aws:secretsmanager:us-west-2:000000000000:secret:secret_name1-XXXXXX
-fs-11111111111111111=arn:aws:secretsmanager:us-west-2:000000000000:secret:secret_name2-XXXXXX
-```
+    ```
+    FileSystemID1 = SecretARN
+    FileSystemID2 = SecretARN
+    ```
+    For example:
+    ```
+    fs-00000000000000000=arn:aws:secretsmanager:us-west-2:000000000000:secret:secret_name1-XXXXXX
+    fs-11111111111111111=arn:aws:secretsmanager:us-west-2:000000000000:secret:secret_name2-XXXXXX
+    ```
     Once the file has been created, upload it to the S3 bucket and provide the filename as the
     value for the `fsxnSecretsARNsfile` parameter during the CloudFormation deployment, or via an
     environement variable with the same naem.
@@ -44,12 +46,14 @@ if the file doesn't exist, but the environment variables have been set, the prog
 the S3 bucket with the contents of the environment variables. This allows you to use the environment variables
 to create the file in S3, and then use that file for subsequent runs of the program.
 
+### CloudWatch Dashboard
 This solution also provides for a CloudWatch dashboard that will show you various statistics about the
 entries in the audit logs. If you use CloudFormation to deploy the solution, you will have an option to add
 the dashboard. Here's a sample screen shot:
 
 ![Dashboard](images/INAL_Dashboard.png)
 
+### Methods of installation
 There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found this this repo,
 or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
 
