@@ -50,7 +50,7 @@ the dashboard. Here's a sample screen shot:
 
 ![Dashboard](images/INAL_Dashboard.png)
 
-Note that in order to improve performance and scalability of the dashboard it is recommended to create a
+:bulb: **Tip** In order to improve performance and scalability of the dashboard it is recommended to create a
 `transformer` to the CloudWatch LogGroup that contains the NAS Audit logs. A transformers helps CloudWatch
 parse the log entries to extract the fields that are needed for the dashboard metrics. The recommended
 transformer parser type is `Key Value` with a `Field Delimter` set to a comma `,` and the `Key-value Delimiter`
