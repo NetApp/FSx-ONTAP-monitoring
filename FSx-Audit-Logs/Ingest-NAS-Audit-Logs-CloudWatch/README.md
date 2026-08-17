@@ -25,7 +25,7 @@ audit logs from:
     ```
     Once the file has been created, upload it to the S3 bucket and provide the filename as the
     value for the `fsxnSecretsARNsfile` parameter during the CloudFormation deployment, or via an
-    environement variable with the same naem.
+    environment variable with the same naem.
 2. If all, or most, of your file systems use the same credentials you can set a default secret ARN that will
     be used if a secret ARN hasn't been provide for a sepcific file system ID. Please use this
     method with caution since if the program encouters a file system that doesn't have the
@@ -33,11 +33,8 @@ audit logs from:
 3. You can pass the secret ARNs via environment variables. The program supports up to 5 file systems
     using this method. The environment variables should be set in pairs where one defines the file system
     ID and the other defines the associated secret. Here is the list of environment variables:
-    `fileSystem1ID`/`fileSystem1SecretARN`
-    `fileSystem2ID`/`fileSystem2SecretARN`
-    `fileSystem3ID`/`fileSystem3SecretARN`
-    `fileSystem4ID`/`fileSystem4SecretARN`
-    `fileSystem5ID`/`fileSystem5SecretARN`
+    `fileSystem1ID`/`fileSystem1SecretARN`, `fileSystem2ID`/`fileSystem2SecretARN`, `fileSystem3ID`/`fileSystem3SecretARN`,
+    `fileSystem4ID`/`fileSystem4SecretARN`, `fileSystem5ID`/`fileSystem5SecretARN`
 4. Edit the variable assignments at the top program. There are instructions in the code that explain how to do this.
 
 **NOTE:** If you provide the `secretsARNsfile` parameter, and that file exists in the S3 bucket, the program
@@ -54,7 +51,7 @@ the dashboard. Here's a sample screen shot:
 ![Dashboard](images/INAL_Dashboard.png)
 
 ### Methods of installation
-There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found this this repo,
+There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found in this repo,
 or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
 
 ## Architecture
@@ -104,24 +101,23 @@ hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFo
     After 3 failed attempts ONTAP will lock the account. If the account is 'fsxadmin' it should get unlucked
     automatically after 45 minutes after the last failed attempt.
 
-### Optional prerequisites
-#### Create AWS Endpoints.
+## Optional prerequisites
+### Create AWS Endpoints
 Since the Lambda function runs within your VPC it will have restrictions as to how it can access the Internet.
-It will not be able to access the Internet from a "Public" subnet (i.e. one that has a Internet gateway attached it it.) It will, however,
+It will not be able to access the Internet from a "Public" subnet (i.e. one that has a Internet gateway attached to it.) It will, however,
 be able to access the Internet through a Transit or a NAT gateway. So, if the subnets you plan to run this Lambda function from
 don't have a Transit or NAT gateway then there needs to be an VPC AWS service endpoint for all the AWS services that this Lambda function uses.
 Specifically, the Lambda function needs to be able to access the following AWS services:
   - FSx.
   - Secrets Manager.
   - CloudWatch Logs.
-  - S3 - Note that typically there is a Gateway type VPC endpoint for S3, therefore you typically you don't need to create a VPC endpoint for S3.
+  - S3 - Note that typically there is a Gateway type VPC endpoint for S3, therefore you typically don't need to create a VPC endpoint for S3.
 
    **NOTE**: That if you specify to have the CloudFormation template create an endpoint and one already exist, it will cause the CloudFormation script to fail.
 
-#### Create Role for the Lambda function.
+### Create Role for the Lambda function
 If you don't want to allow CloudFormation to create the role for the Lambda function you can create it ahead of
-time and the CloudFormation template will allow to you specify the ARN to the role that will use that instead
-of creating a new role. Here are the required permissions:
+time and specify the ARN of the role when deploying the CloudFormation template. Here are the required permissions:
 
 <!--- Using HTML to create a table that has rowspan attributes since the markdown table syntax does not support that. --->
 <table>
@@ -133,21 +129,22 @@ of creating a new role. Here are the required permissions:
 <tr><td>DescribeSubnets</td></tr>
 <tr><td>AssignPrivateIpAddresses</td></tr>
 <tr><td>UnassignPrivateIpAddresses</td></tr>
-<tr><td rowspan="3">CloudWatch Logs</td><td>CreateLogGroup</td><td rowspan="3">arn:aws:logs:&lt;region&gt;:&lt;accountID&gt;:log-group:&#42;</td></tr>
+<tr><td rowspan="3">logs</td><td rowspan="3">CreateLogGroup</td><td>&#42;</td></tr>
 <tr><td>CreatLogStream</td></tr>
 <tr><td>PutLogEvents</td></tr>
 <tr><td rowspan="3">s3</td><td> ListBucket</td><td> arn:aws:s3:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
 <tr><td>GetObject</td><td rowspan="2">arn:aws:s3:&lt;region>:&lt;accountID&gt;:&#42;/&#42;</td></tr>
 <tr><td>PutObject</td></tr>
-<tr><td>Secrets Manager</td><td> GetSecretValue </td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretName&gt&#42;</td></tr>
+<tr><td>Secrets Manager</td><td> GetSecretValue </td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretNames&gt&#42;</td></tr>
 </table>
 Where:
 
 - &lt;accountID&gt; -  is your AWS account ID.
 - &lt;region&gt; - is the region where the FSx for ONTAP file systems are located.
-- &lt;secretName&gt; - is the name of the secret that contains the credentials for the fsxadmin accounts. **Note:** This
-resource string, through the use of wild card characters, must include all the secrets that the Lambda function will access.
-Or you must list each secret ARN individually.
+- &lt;secretNames&gt; - is the common prefix that all the secrets have that contain the credentials for
+the file systems you want to ingest logs from. This there isn't a common prefix then you must
+list each secret ARN individually. Or, you could use `*` as the resource and have a condition that limits
+the scope of the screts it can access.
 
 Notes:
 - The reason for the ec2 actions is because the Lambda function runs within your VPC and therefore needs to
@@ -155,11 +152,16 @@ Notes:
     actually done by AWS Lambda service and not the Lambda function itself. Therefore, you want to restrict
     those permissions to only the AWS Lambda service then following the instructions found
     [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html#configuration-vpc-best-practice).
-- The reason it needs to be able to create a log group so it can create a one for the diagnostic output from the Lambda function. However, like the ec2 actions, you want to restrict those permissions to only the AWS Lambda service then following the instructions found
-    [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html#configuration-vpc-best-practice).
-- Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the `*` at the end, or provide the full ARN of the secret.
+- The reason for the `*` for the resource for the CloudWatch logs actions is so it can create a LogGroup for
+    the diagnostic output of the Lambda function itself, as well as create LogStreams and PutEvents for the
+    ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
+    audit logs and forgo the diagnostic output of the Lambda function itself. It's not necessary, but useful
+    if something goes wrong.
+- Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the
+    `*` at the end, or provide the full ARN of the secret.
 
 ## Deployment with CloudFormation
+Follow these steps to deploy the Lambda function using CloudFormation:
 1. Ensure you have met all the prerequisites above.
 1. Download the [cloudformation-template.yaml](cloudformation-template.yaml) file from this repository.
 1. Go to the CloudFormation page within the AWS console and click on the `Create stack -> With new resources` button.
@@ -173,15 +175,15 @@ Notes:
     |volumeName|Yes|This is the name of the volume that should contain the audit logs. It should be the same on all SVMs on all the FSx for ONTAP file systems you want to ingest the NAS audit logs from.|
     |checkInterval|Yes|The interval, **in minutes**, that the Lambda function will check for new audit logs. You should set this to match the rotate frequency you have set for your audit logs.|
     |logGroupName|Yes|The name of the CloudWatch log group to ingest the audit logs into. This should have already been created based on your business requirements.|
-    |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to all the FSxN file system management endpoints that you want to gather audit logs from. It is recommended to **not** be in a "public subnet" (i.e. one that has an Internet Gateway in it) otherwise you'll probably have to AWS service endpoints in each of these subnets.|
+    |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to all the FSxN file system management endpoints that you want to gather audit logs from. It is recommended to **not** be in a "public subnet" (i.e. one that has an Internet Gateway in it) otherwise you'll probably have to add AWS service endpoints in each of these subnets.|
     |lambdaSecruityGroupsIds|Yes|Select the security groups that you want the Lambda function associated with. The security group must allow outbound traffic on TCP port 443. Inbound rules don't matter since the Lambda function is not accessible from a network.|
-    |s3BucketName|Yes|The name of the S3 bucket where the stats file is stored. This bucket must already exist.|
+    |s3BucketName|Yes|The name of the S3 bucket where the stats file is stored into and the `lambda_layer.zip` file has already been uploaded into.|
     |s3BucketRegion|Yes|The region of the S3 bucket resides.|
     |createWatchdogAlarm|No|If set to `true` it will create a CloudWatch alarm that will alert you if the Lambda function throws in error.|
     |snsTopicArn|No|The ARN of the SNS topic to send the alarm to. This is required if `createWatchdogAlarm` is set to `true`.|
     |copyToS3|No|If set to `true` it will copy the audit logs to the S3 bucket specified in `s3BucketName`.|
     |preserveOldEvents|No|Since CloudWatch will reject any event that is more than 14 days old, if you set this parameter to 'true' the program will set the CloudWatch event timestamp to 13 days from the time the event is inserted into CloudWatch LogStream if the audit event is older than 13 days. Note that this will not affect the timestamp recorded in the event message itself, just the CloudWatch event timestamp.|
-    |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each for the FSxN file systems. See the Overview section above for the format of this file.|
+    |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each of the FSxN file systems. See the Overview section above for the format of this file.|
     |defaultSecretARN|No|The ARN of an AWS Secrets Manager Secret to be used if a particular FSxN file system doesn't have a specific secret associated with it.  Use with caution, since it will cause the program to try the credentials in the default secret for all FSxN where there isn't a secret specified for it which could cause an account to be locked out if the credentials are incorrect for that FSxN.|
     |fileSystem1ID|No|The ID of the first FSxN file system to ingest the audit logs from.|
     |fileSystem1SecretARN|No|The ARN of the secret that contains the credentials for the first FSx for Data ONTAP file system.|
@@ -202,20 +204,21 @@ Notes:
     |vpcId|No|This is the VPC that the endpoint(s) will be created in. Only needed if you are creating an endpoint.|
     |endpointSecurityGroupIds|No|The security group that the endpoint(s) will be associated with. Must allow incoming TCP traffic over port 443. Only needed if you are creating an endpoint.|
 
-    **Note**: You must either provide the `fsxnSecretARNsFile`, `defaultSecretARN`, or the `fileSystemXID/fileSystemXSecretARN` parameters otherwise the program will not know how to access the FSxN file systems.
-    If `fsxSnSecretARNsFile` is provided and exists in the S3 bucket, the program will ignore the `fileSystemXID/fileSystemXSecretARN` parameters.
+    **Notes**:
+    - You must either provide the `fsxnSecretARNsFile`, `defaultSecretARN`, or the `fileSystemXID/fileSystemXSecretARN` parameters otherwise the program will not know how to access the FSxN file systems.
+    - If `fsxSnSecretARNsFile` is provided and exists in the S3 bucket, the program will ignore the `fileSystemXID/fileSystemXSecretARN` parameters.
 
 6. Click on the `Next` button.
 7. The next page will provide for some additional configuration options. You can leave these as the default values.
 At the bottom of the page, there is a checkbox that you must check to allow the CloudFormation script to create the
-necessary IAM roles and policies. Note that if you have provided the ARN of the role that the lambda function is to use,
+necessary IAM roles and policies. Note that if you have provided the ARN of the role that the Lambda function is to use,
 then the CloudFormation script will not create a role.
 8. Click on the `Next` button.
 9. The next page will provide a summary of the configuration you have provided. Review it to ensure it is correct.
 10. Click on the `Create stack` button.
 
 ## After deployment tasks
-### Confirm that the Lambda function is ingesting audit logs.
+### Confirm that the Lambda function is ingesting audit logs
 After the CloudFormation deployment has completed, go to the "resource" tab of the CloudFormation stack
 and click on the Lambda function hyperlink. This will take you to the Lambda function's page.
 Click on the Monitoring sub tab and then click on "View CloudWatch logs". This will take you to the
@@ -231,7 +234,7 @@ If you opted to create the CloudWatch Dashboard you can view it by going to the 
 service in the AWS console, and then click on "Dashboards" in the left navigation pane. You should
 see a dashboard who's name starts with "INAL-Dashboard". Click on it to view the dashboard.
 
-### Add more FSx for ONTAP file systems.
+### Add more FSx for ONTAP file systems
 The way the program is written, it will automatically discover all FSxN file systems within a region,
 and then all the vservers under that FSxN. So, if you add another FSxN it will automatically attempt
 to ingest the audit files from all the vservers under it. Unfortunately though, it won't be able to, until
@@ -247,7 +250,7 @@ If you are creating the file for the first time, you'll also need to set the `fs
 environment variable to the name of the file you created. You can leave all the other parameters
 as they are, including the `fileSystem1ID`, `fileSystem1SecretARN`, etc. ones.
 The program will ignore those parameters if the `fsxnSecretARNsFile` environment variable is set
-and exist in the S3 bucket. To set the `fsxnSecretARNsFile` environment variable, go to the
+and the file exists in the S3 bucket. To set the `fsxnSecretARNsFile` environment variable, go to the
 Lambda function's main page and click on the "Configuration" tab. Then click on the "Environment
 variables" sub tab. Next, click on the "Edit" button. The `fsxnSecretARNsFile`
 environment variable should already be there, but the value should be blank. If the variable isn't
@@ -268,4 +271,4 @@ Unless required by applicable law or agreed to in writing, software distributed 
 
 See the License for the specific language governing permissions and limitations under the License.
 
-© 2025 NetApp, Inc. All Rights Reserved.
+© 2026 NetApp, Inc. All Rights Reserved.
