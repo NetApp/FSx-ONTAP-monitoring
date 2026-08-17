@@ -25,11 +25,11 @@ audit logs from:
     ```
     Once the file has been created, upload it to the S3 bucket and provide the filename as the
     value for the `fsxnSecretsARNsfile` parameter during the CloudFormation deployment, or via an
-    environment variable with the same naem.
+    environment variable with the same name.
 2. If all, or most, of your file systems use the same credentials you can set a default secret ARN that will
-    be used if a secret ARN hasn't been provide for a sepcific file system ID. Please use this
-    method with caution since if the program encouters a file system that doesn't have the
-    correct credentials it could lock the acount by using the wrong password too many times in a row.
+    be used if a secret ARN hasn't been provided for a specific file system ID. Please use this
+    method with caution since if the program encounters a file system that doesn't have the
+    correct credentials it could lock the account by using the wrong password too many times in a row.
 3. You can pass the secret ARNs via environment variables. The program supports up to 5 file systems
     using this method. The environment variables should be set in pairs where one defines the file system
     ID and the other defines the associated secret. Here is the list of environment variables:
@@ -157,8 +157,6 @@ Notes:
     ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
     audit logs and forgo the diagnostic output of the Lambda function itself. The diganositc output is not necessary,
     but useful if something goes wrong.
-- Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the
-    `*` at the end, or provide the full ARN of the secret.
 
 ## Deployment with CloudFormation
 Follow these steps to deploy the Lambda function using CloudFormation:

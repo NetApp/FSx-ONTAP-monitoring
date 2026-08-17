@@ -284,7 +284,6 @@ Conditions:
   CreateS3Endpoint: !Equals [!Ref createS3Endpoint, "true"]
   CreateWatchdogAlarm: !Equals [!Ref createWatchdogAlarm, "true"]
   CreateLambdaRole: !Equals [!Ref lambdaRoleArn, ""]
-  CreateSchedulerRole: !Equals [!Ref schedulerRoleArn, ""]
   CreateDashboard: !Equals [!Ref createDashboard, "true"]
 
 Resources:
@@ -396,30 +395,6 @@ Resources:
                   - "logs:PutLogEvents"
                   - "logs:CreateLogStream"
                 Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${logGroupName}:*"
-
-  SchedulerRole:
-    Type: "AWS::IAM::Role"
-    Condition: CreateSchedulerRole
-    Properties:
-      RoleName: !Sub "INAL-scheduler-${AWS::StackName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service: "scheduler.amazonaws.com"
-            Action: "sts:AssumeRole"
-
-      Policies:
-        - PolicyName: "SchedulerPolicy"
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: "Allow"
-                Action:
-                  - "lambda:InvokeFunction"
-                Resource: !GetAtt LambdaFunction.Arn
-
   #
   # Instead of creating a EventBridge schedule, create an EventBridge rule triggered by a schedule.
   # This way a separate role doesn't have to be created, just a Lambda permission to allow

@@ -25,11 +25,11 @@ audit logs from:
     ```
     Once the file has been created, upload it to the S3 bucket and provide the filename as the
     value for the `fsxnSecretsARNsfile` parameter during the CloudFormation deployment, or via an
-    environment variable with the same naem.
+    environment variable with the same name.
 2. If all, or most, of your file systems use the same credentials you can set a default secret ARN that will
-    be used if a secret ARN hasn't been provide for a sepcific file system ID. Please use this
-    method with caution since if the program encouters a file system that doesn't have the
-    correct credentials it could lock the acount by using the wrong password too many times in a row.
+    be used if a secret ARN hasn't been provided for a specific file system ID. Please use this
+    method with caution since if the program encounters a file system that doesn't have the
+    correct credentials it could lock the account by using the wrong password too many times in a row.
 3. You can pass the secret ARNs via environment variables. The program supports up to 5 file systems
     using this method. The environment variables should be set in pairs where one defines the file system
     ID and the other defines the associated secret. Here is the list of environment variables:
@@ -121,19 +121,19 @@ Where:
 - &lt;secretNames&gt; - is the common prefix that all the secrets have that contain the credentials for
 the file systems you want to ingest logs from. This there isn't a common prefix then you must
 list each secret ARN individually. Or, you could use `*` as the resource and have a condition that limits
-the scope of the screts it can access.
+the scope of the secrets it can access.
 
 Notes:
-- The reason for the ec2 actions is because the Lambda function runs within your VPC and therefore needs to
+- The reason for the ec2 actions is because the Lambda function must run within your VPC and therefore needs to
 be able to create and delete a network interface, as well as assign an IP address to it. The actions are
-actually done by AWS Lambda service and not the Lambda function itself. Therefore, you want to restrict
+actually done by AWS Lambda service and not the Lambda function itself. Therefore, if you want to restrict
 those permissions to only the AWS Lambda service then following the instructions found
 [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html#configuration-vpc-best-practice).
-- The reason for the `*` for the resource for the CloudWatch logs actions is so it can create a LogGroup for
+- The reason for the `*` for the resource of the CloudWatch logs actions is so it can create a LogGroup for
 the diagnostic output of the Lambda function itself, as well as create LogStreams and PutEvents for the
 ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
-audit logs and forgo the diagnostic output of the Lambda function itself. It's not necessary, but useful
-if something goes wrong.
+audit logs and forgo the diagnostic output of the Lambda function itself. The diagnostic output is not
+necessary, but useful if something goes wrong.
 
 ## Deployment
 1. Create a Lambda deployment package by:
@@ -181,8 +181,11 @@ process a lot of audit entries and/or process a lot of SVMs.
     | statsName | Yes| The name you want to use as the stats file. |
 
     **NOTES:**
-    - You need to set the `fsxnSecretARNsFile`, `defaultSecretARN` or the `fileSystemXID` and `fileSystemXSecretARN` variables otherwise, the program will not know how to access the FSxN file systems.
-    - If `fsxnSecretARNsFile` is provided and the file it references exist in the S3 bucket, the program will ignore the `fileSystemXID` and `fileSystemXSecretARN` variables. If it is set and the file it references does not exist, the program will create one based on the values of the fileSystemXID/fileSystemXServerARN variables.
+    - You need to set the `fsxnSecretARNsFile`, `defaultSecretARN` or the `fileSystemXID` and `fileSystemXSecretARN` variables
+otherwise, the program will not know how to access the FSxN file systems.
+    - If `fsxnSecretARNsFile` is provided and the file it references exist in the S3 bucket, the program will ignore the
+`fileSystemXID` and `fileSystemXSecretARN` variables. If it is set and the file it references does not exists, the program
+will create one based on the values of the fileSystemXID/fileSystemXSecretARN variables.
 
 4. Test the Lambda function by clicking on the `Test` tab and then clicking on the `Test` button. You should see "Executing function: succeeded".
 If not, click on the "Details" button to see what errors there are. Resolve the issues and click on the Test button again.
