@@ -106,7 +106,7 @@ hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFo
 <tr><td>DescribeSubnets</td></tr>
 <tr><td>AssignPrivateIpAddresses</td></tr>
 <tr><td>UnassignPrivateIpAddresses</td></tr>
-<tr><td rowspan="3">logs</td><td rowspan="3">CreateLogGroup</td><td>&#42;</td></tr>
+<tr><td rowspan="3">logs</td><td>CreateLogGroup</td><td rowspan="3">&#42;</td></tr>
 <tr><td>CreatLogStream</td></tr>
 <tr><td>PutLogEvents</td></tr>
 <tr><td rowspan="3">s3</td><td> ListBucket</td><td> arn:aws:s3:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
