@@ -50,6 +50,12 @@ the dashboard. Here's a sample screen shot:
 
 ![Dashboard](images/INAL_Dashboard.png)
 
+Note that in order to improve performance and scalability of the dashboard it is recommended to create a
+`transformer` to the CloudWatch LogGroup that contains the NAS Audit logs. A transformers helps CloudWatch
+parse the log entries to extract the fields that are needed for the dashboard metrics. The recommended
+transformer parser type is `Key Value` with a `Field Delimter` set to a comma `,` and the `Key-value Delimiter`
+set to `=`.
+
 ### Methods of installation
 There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found in this repo,
 or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
