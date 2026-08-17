@@ -134,8 +134,6 @@ the diagnostic output of the Lambda function itself, as well as create LogStream
 ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
 audit logs and forgo the diagnostic output of the Lambda function itself. It's not necessary, but useful
 if something goes wrong.
-- Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the
-`*` at the end, or provide the full ARN of the secret.
 
 ## Deployment
 1. Create a Lambda deployment package by:

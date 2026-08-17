@@ -129,7 +129,7 @@ time and specify the ARN of the role when deploying the CloudFormation template.
 <tr><td>DescribeSubnets</td></tr>
 <tr><td>AssignPrivateIpAddresses</td></tr>
 <tr><td>UnassignPrivateIpAddresses</td></tr>
-<tr><td rowspan="3">logs</td><td rowspan="3">CreateLogGroup</td><td>&#42;</td></tr>
+<tr><td rowspan="3">logs</td><td>CreateLogGroup</td><td rowspan="3">&#42;</td></tr>
 <tr><td>CreatLogStream</td></tr>
 <tr><td>PutLogEvents</td></tr>
 <tr><td rowspan="3">s3</td><td> ListBucket</td><td> arn:aws:s3:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
@@ -144,19 +144,19 @@ Where:
 - &lt;secretNames&gt; - is the common prefix that all the secrets have that contain the credentials for
 the file systems you want to ingest logs from. This there isn't a common prefix then you must
 list each secret ARN individually. Or, you could use `*` as the resource and have a condition that limits
-the scope of the screts it can access.
+the scope of the secrets it can access.
 
 Notes:
-- The reason for the ec2 actions is because the Lambda function runs within your VPC and therefore needs to
+- The reason for the ec2 actions is because the Lambda function must run within your VPC and therefore needs to
     be able to create and delete a network interface, as well as assign an IP address to it. The actions are
-    actually done by AWS Lambda service and not the Lambda function itself. Therefore, you want to restrict
+    actually done by AWS Lambda service and not by the Lambda function itself. Therefore, if you want to restrict
     those permissions to only the AWS Lambda service then following the instructions found
     [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html#configuration-vpc-best-practice).
-- The reason for the `*` for the resource for the CloudWatch logs actions is so it can create a LogGroup for
+- The reason for the `*` for the resource of the CloudWatch logs actions is so it can create a LogGroup for
     the diagnostic output of the Lambda function itself, as well as create LogStreams and PutEvents for the
     ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
-    audit logs and forgo the diagnostic output of the Lambda function itself. It's not necessary, but useful
-    if something goes wrong.
+    audit logs and forgo the diagnostic output of the Lambda function itself. The diganositc output is not necessary,
+    but useful if something goes wrong.
 - Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the
     `*` at the end, or provide the full ARN of the secret.
 
