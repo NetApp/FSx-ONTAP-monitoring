@@ -97,7 +97,7 @@ hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFo
 - Create a role that will allow the Lambda function to preform the needed function. Here are the required permissions:
 
 <!--- Using HTML to create a table that has rowspan attributes since the markdown table syntax does not support that. --->
-<table>
+<table style="margin-left: 40px;">
 <tr><th>Service</td><th>Actions</td><th>Resources</th></tr>
 <tr><td>Fsx</td><td>fsx:DescribeFileSystems</td><td>&#42;</td></tr>
 <tr><td rowspan="6">ec2</td><td>DescribeNetworkInterfaces</td><td rowspan="6">&#42;</td></tr>
@@ -114,27 +114,26 @@ hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFo
 <tr><td>PutObject</td></tr>
 <tr><td>Secrets Manager</td><td> GetSecretValue </td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretNames&gt&#42;</td></tr>
 </table>
-Where:
-
-- &lt;accountID&gt; -  is your AWS account ID.
-- &lt;region&gt; - is the region where the FSx for ONTAP file systems are located.
-- &lt;secretNames&gt; - is the common prefix that all the secrets have that contain the credentials for
+    Where:
+    - &lt;accountID&gt; -  is your AWS account ID.
+    - &lt;region&gt; - is the region where the FSx for ONTAP file systems are located.
+    - &lt;secretNames&gt; - is the common prefix that all the secrets have that contain the credentials for
 the file systems you want to ingest logs from. This there isn't a common prefix then you must
 list each secret ARN individually. Or, you could use `*` as the resource and have a condition that limits
 the scope of the screts it can access.
 
-Notes:
-- The reason for the ec2 actions is because the Lambda function runs within your VPC and therefore needs to
+    Notes:
+    - The reason for the ec2 actions is because the Lambda function runs within your VPC and therefore needs to
     be able to create and delete a network interface, as well as assign an IP address to it. The actions are
     actually done by AWS Lambda service and not the Lambda function itself. Therefore, you want to restrict
     those permissions to only the AWS Lambda service then following the instructions found
     [here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html#configuration-vpc-best-practice).
-- The reason for the `*` for the resource for the CloudWatch logs actions is so it can create a LogGroup for
+    - The reason for the `*` for the resource for the CloudWatch logs actions is so it can create a LogGroup for
     the diagnostic output of the Lambda function itself, as well as create LogStreams and PutEvents for the
     ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
     audit logs and forgo the diagnostic output of the Lambda function itself. It's not necessary, but useful
     if something goes wrong.
-- Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the
+    - Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the
     `*` at the end, or provide the full ARN of the secret.
 
 ## Deployment
