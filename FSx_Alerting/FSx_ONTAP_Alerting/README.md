@@ -12,7 +12,9 @@
         - [4.1.4 Expected Actions](#414-expected-actions)
         - [4.1.5 Post Installation Checks](#415-post-installation-checks)
     - [4.2 Manual Installation](#42-manual-installation)
-- [5. Maintaining the list of systems to monitor](#5-maintaining-the-list-of-systems-to-monitor)
+- [5. Maintenance Items](#5-maintenance-items)
+    - [5.1 Update the list of systems to monitor](#51-update-the-list-of-systems-to-monitor)
+    - [5.2 Changing the polling interval](#52-changing-the-polling-interval)
 - [6. Added Destinations](#6-added-destinations)
     - [6.1 Adding a Webhook](#61-adding-a-webhook)
     - [6.2 Adding a Syslog Server](#62-adding-a-syslog-server)
@@ -482,10 +484,31 @@ put `0.5` in the text box. This will set the alarm to trigger if there are any e
 Lambda functions.
 ---
 
-## 5 Maintaining the list of systems to monitor
+## 5 Maintenance Items
+
+### 5.1 Update the list of systems to monitor
 
 If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#81-fsxn_list-file-format) stored in the S3 bucket.
 The controller will pick up on the changes to the FSxN\_List file the next time it runs.
+
+Note that since the controller will invoke a monitoring Lambda function concurrently for every system to be monitored
+and each Lambda function will be given an IP address from the subnet's IP address range, there will be a
+limit to the number of ONTAP systems that can be monitored by a single deployment of this solution. Therefore, if
+you have a large number of ONTAP systems to monitor, you may need to deploy another instance of the solution in another
+subnet. You might also want to deploy another instance of this solution if the ONTAP systems are geographically located
+in another region. If you do that, of course be sure to use a different S3 bucket, and resources that are in that region.
+
+### 5.2 Changing the polling interval
+If you decide want to to poll the systems more, or less, frequently, you can change the EventBridge Rule
+to trigger the controller Lambda function at a different interval. A recommended interval is every 15 minutes.
+It is not recommended to be less than 5 minutes because it could mean overlapping invocations of the monitoring
+Lambda function which could lead to unpredictable results.
+
+To change the interval, go to the controller Lambda function (the name should start with "MOS-controller" if you used
+the CloudFormation template to deploy the solution) and click on the "Configuration" tab, then click on the "Triggers"
+sub-tab on the left hadn side. Next click on the "EventBridge" trigger and then click on the "Edit" button. This will
+bring you to a page where you can change the schedule expression. The default is set to `rate(15 minutes)`.
+Change that to anything you want, but not less then 5 minutes.
 
 ## 6 Added Destinations
 
@@ -694,7 +717,34 @@ The following table shows the required permissions needed for the monitoring pro
 |kms:Decrypt                    | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
 |kms:GenerateDataKey            | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
 
-:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy
+called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to
+write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+
+:bulb: **Tip** Instead of providing a resource ARN pattern for the `secretsmanager:GetSecretValue` action, you can set
+the resource to `*` but add a condition that only allows access to secrets that have a specific tag. For example, you can
+add a tag called `ONTAPMonitoring` to all the secrets you want the monitoring program to be able to access, then you can
+have a policy statement like:
+
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Condition": {
+                "Null": {
+                    "secretsmanager:ResourceTag/ONTAPMonitoring": "false"
+                }
+            },
+            "Action": [
+                "secretsmanager:GetSecretValue"
+            ],
+            "Resource": "*",
+            "Effect": "Allow"
+        }
+    ]
+}
+```
 
 ### 8.6 Controller Program Role Permissions
 
