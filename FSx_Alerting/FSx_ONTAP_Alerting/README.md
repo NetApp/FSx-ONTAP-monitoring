@@ -15,7 +15,7 @@
 - [5. Maintenance Items](#5-maintenance-items)
     - [5.1 Update the list of systems to monitor](#51-update-the-list-of-systems-to-monitor)
     - [5.2 Changing the polling interval](#52-changing-the-polling-interval)
-    - [5.3 Added Destinations](#53-added-destinations)
+    - [5.3 Adding Destinations](#53-adding-destinations)
         - [5.3.1 Adding a Webhook](#531-adding-a-webhook)
         - [5.3.2 Adding a Syslog Server](#532-adding-a-syslog-server)
         - [5.3.3 Adding a CloudWatch Log Stream](#533-adding-a-cloudwatch-log-stream)
@@ -511,7 +511,7 @@ sub-tab on the left hadn side. Next click on the "EventBridge" trigger and then 
 bring you to a page where you can change the schedule expression. The default is set to `rate(15 minutes)`.
 Change that to anything you want, as long as it is greater than the timeout value of the monitoring Lambda function.
 
-### 5.3 Added Destinations
+### 5.3 Adding Destinations
 
 If after the initial deployment you want to add additional destinations for the monitoring program to send
 events to, you can do that by adding the appropriate configuration parameters to the FSxN\_List file. The
