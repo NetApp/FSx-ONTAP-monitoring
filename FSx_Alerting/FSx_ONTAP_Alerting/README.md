@@ -512,6 +512,8 @@ for the systems that you want their events to be sent to the webhook:
     Otherwise the program will set the Authorization header as a Basic type with the credentials sent as base64 
     encoded username:password.
 
+A third step would be to ensure the security group of the Lambda function allows outbound access to the webhook endpoint.
+
 :bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#82-configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
 
 ### 6.2 Adding a Syslog Server
@@ -651,7 +653,7 @@ Then your FSxN\_List file can look like this:
 | snsTopicArn              | No       | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. This isn't required since the controller function will pass the SNS topic ARN that it was configured with. |
 | cloudWatchLogGroupArn    | No       | None          | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | syslogIP                 | No       | None          | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
-| webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
+| webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. Also, ensure your Security Group allows access to the endpoint.|
 | webhookSeverity          | No       | INFO          | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
 | webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Webhook Payload Configuration File Format](#83-webhook-payload-configuration-file-format) section. If left blank a default payload will be used.|
 | webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the webhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authentication header will be sent. |
