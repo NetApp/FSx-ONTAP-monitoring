@@ -496,19 +496,20 @@ and each Lambda function will be given an IP address from the subnet's IP addres
 limit to the number of ONTAP systems that can be monitored by a single deployment of this solution. Therefore, if
 you have a large number of ONTAP systems to monitor, you may need to deploy another instance of the solution in another
 subnet. You might also want to deploy another instance of this solution if the ONTAP systems are geographically located
-in another region. If you do that, of course be sure to use a different S3 bucket, and resources that are in that region.
+in another region. If you deploy a new instance, be sure to use a different S3 bucket. Also, if in another
+region, use resources that are in that region.
 
 ### 5.2 Changing the polling interval
 If you decide want to to poll the systems more, or less, frequently, you can change the EventBridge Rule
-to trigger the controller Lambda function at a different interval. A recommended interval is every 15 minutes.
-It is not recommended to be less than 5 minutes because it could mean overlapping invocations of the monitoring
-Lambda function which could lead to unpredictable results.
+to trigger the controller Lambda function at a different interval. The recommended interval is every 15 minutes.
+Make sure to not set the interval to less than the "timeout" value for the Monitoring Lambda function.
+The CloudFormation template sets that to 60 seconds.
 
 To change the interval, go to the controller Lambda function (the name should start with "MOS-controller" if you used
 the CloudFormation template to deploy the solution) and click on the "Configuration" tab, then click on the "Triggers"
 sub-tab on the left hadn side. Next click on the "EventBridge" trigger and then click on the "Edit" button. This will
 bring you to a page where you can change the schedule expression. The default is set to `rate(15 minutes)`.
-Change that to anything you want, but not less then 5 minutes.
+Change that to anything you want, as long as it is greater than the timeout value of the monitoring Lambda function.
 
 ## 6 Added Destinations
 
@@ -700,7 +701,7 @@ The following table shows the required permissions needed for the monitoring pro
 
 | Permission                    | Minimal Resources | Reason     |
 |:------------------------------|:-----------------:|:----------------|
-|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service.|
+|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service. See the **Tip** below for an alternate way to allow access to secrets.|
 |sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
 |s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
 |s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve previous state information, as well as configuration files, from various s3 objects. |
@@ -723,7 +724,7 @@ write diagnostic logs to CloudWatch which will be very beneficial if something g
 
 :bulb: **Tip** Instead of providing a resource ARN pattern for the `secretsmanager:GetSecretValue` action, you can set
 the resource to `*` but add a condition that only allows access to secrets that have a specific tag. For example, you can
-add a tag called `ONTAPMonitoring` to all the secrets you want the monitoring program to be able to access, then you can
+add a tag called `ONTAPMonitoring` to all the secrets you want the monitoring program to have access to, then you can
 have a policy statement like:
 
 ```
