@@ -5,6 +5,9 @@
 #
 name: "Code Quality: Terraform"
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     paths:
