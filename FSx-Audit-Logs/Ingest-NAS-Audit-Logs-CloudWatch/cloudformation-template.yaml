@@ -18,6 +18,7 @@ Metadata:
           - snsTopicArn
           - copyToS3
           - preserveOldEvents
+          - createDashboard
 
       - Label:
           default: "Secrets Manager specifications"
@@ -39,7 +40,6 @@ Metadata:
           default: "Security Configuration"
         Parameters:
           - lambdaRoleArn
-          - schedulerRoleArn
 
       - Label:
           default: "VPC Endpoint Configuration"
@@ -69,6 +69,8 @@ Metadata:
         default: "S3 Bucket Region"
       copyToS3:
         default: "Copy to S3"
+      createDashboard:
+        default: "Create CloudWatch Dashboard"
       createWatchdogAlarm:
         default: "Create Watchdog Alarm"
       snsTopicArn:
@@ -101,8 +103,6 @@ Metadata:
         default: "File System 5 Secret ARN" 
       lambdaRoleArn:
         default: "Lambda Role ARN"
-      schedulerRoleArn:
-        default: "Scheduler Role ARN"
       createFSxEndpoint:
         default: "Create FSx Endpoint"
       createCloudWatchEndpoint:
@@ -156,10 +156,16 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
 
-  fsxnSecretARNsFile:
-    Description: "The name of the file that contains the list of FSxN file systems and their secret ARNs. It should already be stored in the S3 bucket. Either provide this file or the individual file system IDs and secret ARNs below."
+  createDashboard:
+    Description: "Set to 'true' if you want to create a CloudWatch dashboard with some basic metrics for the audit logs."
     Type: String
-    Default: ""
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
+  fsxnSecretARNsFile:
+    Description: "The name of the file that contains the list of FSxN file systems and their secret ARNs. If it doesn't exist in the S3  bucket, and you have provided the file system IDs and secret ARNs in the parameters below, it will be created with the information conveyed via those parameters. If it does exist, the file system IDs and secret ARNs in the parameters below will be ignored. If you don't want the program to create the file, set this parameter to an empty string."
+    Type: String
+    Default: "fsxnSecretARNs"
 
   defaultSecretARN:
     Description: "A default secret ARN to use if a specific one is not provided for a file system. Use with caution since repeated failed APIs with bad credentials can cause an account to be locked out."
@@ -232,11 +238,6 @@ Parameters:
     Type: String
     Default: ""
 
-  schedulerRoleArn:
-    Description: "The ARN of the role to use for the EventBridge schedule. This is only needed if you are using an existing role otherwise this CloudFormation template will create one."
-    Type: String
-    Default: ""
-
   createFSxEndpoint:
     Description: "Create a FSx endpoint."
     Type: String
@@ -283,7 +284,7 @@ Conditions:
   CreateS3Endpoint: !Equals [!Ref createS3Endpoint, "true"]
   CreateWatchdogAlarm: !Equals [!Ref createWatchdogAlarm, "true"]
   CreateLambdaRole: !Equals [!Ref lambdaRoleArn, ""]
-  CreateSchedulerRole: !Equals [!Ref schedulerRoleArn, ""]
+  CreateDashboard: !Equals [!Ref createDashboard, "true"]
 
 Resources:
   SecretManagerEndpoint:
@@ -394,41 +395,28 @@ Resources:
                   - "logs:PutLogEvents"
                   - "logs:CreateLogStream"
                 Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${logGroupName}:*"
-
-  SchedulerRole:
-    Type: "AWS::IAM::Role"
-    Condition: CreateSchedulerRole
+  #
+  # Instead of creating a EventBridge schedule, create an EventBridge rule triggered by a schedule.
+  # This way a separate role doesn't have to be created, just a Lambda permission to allow
+  # EventBridge to invoke the Lambda function.
+  LambdaEventRule:
+    Type: "AWS::Events::Rule"
     Properties:
-      RoleName: !Sub "INAL-scheduler-${AWS::StackName}"
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: "Allow"
-            Principal:
-              Service: "scheduler.amazonaws.com"
-            Action: "sts:AssumeRole"
-
-      Policies:
-        - PolicyName: "SchedulerPolicy"
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: "Allow"
-                Action:
-                  - "lambda:InvokeFunction"
-                Resource: !GetAtt LambdaFunction.Arn
-
-  LambdaScheduler:
-    Type: "AWS::Scheduler::Schedule"
-    Properties:
-      Description: "Schedule for the ingest-nas-audit-logs Lambda function."
-      Name: !Sub "INAL-${AWS::StackName}"
-      FlexibleTimeWindow:
-        Mode: "OFF"
+      Description: "Event rule to trigger the INAL Lambda function."
+      Name: !Sub "INAL-event-rule-${AWS::StackName}"
       ScheduleExpression: !Sub "rate(${checkInterval} minutes)"
-      Target:
-        Arn: !GetAtt LambdaFunction.Arn
-        RoleArn: !If [CreateSchedulerRole, !GetAtt SchedulerRole.Arn, !Ref schedulerRoleArn]
+      State: "ENABLED"
+      Targets:
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: "INALTarget"
+
+  LambdaPermissionEventRule:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt LambdaFunction.Arn
+      Principal: "events.amazonaws.com"
+      SourceArn: !GetAtt LambdaEventRule.Arn
 
   LambdaLayer:
     Type: "AWS::Lambda::LayerVersion"
@@ -439,6 +427,87 @@ Resources:
         S3Key: "lambda_layer.zip"
       CompatibleRuntimes:
         - "python3.12"
+
+  cloudWatchDashboard:
+    Type: "AWS::CloudWatch::Dashboard"
+    Condition: CreateDashboard
+    Properties:
+      DashboardName: !Sub "INAL-Dashboard-${AWS::StackName}"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "log",
+              "x": 0,
+              "y": 14,
+              "width": 24,
+              "height": 6,
+              "properties": {
+                "query": "SOURCE '${logGroupName}' | parse @message \"Date=*, Event=*, fs=*, svm=*, Result=*, IP=*, UnixID=*, GroupID=*, UserSid=*, SubjectUserIsLocal=*, Domain=*, UserName=*,\" \nas @Date, @Event, @FileSystem, @SVM, @Result, @IP, @UnixId, @GroupId, @UserSid, @SubjectUserIsLocal, @Domain, @UserName\n| fields if(@Event == \"Write-Object\", \"Write\", if(@Event == \"Read-Object\", \"Read\", if(@Event == \"Open-Object\", \"Open\", if(@Event == \"Open-Object-with-Delete-Intent\", \"Delete\", if(@Event == \"Rename-Object\", \"Rename\", if(@Event == \"Delete-Object-Attempt\", \"Delete\", @Event)))))) as Operation\n| parse @message \"volume=*,\" as @Volume\n| parse @message \"name=*\" as @Name\n| parse @message \"OldPath=*,\" as @OldPath\n| parse @message \"NewPath=*\" as @NewPath\n| filter @message not like /Audit-Policy-Changed/\n| display @Date, Operation, @IP, @UserName, @Domain, @SVM, @FileSystem, @Volume, @Name, @NewPath, @OldPath\n| sort @timestamp desc\n| limit 10000",
+                "region": "${AWS::Region}",
+                "stacked": false,
+                "title": "All Operations",
+                "view": "table"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 0,
+              "width": 11,
+              "height": 7,
+              "properties": {
+                "query": "SOURCE '${logGroupName}' | parse @message \"Date=*, Event=*, fs=*, svm=*, Result=*, IP=*, UnixID=*, GroupID=*, UserSid=*, SubjectUserIsLocal=*, Domain=*, UserName=*,\" \nas @Date, @Event, @FileSystem, @SVM, @Result, @IP, @UnixId, @GroupId, @UserSid, @SubjectUserIsLocal, @Domain, @UserName\n| fields if(@Event == \"Write-Object\", \"Write\", if(@Event == \"Read-Object\", \"Read\", if(@Event == \"Open-Object\", \"Open\", if(@Event == \"Open-Object-with-Delete-Intent\", \"Delete\", if(@Event == \"Rename-Object\", \"Rename\", if(@Event == \"Delete-Object-Attempt\", \"Delete\", @Event)))))) as Operation\n| parse @message \"volume=*,\" as @Volume\n| parse @message \"name=*\" as @Name\n| parse @message \"OldPath=*,\" as @OldPath\n| parse @message \"NewPath=*\" as @NewPath\n| filter @message not like /Audit-Policy-Changed/\n| stats count() as Operations by Operation as OperationType\n| sort OperationType asc",
+                "region": "${AWS::Region}",
+                "stacked": false,
+                "title": "Operations Summary",
+                "view": "pie"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 20,
+              "width": 24,
+              "height": 7,
+              "properties": {
+                "query": "SOURCE '${logGroupName}' | parse @message \"Date=*, Event=*, fs=*, svm=*, Result=*, IP=*, UnixID=*, GroupID=*, UserSid=*, SubjectUserIsLocal=*, Domain=*, UserName=*,\" \nas @Date, @Event, @FileSystem, @SVM, @Result, @IP, @UnixId, @GroupId, @UserSid, @SubjectUserIsLocal, @Domain, @UserName\n| fields if(@Event == \"Write-Object\", \"Write\", if(@Event == \"Read-Object\", \"Read\", if(@Event == \"Open-Object\", \"Open\", if(@Event == \"Open-Object-with-Delete-Intent\", \"Delete\", if(@Event == \"Rename-Object\", \"Rename\", if(@Event == \"Delete-Object-Attempt\", \"Delete\", @Event)))))) as Operation\n| parse @message \"volume=*,\" as @Volume\n| parse @message \"name=*\" as @Name\n| parse @message \"OldPath=*,\" as @OldPath\n| parse @message \"NewPath=*\" as @NewPath\n| filter @message not like /Audit-Policy-Changed/ and @Event like 'Delete' or @Event like 'Rename'\n| display @Date, Operation, @IP, @UserName, @Domain, @SVM, @FileSystem, @Volume, @Name, @NewPath, @OldPath\n| sort @timestamp desc\n| limit 10000",
+                "region": "${AWS::Region}",
+                "stacked": false,
+                "title": "Delete or Rename Operations",
+                "view": "table"
+              }
+            },
+            {
+              "type": "log",
+              "x": 0,
+              "y": 7,
+              "width": 24,
+              "height": 7,
+              "properties": {
+                "query": "SOURCE '${logGroupName}' | parse @message \"Date=*,\"  as @Date\n| parse @message \"Event=*,\" as Event\n| parse @message \"fs=*,\" as @FileSystem\n| parse @message \"svm=*,\" as @SVM\n| parse @message \"IP=*,\" as @IP\n| parse @message \"Domain=*,\" as @Domain\n| parse @message \"UserName=*,\" as @UserName\n| parse @message \"volume=*,\" as @Volume\n| parse @message \"name=*\" as @Name\n| filter @message like /Audit-Policy-Changed/ or @message like /Auditing-Settings-Changed/\n| sort @Date desc",
+                "queryLanguage": "CWLI",
+                "region": "${AWS::Region}",
+                "title": "Audit Change Operations",
+                "view": "table"
+              }
+            },
+            {
+              "type": "log",
+              "x": 11,
+              "y": 0,
+              "width": 13,
+              "height": 7,
+              "properties": {
+                "query": "SOURCE '${logGroupName}' | parse @message \"Date=*, Event=*, fs=*, svm=*, Result=*, IP=*, UnixID=*, GroupID=*, UserSid=*, SubjectUserIsLocal=*, Domain=*, UserName=*,\" \nas @Date, @Event, @FileSystem, @SVM, @Result, @IP, @UnixId, @GroupId, @UserSid, @SubjectUserIsLocal, @Domain, @UserName\n| fields if(@Event == \"Write-Object\", \"Write\", if(@Event == \"Read-Object\", \"Read\", if(@Event == \"Open-Object\", \"Open\", if(@Event == \"Open-Object-with-Delete-Intent\", \"Delete\", if(@Event == \"Rename-Object\", \"Rename\", if(@Event == \"Delete-Object-Attempt\", \"Delete\", @Event)))))) as Operation\n| parse @message \"volume=*,\" as @Volume\n| parse @message \"name=*\" as @Name\n| parse @message \"OldPath=*,\" as @OldPath\n| parse @message \"NewPath=*\" as @NewPath\n| filter (@message like /Delete/ or @message like /Rename/)\n| stats count() as Delete_Or_Rename_Ops by bin(1d) as Date\n| sort OperationType asc",
+                "queryLanguage": "CWLI",
+                "region": "${AWS::Region}",
+                "title": "Delete Or Rename Ops By Date",
+                "view": "bar"
+              }
+            }
+          ]
+        }
 
   LambdaFunction:
     Type: "AWS::Lambda::Function"
@@ -503,6 +572,7 @@ Resources:
           import urllib3
           import datetime
           import xmltodict
+          import re
           import os
           import json
           from urllib3.util import Retry
@@ -621,7 +691,9 @@ Resources:
           #   audit_fsx_D2024-09-24-T13-00-03_0000000000.xml
           ################################################################################
           def getEpoch(filename):
-              dateStr = filename.split('_')[2][1:]
+          
+              dateStr = re.search(r'D(\d{4}-\d{2}-\d{2}-T\d{2}-\d{2}-\d{2})', filename).group(1)
+          
               year = int(dateStr.split('-')[0])
               month = int(dateStr.split('-')[1])
               day = int(dateStr.split('-')[2])
@@ -946,12 +1018,18 @@ Resources:
                   secretARNs = {}
               #
               # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
+              writeSecretsARNs = False
+              readFromSecretsARNsFile = False
               if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
                   try:
                       response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
                   except botocore.exceptions.ClientError as err:
-                      raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
+                      if err.response['Error']['Code'] != "NoSuchKey":
+                          writeSecretsARNs = True
+                      else:
+                          raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
                   else:
+                      readFromSecretsARNsFile = True
                       for line in response['Body'].iter_lines():
                           line = line.decode('utf-8')
                           line = line.strip()
@@ -961,7 +1039,8 @@ Resources:
                               continue
                           fsId, secretArn = line.split('=')
                           secretARNs[fsId.strip()] = secretArn.strip()
-              else:
+          
+              if not readFromSecretsARNsFile:
                   if config['fileSystem1ID'] is not None and config['fileSystem1SecretARN'] is not None:
                       secretARNs[config['fileSystem1ID']] = config['fileSystem1SecretARN']
                   if config['fileSystem2ID'] is not None and config['fileSystem2SecretARN'] is not None:
@@ -976,6 +1055,16 @@ Resources:
               # If there aren't any credentials, there is no point of continuing.
               if len(secretARNs) == 0 and config['defaultSecretARN'] is None:
                   raise Exception("No secretARNs were specified.")
+          
+              if writeSecretsARNs:
+                  # Write the secretARNs to the fsxnSecretARNsFile in S3.
+                  secretsString = ""
+                  for fsId in secretARNs:
+                      secretsString += f"{fsId}={secretARNs[fsId]}\n"
+                  try:
+                      s3Client.put_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'], Body=secretsString)
+                  except botocore.exceptions.ClientError as err:
+                      raise Exception(f"Unable to write parameter file with secrets '{config['fsxnSecretARNsFile']}' to S3 bucket '{config['s3BucketName']}': {err}")
           
           ################################################################################
           # This is the main function that checks that everything is configured correctly
@@ -1008,16 +1097,16 @@ Resources:
               http = urllib3.PoolManager(cert_reqs='CERT_NONE', retries=retries)
               #
               # Get a list of FSxNs in the region.
-              fsxNs = []   # Holds the FQDN of the FSxNs management ports.
+              fsxNs = []   # Holds information for each FSxN in the region.
               fsxResponse = fsxClient.describe_file_systems()
               for fsx in fsxResponse['FileSystems']:
-                  fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
+                  fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
               #
               # Make sure to get them all since the response is paginated.
               while fsxResponse.get('NextToken') != None:
                   fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
                   for fsx in fsxResponse['FileSystems']:
-                      fsxNs.append(fsx['OntapConfiguration']['Endpoints']['Management']['DNSName'])
+                      fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
               #
               # Get the last read stats file.
               try:
@@ -1035,12 +1124,21 @@ Resources:
               #
               # Process each FSxN.
               for fsxn in fsxNs:
-                  fsId = fsxn.split('.')[1]
+                  fsId = fsxn['fsId']
+                  hostname = fsxn['hostname']
+                  dnsName = fsxn['DNSName']
                   #
                   # Since the format of the lastReadFile structure has changed, we need to update it.
-                  if lastFileRead.get(fsxn) is not None and config['vserverName'] is not None:
-                      if type(lastFileRead[fsxn]) is float:                                  # Old format
-                          lastFileRead[fsxn] = {config['vserverName']: lastFileRead[fsxn]}   # New format
+                  # The old format used the dnsName as the key.
+                  if lastFileRead.get(dnsName) is not None and config['vserverName'] is not None:
+                      if type(lastFileRead[dnsName]) is float:                                  # Old format
+                          lastFileRead[fsId] = {config['vserverName']: lastFileRead[dnsName]}   # New format
+                          del lastFileRead[dnsName]
+                  #
+                  # To be backwards compatible, update the lastFileRead list to use the fsId instead of the dnsName.
+                  if lastFileRead.get(fsId) is None and lastFileRead.get(dnsName) is not None:
+                      lastFileRead[fsId] = lastFileRead[dnsName]
+                      del lastFileRead[dnsName]
                   #
                   # Get the credentials.
                   if secretARNs.get(fsId) is None and config['defaultSecretARN'] is not None:
@@ -1075,7 +1173,7 @@ Resources:
                   endpoint = f"/api/svm/svms?return_timeout=4"
                   while endpoint is not None:
                       try:
-                          response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=5.0)
+                          response = http.request('GET', f"https://{hostname}{endpoint}", headers=headersQuery, timeout=5.0)
                           if response.status == 200:
                               svmsData = json.loads(response.data.decode('utf-8'))
                               for record in svmsData['records']:
@@ -1088,8 +1186,8 @@ Resources:
                                   #
                                   # Get the volume UUID for the audit_logs volume.
                                   volumeUUID = None
-                                  endpoint = f"https://{fsxn}/api/storage/volumes?name={config['volumeName']}&svm={vserverName}"
-                                  response = http.request('GET', endpoint, headers=headersQuery, timeout=5.0)
+                                  volumeEndpoint = f"https://{hostname}/api/storage/volumes?name={config['volumeName']}&svm={vserverName}"
+                                  response = http.request('GET', volumeEndpoint, headers=headersQuery, timeout=5.0)
                                   if response.status == 200:
                                       data = json.loads(response.data.decode('utf-8'))
                                       if data['num_records'] > 0:
@@ -1100,22 +1198,22 @@ Resources:
                                       continue # To the next SVM.
                                   #
                                   # Get all the files in the volume that match the audit file pattern.
-                                  endpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
+                                  volumeEndpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
                                   records = []
-                                  while endpoint is not None:
-                                      response = http.request('GET', f"https://{fsxn}{endpoint}", headers=headersQuery, timeout=16.0)
+                                  while volumeEndpoint is not None:
+                                      response = http.request('GET', f"https://{hostname}{volumeEndpoint}", headers=headersQuery, timeout=16.0)
                                       if response.status == 200:
                                           data = json.loads(response.data.decode('utf-8'))
                                           if data.get('num_records') == 0:
                                               if len(records) == 0:
                                                   print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
-                                              endpoint = None  # To break out of the get all files loop.
+                                              volumeEndpoint = None  # To break out of the get all files loop.
                                           else:
                                               records.extend(data['records'])
-                                              endpoint = data['_links'].get('next', {}).get('href', None)
+                                              volumeEndpoint = data['_links'].get('next', {}).get('href', None)
                                       else:
-                                          print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
-                                          endpoint = None # To break out of the get all files loop.
+                                          print(f"Warning: API call to https://{hostname}{volumeEndpoint} failed. HTTP status code: {response.status}.")
+                                          volumeEndpoint = None # To break out of the get all files loop.
           
                                   for file in records:
                                       if config['maxRunTime'] is not None:
@@ -1124,26 +1222,26 @@ Resources:
                                               print("Notice: Running too long. Exiting...")
                                               return
                                       filePath = file['name']
-                                      if lastFileRead.get(fsxn) is None or lastFileRead[fsxn].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsxn][vserverName]:
-                                          localFileName = readFile(fsxn, headersDownload, volumeUUID, filePath)
+                                      if lastFileRead.get(fsId) is None or lastFileRead[fsId].get(vserverName) is None or getEpoch(filePath) > lastFileRead[fsId][vserverName]:
+                                          localFileName = readFile(hostname, headersDownload, volumeUUID, filePath)
                                           if localFileName is not None:
                                               if config['copyToS3']:
                                                   s3Client.upload_file(localFileName, config['s3BucketName'], filePath)
                                               ingestAuditFile(localFileName, filePath)
-                                              if lastFileRead.get(fsxn) is None:
-                                                  lastFileRead[fsxn] = {vserverName: getEpoch(filePath)}
+                                              if lastFileRead.get(fsId) is None:
+                                                  lastFileRead[fsId] = {vserverName: getEpoch(filePath)}
                                               else:
-                                                  lastFileRead[fsxn][vserverName] = getEpoch(filePath)
+                                                  lastFileRead[fsId][vserverName] = getEpoch(filePath)
                                               s3Client.put_object(Key=config['statsName'], Bucket=config['s3BucketName'], Body=json.dumps(lastFileRead).encode('UTF-8'))
                                               os.remove(localFileName)
                               #
                               # Check to see if there are more SVMs to process.
                               endpoint = svmsData['_links'].get('next', {}).get('href', None)
                           else:
-                              print(f"Warning: API call to https://{fsxn}{endpoint} failed. HTTP status code: {response.status}.")
+                              print(f"Warning: API call to https://{hostname}{endpoint} failed. HTTP status code: {response.status}.")
                               endpoint = None # To break out of the get all SVMs loop.
                       except urllib3.exceptions.MaxRetryError as err:
-                          print(f"Warning: Timed out while trying to connect to, or read from, {fsxn}. {err}")
+                          print(f"Warning: Timed out while trying to connect to, or read from, {fsId}. {err}")
                           endpoint = None # To break out of the get all SVMs loop.
           #
           # If this script is not running as a Lambda function, then call the lambda_handler function.

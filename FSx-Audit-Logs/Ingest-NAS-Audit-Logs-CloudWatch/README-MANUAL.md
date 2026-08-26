@@ -2,75 +2,138 @@
 
 ## Overview
 This sample demonstrates a way to ingest the NAS audit logs from an FSx for Data ONTAP file system into a CloudWatch log group
-without having to NFS or CIFS mount a volume to access them.
-It will attempt to gather the audit logs from all the SVMs within all the FSx for Data ONTAP file systems that are within a specified region.
-It will skip any file systems where the credentials aren't provided in the supplied AWS SecretManager's secret, or that do not have
-the appropriate NAS auditing configuration enabled.
-It will maintain a "stats" file in an S3 bucket that will keep track of the last time it successfully ingested audit logs from each
-SVM to try to ensure it doesn't process an audit file more than once.
-You can run this script as a standalone program or as a Lambda function. These directions assume you are going to run it as a Lambda function.
-**NOTE**: There are two ways to install this program. Either with the [CloudFormaiton script](cloudformation-template.yaml) found this this repo,
-or by following the manual instructions found in the this file.
+without having to NFS or CIFS mount a volume to access them. It will attempt to gather the audit logs from all the SVMs within
+all the FSx for Data ONTAP file systems that are within a specified region. It will skip any file systems where credentials
+haven't been provided for or SVMs that do not have the appropriate NAS auditing configuration enabled.
+
+### Maintaining State
+The program maintains a "stats" file in an S3 bucket that allows it to keep track of the last time it successfully ingested audit logs
+from each SVM to ensure it doesn't process an audit file more than once.
+
+### Providing Credentials
+There are several ways to provide the Secrets Manager secret ARNs for the file systems you want to ingest
+audit logs from:
+1. You can create a file that has a line for each file system. The format should be:
+    ```
+    FileSystemID1 = SecretARN
+    FileSystemID2 = SecretARN
+    ```
+    For example:
+    ```
+    fs-00000000000000000=arn:aws:secretsmanager:us-west-2:000000000000:secret:secret_name1-XXXXXX
+    fs-11111111111111111=arn:aws:secretsmanager:us-west-2:000000000000:secret:secret_name2-XXXXXX
+    ```
+    Once the file has been created, upload it to the S3 bucket and provide the filename as the
+    value for the `fsxnSecretsARNsfile` parameter during the CloudFormation deployment, or via an
+    environment variable with the same name.
+2. If all, or most, of your file systems use the same credentials you can set a default secret ARN that will
+    be used if a secret ARN hasn't been provided for a specific file system ID. Please use this
+    method with caution since if the program encounters a file system that doesn't have the
+    correct credentials it could lock the account by using the wrong password too many times in a row.
+3. You can pass the secret ARNs via environment variables. The program supports up to 5 file systems
+    using this method. The environment variables should be set in pairs where one defines the file system
+    ID and the other defines the associated secret. Here is the list of environment variables:
+    `fileSystem1ID`/`fileSystem1SecretARN`, `fileSystem2ID`/`fileSystem2SecretARN`, `fileSystem3ID`/`fileSystem3SecretARN`,
+    `fileSystem4ID`/`fileSystem4SecretARN`, `fileSystem5ID`/`fileSystem5SecretARN`
+4. Edit the variable assignments at the top program. There are instructions in the code that explain how to do this.
+
+**NOTE:** If you provide the `secretsARNsfile` parameter, and that file exists in the S3 bucket, the program
+will ignore any environment variables that have been set for file system IDs and secret ARNs. Furthermore,
+if the file doesn't exist, but the environment variables have been set, the program will create the file in
+the S3 bucket with the contents of the environment variables. This allows you to use the environment variables
+to create the file in S3, and then use that file for subsequent runs of the program.
+
+### Methods of installation
+There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found in this repo,
+or by following instructions found in this file.
+
+## Architecture
+This solution is made up of a Lambda function that is triggered by an EventBridge schedule. Once invoked
+the Lambda function will use AWS APIs to gather the list of all the FSx for ONTAP file systems in the
+specified region. It will then use the credentials provided in specified AWS Secrets Manager secret to
+issue ONTAP API calls to list all the volumes in the file system, across all the SVMs, that have the name
+specified in the `VolumeName` parameter. From each one of the volumes it will gather the list of all
+the audit log files and ingest any that haven't been processed before into a CloudWatch Log Group Log
+Stream. The name of the Log Stream will equal to the name of the audit log file. It can optionally
+copy the raw audit file into the S3 bucket as well. The Lambda function will update the "stats" file
+in the S3 bucket to keep track of the last time it successfully ingested audit logs from each SVM.
+
+Note that since the Lambda function has to be able to communicate with the FSx for ONTAP
+file system, it must run within a VPC subnet that has connectivity to the FSx for ONTAP management endpoint.
+
+![Architecture](images/INAL_Architecture.png)
 
 ## Prerequisites
 - An FSx for Data ONTAP file system.
-- An S3 bucket to store the "stats" file and optionally a copy of all the raw NAS audit log files. It will also
-hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFormation script.
-    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/Ingest-NAS-Audit-Logs-into-CloudWatch/lambda_layer.zip)
-    from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
-    - The "stats" file is maintained by the program. It is used to keep track of the last time the Lambda function
-    successfully ingested audit logs from each SVM. Its size will be small (i.e. less than a few megabytes).
-- A CloudWatch log group to ingest the audit logs into. Each audit log file with get its own log stream within the log group.
 - Have NAS auditing configured and enabled on the SVM within a FSx for Data ONTAP file system. **Ensure you have selected the XML format for the audit logs.** Also,
 ensure you have set up a rotation schedule. The program will only act on audit log files that have been finalized, and not the "active" one. You can read this
 [knowledge based article](https://kb.netapp.com/on-prem/ontap/da/NAS/NAS-KBs/How_to_set_up_NAS_auditing_in_ONTAP_9) for instructions on how to setup NAS auditing.
 - Have the NAS auditing configured to store the audit logs in a volume with the same name in all SVMs on all the FSx for Data ONTAP file
 systems that you want to ingest the audit logs from.
-- An AWS Secrets Manager secret that contains the credentials you want to use to obtain the NAS Audit logs with for all the FSxN file systems.
-  - The secret should be in the form of key/value pairs where the key is the file system ID and value is a dictionary with the keys `username` and `password`. For example:
-```json
-      {
-        "fs-0e8d9172fa5411111": {"username": "fsxadmin", "password": "superSecretPassword"},
-        "fs-0e8d9172fa5422222": {"username": "service_account", "password": "superSecretPassword"}
-      }
-```
 - You have applied the necessary SACLs to the files you want to audit. The knowledge base article linked above provides guidance on how to do this.
+    **NOTE:** If you need to apply SACLs to all the files in a volume, you should consider using the 'SLAG' (Storage-Level Access Guard) feature of ONTAP
+    which allows you to enforce SACLs on all the files in a volume without having to apply them to all the individual files. You can read about SLAG in the
+    NetApp documentation [here](https://docs.netapp.com/us-en/ontap/smb-admin/secure-file-access-storage-level-access-guard-concept.html).
+- An S3 bucket to store the "stats" file and optionally a copy of all the raw NAS audit log files. It will also
+hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFormation script.
+    - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx-Audit-Logs-CloudWatch/lambda_layer.zip)
+    from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
+    - The "stats" file is maintained by the program. It is used to keep track of the last time the Lambda function successfully
+    ingested audit logs from each SVM. Its size will be small (i.e. less than a few megabytes).
+- A CloudWatch log group to ingest the audit logs into. Each audit log file will get its own log stream within the log group.
+- An AWS Secrets Manager secret for each of the FSxN file systems you wish to ingest the audit logs from. The secret should have two keys `username` and `password`. For example:
+    ```json
+      {
+        "username": "fsxadmin",
+        "password": "superSecretPassword"
+      }
+    ```
+    - If you use want to use the same credentials for all the FSx for ONTAP file systems, then you can specify a
+    default secret ARN with the `defaultSecretARN` parameter. Caution should be given when using this method since if the
+    program encounters a file system that has different credentials for the account sepcified it will fail to login.
+    After 3 failed attempts ONTAP will lock the account. If the account is 'fsxadmin' it should get unlucked
+    automatically after 45 minutes after the last failed attempt.
 
-- AWS Endpoints. Since the Lambda function runs within your VPC it will not have access to the Internet, even if you can access the Internet from the Subnet it runs from.
-Therefore, there needs to be an VPC endpoint for all the AWS services that the Lambda function uses. Specifically, the Lambda function needs to be able to access the following AWS services:
-  - FSx.
-  - Secrets Manager.
-  - CloudWatch Logs.
-  - S3 - Note that typically there is a Gateway type VPC endpoint for S3, so you should not need to create a VPC endpoint for S3.
-- Role for the Lambda function. Create a role with the necessary permissions to allow the Lambda function to do the following:
+- Create a role that will allow the Lambda function to preform the needed function. Here are the required permissions:
 
 <!--- Using HTML to create a table that has rowspan attributes since the markdown table syntax does not support that. --->
 <table>
 <tr><th>Service</td><th>Actions</td><th>Resources</th></tr>
 <tr><td>Fsx</td><td>fsx:DescribeFileSystems</td><td>&#42;</td></tr>
-<tr><td rowspan="3">ec2</td><td>DescribeNetworkInterfaces</td><td>&#42;</td></tr>
-<tr><td>CreateNetworkInterface</td><td rowspan="2">arn:aws:ec2:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
+<tr><td rowspan="6">ec2</td><td>DescribeNetworkInterfaces</td><td rowspan="6">&#42;</td></tr>
+<tr><td>CreateNetworkInterface</td></tr>
 <tr><td>DeleteNetworkInterface</td></tr>
-<tr><td rowspan="3">CloudWatch Logs</td><td>CreateLogGroup</td><td rowspan="3">arn:aws:logs:&lt;region&gt;:&lt;accountID&gt;:log-group:&#42;</td></tr>
-<tr><td>CreateLogStream</td></tr>
+<tr><td>DescribeSubnets</td></tr>
+<tr><td>AssignPrivateIpAddresses</td></tr>
+<tr><td>UnassignPrivateIpAddresses</td></tr>
+<tr><td rowspan="3">logs</td><td>CreateLogGroup</td><td rowspan="3">&#42;</td></tr>
+<tr><td>CreatLogStream</td></tr>
 <tr><td>PutLogEvents</td></tr>
 <tr><td rowspan="3">s3</td><td> ListBucket</td><td> arn:aws:s3:&lt;region&gt;:&lt;accountID&gt;:&#42;</td></tr>
 <tr><td>GetObject</td><td rowspan="2">arn:aws:s3:&lt;region>:&lt;accountID&gt;:&#42;/&#42;</td></tr>
 <tr><td>PutObject</td></tr>
-<tr><td>Secrets Manager</td><td> GetSecretValue </td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretName&gt&#42;</td></tr>
+<tr><td>Secrets Manager</td><td> GetSecretValue </td><td>arn:aws:secretsmanager:&lt;region&gt;:&lt;accountID&gt;:secret:&lt;secretNames&gt&#42;</td></tr>
 </table>
 Where:
 
 - &lt;accountID&gt; -  is your AWS account ID.
 - &lt;region&gt; - is the region where the FSx for ONTAP file systems are located.
-- &lt;secretName&gt; - is the name of the secret that contains the credentials for the fsxadmin accounts.
+- &lt;secretNames&gt; - is the common prefix that all the secrets have that contain the credentials for
+the file systems you want to ingest logs from. This there isn't a common prefix then you must
+list each secret ARN individually. Or, you could use `*` as the resource and have a condition that limits
+the scope of the secrets it can access.
 
 Notes:
-- Since the Lambda function runs within your VPC it needs to be able to create and delete network interfaces.
-- The AWS Security Group Policy builder incorrectly generates resource lines for the `CreateNetworkInterface`
-and `DeleteNetworkInterface` actions. The correct resource line is `arn:aws:ec2:<region>:<accountID>:*`.
-- It needs to be able to create a log groups so it can create a log group for the diagnostic output from the Lambda function.
-- Since the ARN of any Secrets Manager secret has random characters at the end of it, you must add the `*` at the end, or provide the full ARN of the secret.
+- The reason for the ec2 actions is because the Lambda function must run within your VPC and therefore needs to
+be able to create and delete a network interface, as well as assign an IP address to it. The actions are
+actually done by AWS Lambda service and not the Lambda function itself. Therefore, if you want to restrict
+those permissions to only the AWS Lambda service then following the instructions found
+[here](https://docs.aws.amazon.com/lambda/latest/dg/configuration-vpc.html#configuration-vpc-best-practice).
+- The reason for the `*` for the resource of the CloudWatch logs actions is so it can create a LogGroup for
+the diagnostic output of the Lambda function itself, as well as create LogStreams and PutEvents for the
+ingestion of the NAS audit logs. If required, you could restrict to just the LogGroup to be used for the
+audit logs and forgo the diagnostic output of the Lambda function itself. The diagnostic output is not
+necessary, but useful if something goes wrong.
 
 ## Deployment
 1. Create a Lambda deployment package by:
@@ -117,16 +180,47 @@ process a lot of audit entries and/or process a lot of SVMs.
     |fileSystem5SecretARN|No|The ARN of the secret that contains the credentials for the fifth FSx for Data ONTAP file system.|
     | statsName | Yes| The name you want to use as the stats file. |
 
-    **NOTE:** You need to set the `fsxnSecretARNsFile`, `defaultSecretARN` or the `fileSystemXID` and `fileSystemXSecretARN` variables.
-    If `fsxnSecretARNsFile` is provided the program will ignore the `fileSystemXID` and `fileSystemXSecretARN` variables.
+    **NOTES:**
+    - You need to set the `fsxnSecretARNsFile`, `defaultSecretARN` or the `fileSystemXID` and `fileSystemXSecretARN` variables
+otherwise, the program will not know how to access the FSxN file systems.
+    - If `fsxnSecretARNsFile` is provided and the file it references exist in the S3 bucket, the program will ignore the
+`fileSystemXID` and `fileSystemXSecretARN` variables. If it is set and the file it references does not exists, the program
+will create one based on the values of the fileSystemXID/fileSystemXSecretARN variables.
 
 4. Test the Lambda function by clicking on the `Test` tab and then clicking on the `Test` button. You should see "Executing function: succeeded".
-If not, click on the "Details" button to see what errors there are.
+If not, click on the "Details" button to see what errors there are. Resolve the issues and click on the Test button again.
+If you are unable to resolve an error please create an [issue](https://github.com/NetApp/FSx-ONTAP-monitoring/issues) on the GitHub repository and someone will help you.
 
 5. After you have tested that the Lambda function is running correctly, add an EventBridge trigger to have it run periodically.
 You can do this by clicking on the `Add Trigger` button within the AWS console on the Lambda page and selecting `EventBridge (CloudWatch Events)`
 from the drop-down menu. You can then configure the schedule to run as often as you want. How often depends on how often you have
 set up your FSx for ONTAP file systems to rotate audit logs, and how up-to-date you want the CloudWatch logs to be.
+
+6. It is recommended that you create a CloudWatch alarm to monitor the Lambda function so you'll know if it has failed to run properly.
+    1. Create an SNS topic by going to the Simple Notification Service (SNS) service in the AWS console and clicking on the
+    `Topics` link in the left hand navigation pane. Click on the `Create topic` button. Create a `Standard` topic and give
+    it a name and click on the `Create topic` button.
+    1. Click on the topic you just created and click on `Create subscription`. Select `Email` as the protocol and provide an email
+    address to send notifications to. You will need to confirm the subscription by clicking on a link in the email that is sent to you.
+    2. Next, go to the CloudWatch service in the AWS console and click on the `Alarms` link in the left hand navigation
+    pane and click on the `Create alarm` button.
+    4. Click on the `Select metric` button. This will bring you to a page where you can provide the Lambda
+    function name created in the steps above. Once you provide the name and hit `Return` it should present
+    two boxes: "Lambda > By Resources" and "Lambda > By Function Name".
+    5. Click on the "Lambda > By Function Name" box. This will bring you to a page where you can select
+    the metric you want to monitor. In this case, you want to monitor the "Errors" metric so click on the
+    box in front of the line with "Errors" as the metric name.
+    6. Click on the "Select metric" button. This will bring you to a page where you can set the conditions for
+    the alarm. The `Threshold Type` should be set to `Static` and the `Whenever Errors is...` set be set
+    to `Greater`. Under the `than..` label put `0.5` in the text box. This will set the alarm to
+    trigger if there are any errors.
+    7. Click on `Next`.
+    8. Insert the name of the SNS topic you created above into the `Send a notification to...` text box and click on `Next`.
+   10. Give the Alarm a name and optionally a description and click on `Next`.
+   11. Click on `Create alarm` to create the alarm.
+
+
+
 
 ## Author Information
 

@@ -1,31 +1,57 @@
 ---
-# Copyright (c) NetApp, Inc.
-# SPDX-License-Identifier: Apache-2.0
-
+#
+# This workflow will run terraform validate if any of the terraform files are
+# changed in the specified directories.
+#
 name: "Code Quality: Terraform"
+
+permissions:
+  contents: read
 
 on:
   pull_request:
     paths:
-      - 'Terraform/**'
+      - 'FSx_Alerting/Auto-Add-CloudWatch-Alarms/terraform/**'
+      - 'FSx_Alerting/FSx_ONTAP_Alerting/terraform/**'
   push:
     paths:
-      - 'Terraform/**'
+      - 'FSx_Alerting/Auto-Add-CloudWatch-Alarms/terraform/**'
+      - 'FSx_Alerting/FSx_ONTAP_Alerting/terraform/**'
     branches:
       - main
 
 jobs:
-  terraform:
-    name: Terraform
+  #
+  # Since there is no way to know which paths triggered the event
+  # we are going to use the 'dorny' utility to do it.
+  check-paths:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        directory:
-          - 'Terraform/deploy-fsx-ontap/module'
-          - 'Terraform/deploy-fsx-ontap/standalone-module'
+    outputs:
+      auto_add_cloudwatch_alarms: ${{ steps.filter.outputs.auto_add_cloudwatch_alarms }}
+      fsx_ontap_alerting: ${{ steps.filter.outputs.fsx_ontap_alerting }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check for path changes
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            auto_add_cloudwatch_alarms:
+              - 'FSx_Alerting/Auto-Add-CloudWatch-Alarms/terraform/**'
+            fsx_ontap_alerting:
+              - 'FSx_Alerting/FSx_ONTAP_Alerting/terraform/**'
+
+  auto_add_cw_alarms:
+    name: auto_add_cw_alarms
+    runs-on: ubuntu-latest
+    needs: check-paths
+    if: ${{ needs.check-paths.outputs.auto_add_cloudwatch_alarms == 'true' }}
+
     defaults:
       run:
-        working-directory: ${{ matrix.directory }}
+        working-directory: 'FSx_Alerting/Auto-Add-CloudWatch-Alarms/terraform'
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -43,13 +69,44 @@ jobs:
         uses: hashicorp/setup-terraform@ed3a0531877aca392eb870f440d9ae7aba83a6bd # v1.4.0
         with:
           terraform_wrapper: false
-          terraform_version: 1.6.6
+          terraform_version: 1.12.1
 
       - name: Initialize Terraform
         run: terraform init
 
-      # - name: Format Terraform configuration
-      #   run: terraform fmt -diff -check -no-color -recursive
+      - name: Validate Terraform configuration
+        run: terraform validate
+
+  fsxn_alerting:
+    name: fsxn_alerting
+    runs-on: ubuntu-latest
+    needs: check-paths
+    if: ${{ needs.check-paths.outputs.fsx_ontap_alerting == 'true' }}
+
+    defaults:
+      run:
+        working-directory: 'FSx_Alerting/FSX_ONTAP_Alerting/terraform'
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@fa2e9d605c4eeb9fcad4c99c224cee0c6c7f3594 # v2.16.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout pull request
+        uses: actions/checkout@8f4b7f84864484a7bf31766abe9204da3cbe65b3 # v3.5.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@ed3a0531877aca392eb870f440d9ae7aba83a6bd # v1.4.0
+        with:
+          terraform_wrapper: false
+          terraform_version: 1.12.1
+
+      - name: Initialize Terraform
+        run: terraform init
 
       - name: Validate Terraform configuration
         run: terraform validate

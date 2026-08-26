@@ -12,20 +12,22 @@
         - [4.1.4 Expected Actions](#414-expected-actions)
         - [4.1.5 Post Installation Checks](#415-post-installation-checks)
     - [4.2 Manual Installation](#42-manual-installation)
-- [5. Maintaining the list of systems to monitor](#5-maintaining-the-list-of-systems-to-monitor)
-- [6. Added Destinations](#6-added-destinations)
-    - [6.1 Adding a Webhook](#61-adding-a-webhook)
-    - [6.2 Adding a Syslog Server](#62-adding-a-syslog-server)
-    - [6.3 Adding a CloudWatch Log Stream](#63-adding-a-cloudwatch-log-stream)
-- [7. Upgrading the monitoring program](#7-upgrading-the-monitoring-program)
-- [8. References](#8-references)
-    - [8.1 FSxN List File Format](#81-fsxn-list-file-format)
-    - [8.2 Configuration File Format](#82-configuration-file-format)
-    - [8.3 Webhook Payload Configuration File Format](#83-webhook-payload-configuration-file-format)
-    - [8.4 Configuration Parameters](#84-monitoring-configuration-parameters)
-    - [8.5 Monitoring Program Role Permissions](#85-monitoring-program-role-permissions)
-    - [8.6 Controller Program Role Permissions](#86-controller-program-role-permissions)
-    - [8.7 Matching Conditions File](#87-matching-conditions-file)
+- [5. Maintenance Items](#5-maintenance-items)
+    - [5.1 Update the list of systems to monitor](#51-update-the-list-of-systems-to-monitor)
+    - [5.2 Changing the polling interval](#52-changing-the-polling-interval)
+    - [5.3 Adding Destinations](#53-adding-destinations)
+        - [5.3.1 Adding a Webhook](#531-adding-a-webhook)
+        - [5.3.2 Adding a Syslog Server](#532-adding-a-syslog-server)
+        - [5.3.3 Adding a CloudWatch Log Stream](#533-adding-a-cloudwatch-log-stream)
+    - [5.4 Upgrading the monitoring program](#54-upgrading-the-monitoring-program)
+- [6. References](#6-references)
+    - [6.1 FSxN List File Format](#61-fsxn_list-file-format)
+    - [6.2 Configuration File Format](#62-configuration-file-format)
+    - [6.3 Webhook Payload Configuration File Format](#63-webhook-payload-configuration-file-format)
+    - [6.4 Configuration Parameters](#64-monitoring-configuration-parameters)
+    - [6.5 Monitoring Program Role Permissions](#65-monitoring-program-role-permissions)
+    - [6.6 Controller Program Role Permissions](#66-controller-program-role-permissions)
+    - [6.7 Matching Conditions File](#67-matching-conditions-file)
 
 ## 1 Introduction
 This program is used to monitor various services of a NetApp ONTAP system and alert you if anything
@@ -75,7 +77,7 @@ to use, the targets to send alerts to, etc.)
 Once the monitoring program has been invoked it will use the ONTAP APIs to obtain the required information 
 from the file system. It will compare this information against the conditions that have been
 specified in the conditions file (more information about the conditions file can be found in
-the [Matching Conditions File](#87-matching-conditions-file) below). If any conditions have been
+the [Matching Conditions File](#67-matching-conditions-file) below). If any conditions have been
 met it will send an alert to any of the specified targets (SNS Topic, syslog server, webhook endpoint,
 CloudWatch Log Stream). The program stores all the conditions that are currently being met in an object in an
 S3 bucket so it can ensure that it doesn't send duplicate messages for the same event.
@@ -110,7 +112,7 @@ that you don't disable them.
     one ONTAP system, and each system has different credentials, then you will need either
     a separate secret for each system or, specify a different key name for the username
     and/or password for each system in the FSxN List file. See the
-    [FSxN List File\_Format](#81-fsxn_list-file-format) section below for more information.<br><br>
+    [FSxN List File\_Format](#61-fsxn_list-file-format) section below for more information.<br><br>
     Note that the monitoring program only needs `http` application access and only performs read-only operations.
     Therefore, you can create a user account with a read-only role. For an AWS FSx for NetApp ONTAP file system,
     you can use the `fsxadmin-readonly` role for that. For other ONTAP systems, you can
@@ -119,7 +121,7 @@ that you don't disable them.
     documentation for more information on how to create user accounts within Data ONTAP.
 - Create an object (file) in the S3 bucket that contains the list of file systems you
     want to monitor. You can name the file anything you want but the default name is `FSxNList`.
-    The format of the file is listed in the [FSxN List File\_Format](#81-fsxn_list-file-format)
+    The format of the file is listed in the [FSxN List File\_Format](#61-fsxn_list-file-format)
     section below. If you create it locally, make sure to upload it to the S3 bucket.
 - Optionally:
     - An SNS topic to send the alerts to.
@@ -201,7 +203,7 @@ describes each parameter and any notes about it.
 |Stackname<br>[Only applicable with a CloudFormation deployment]|The name you want to assign to the CloudFormation stack. Note that this name is used as a base name for some of the resources it creates, so please keep it **under 25 characters**.|
 |Region<br>[Only applicable with a Terraform deployment]|The AWS region where you want to deploy the program.|
 |S3BucketName|The name of the S3 bucket where you want the program to store its event status information. The FSxN List file and a copy of the `lambda_layer.zip` file must also be stored here. The ONTAP system configuration file(s) will be stored in this bucket as well.<br>**NOTE** If deploying with CloudFormation, this bucket must be in the same region where the CloudFormation stack is being created.|
-|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [FSxN\_List File Format](#81-fsxn_list-file-format) section below.|
+|FSxNListFilename|The name of the file (S3 object) within the S3 bucket that contains a list of ONTAP systems to monitor. The format of this file is specified in the [FSxN\_List File Format](#61-fsxn_list-file-format) section below.|
 |SubnetIds|The subnet IDs that the monitoring Lambda function will run from. They must all be from the same VPC. They must also have connectivity to the ONTAP systems management endpoints that you wish to monitor. It is recommended to select at least two.|
 |SecurityGroupIds|The security group IDs that the monitoring Lambda function will be attached to. The security group only needs to allow outbound traffic over port 443 to the Secrets Manager and S3, and optionally the CloudWatch and SNS, AWS service endpoints, as well as the ONTAP file systems you want to monitor. And, if you have defined a webhook, it will need to be able connect to it.|
 |SnsTopicArn|The ARN of the SNS topic you want the program to publish alert messages to. While this parameter is optional note that the SNS topic is used to send alerts when something goes wrong with the operation of the monitoring solution so it is highly recommended to provide one.|
@@ -210,8 +212,8 @@ describes each parameter and any notes about it.
 |CreateCloudWatchAlarm|Set to "true" if you want to create a CloudWatch alarm that will alert you if the either of the Lambda function fails.<br>**NOTE:** If the SNS topic is in another region, be sure to enable ImplementWatchdogAsLambda.|
 |ImplementWatchdogAsLambda|If set to "true" a Lambda function will be created that will allow the CloudWatch alarm to publish an alert to an SNS topic in another region. Only necessary if the SNS topic is in another region since CloudWatch cannot send alerts across regions.|
 |WatchdogRoleArn|The ARN of the role assigned to the Lambda function that the watchdog CloudWatch alarm will use to publish SNS alerts with. The only required permission is to publish to the SNS topic listed above, although highly recommended that you also add the AWS managed "AWSLambdaBasicExecutionRole" policy that allows the Lambda function to create and write to a CloudWatch log stream so it can provide diagnostic output of something goes wrong. Only required if creating a CloudWatch alert, implemented as a Lambda function, and you want to provide your own role. If left blank a role will be created for you if needed.|
-|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Controller Program Role Permissions](#86-controller-program-role-permissions) section below. If left blank a role will be created for you.|
-|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Monitoring Program Role Permissions](#85-monitoring-program-role-permissions) section below. If left blank a role will be created for you.|
+|ControllerRoleArn|The ARN of the role that the controller Lambda function will use. This role must have the permissions listed in the [Controller Program Role Permissions](#66-controller-program-role-permissions) section below. If left blank a role will be created for you.|
+|MonitoringRoleArn|The ARN of the role that the monitoring Lambda function will use. This role must have the permissions listed in the [Monitoring Program Role Permissions](#65-monitoring-program-role-permissions) section below. If left blank a role will be created for you.|
 |lambdaLayerArn|The ARN of the Lambda Layer to use for the Lambda function. This is only needed if you want to use an existing Lambda layer, typically from a previous installation of this program. If no ARN is provided, a Lambda Layer will be created for you from the lambda\_layer.zip found in your S3 bucket.|
 |maxRunTime|The maximum amount of time, in seconds, that the monitoring Lambda function is allowed to run. The default is 60 seconds. You might have to increase this value if you have a lot of components in your ONTAP system. However, if you have to raise it to more than a couple minutes and the function still times out, then it could be an issue with the endpoint causing the calls to the AWS services to hang. See the [Create Any Needed AWS Service Endpoints](#create-any-needed-aws-service-endpoints) section below for more information.|
 |memorySize|The amount of memory, in MB, to assign to the Lambda function. The default is 128 MB. You might have to increase this value if you have a lot of components in your ONTAP system.|
@@ -224,7 +226,7 @@ describes each parameter and any notes about it.
 |EndpointSecurityGroupIds|The security group IDs that the endpoint will be attached to. The security group must allow traffic over TCP port 443 from the Lambda function. This is required if you are creating an Lambda, CloudWatch or SecretsManager endpoint.|
 
 The remaining parameters are used to create the matching conditions configuration file, which specify when the program will send an alert.
-You can read more about it in the [Matching Conditions File](#87-matching-conditions-file) section below. All these parameters have reasonable default values
+You can read more about it in the [Matching Conditions File](#67-matching-conditions-file) section below. All these parameters have reasonable default values
 so you probably won't have to change any of them. Note that if you enable EMS alerts, then the default rule will
 alert on all EMS messages that have a severity of `Error`, `Alert` or `Emergency`. You can change the
 matching conditions at any time by updating the matching conditions file that is created in the S3 bucket.
@@ -235,10 +237,10 @@ set for the OntapAdminServer parameter in the FSxNList file.
 
 If you deploy the program with either CloudFormation or Terraform, expect the following to happen:
 - Create a role for the Monitoring Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Monitoring Program Role Permissions](#85-monitoring-program-role-permissions) section below.<br>
+    is outlined in the [Monitoring Program Role Permissions](#65-monitoring-program-role-permissions) section below.<br>
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create a role for the Controller Lambda functions to use. The permissions will be the same as what
-    is outlined in the [Controller Program Role Permissions](#86-controller-program-role-permissions) section below.<br>
+    is outlined in the [Controller Program Role Permissions](#66-controller-program-role-permissions) section below.<br>
     **NOTE:** You can provide the ARN of an existing role to use instead of having it create a new one.
 - Create two Lambda functions with the Python code provided in this repository.
 - Create an EventBridge rule to trigger the controller Lambda function. By default, it will trigger
@@ -307,12 +309,12 @@ Overview of the steps to manually install the monitoring solution:
 #### Create an AWS Role for the Controller program
 The controller also doesn't need many AWS permissions. It just needs to be able to invoke the monitoring Lambda function
 and send SNS messages if it fails to invoke the monitoring function.
-Refer to the [Controller Program Role Permissions](#86-controller-program-role-permissions) table below for the minimum permissions needed.
+Refer to the [Controller Program Role Permissions](#66-controller-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an AWS Role for the Monitoring program
 The program doesn't need many AWS permissions. It just needs to be able to get the ONTAP system credentials stored in a Secrets Manager secret,
 read and write objects in an s3 bucket, and optionally be able to publish to an SNS topic, create CloudWatch log Streams and put events.
-Refer to the [Monitoring Program Role Permissions](#85-monitoring-program-role-permissions) table below for the minimum permissions needed.
+Refer to the [Monitoring Program Role Permissions](#65-monitoring-program-role-permissions) table below for the minimum permissions needed.
 
 #### Create an S3 Bucket
 The first use of the s3 bucket will be to store the Lambda layer zip file. This is required to include some dependencies that
@@ -329,11 +331,11 @@ send the alert and store the event. Once a successful SnapMirror synchronization
 from the s3 object allowing for a new event to be created and alerted on. If you want to keep the event information
 longer than that, please configure the program to store them in a CloudWatch log group.
 
-This bucket is also used to store the [Matching Condition](#87-matching-conditions-file) and [FSxN List](#81-fsxn-list-file-format) files.
+This bucket is also used to store the [Matching Condition](#67-matching-conditions-file) and [FSxN List](#61-fsxn_list-file-format) files.
 
 #### Create FSxN List File
 The FSxN list file is used by the controller Lambda function to determine which ONTAP systems to monitor.
-You can find the format of this file in the [FSxN List File Format](#81-fsxn-list-file-format) section below.
+You can find the format of this file in the [FSxN List File Format](#61-fsxn_list-file-format) section below.
 Once you have created the file, upload it to the S3 bucket you created in the previous step.
 
 #### Create an SNS Topic
@@ -365,7 +367,7 @@ This step is optional if you don't want to send the logs to CloudWatch.
 #### Create a Webhook payload configuration file
 If you want the program to send alerts to a webhook endpoint, you can create a webhook payload configuration file
 that specifies what should be sent as the payload to the webhook. You can see the format of this file in the
-[Webhook Payload Configuration File Format](#83-webhook-payload-configuration-file-format) section below.
+[Webhook Payload Configuration File Format](#63-webhook-payload-configuration-file-format) section below.
 
 #### Create any needed AWS Service Endpoints
 Since the monitoring Lambda function has to communicate with the ONTAP system within your network, it will have to run within a VPC that has connectivity to the file
@@ -449,7 +451,7 @@ Next, create the controller Lambda function by going to the AWS Lambda service a
 
 #### Final Steps
 1. Create the matching conditions file and upload it to the S3 bucket you created above. The format of the file is
-described in the [Matching Conditions File](#87-matching-conditions-file) section below. By default the monitoring program
+described in the [Matching Conditions File](#67-matching-conditions-file) section below. By default the monitoring program
 will look for the matching conditions file with a name of `<OntapAdminServer>-conditions` where `<OntapAdminServer>` is the value
 you set for the OntapAdminServer parameter in the FSxNList file. You can change that by setting the
 `conditionsFilename` configuration parameter in the FSxNList file to a different name. This allows you to have a different
@@ -482,22 +484,44 @@ put `0.5` in the text box. This will set the alarm to trigger if there are any e
 Lambda functions.
 ---
 
-## 5 Maintaining the list of systems to monitor
+## 5 Maintenance Items
 
-If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#81-fsxn_list-file-format) stored in the S3 bucket.
+### 5.1 Update the list of systems to monitor
+
+If you want to add or remove ONTAP systems to monitor, you just need to update the [FSxN\_List file](#61-fsxn_list-file-format) stored in the S3 bucket.
 The controller will pick up on the changes to the FSxN\_List file the next time it runs.
 
-## 6 Added Destinations
+Note that since the controller will invoke a monitoring Lambda function concurrently for every system to be monitored
+and each Lambda function will be given an IP address from the subnet's IP address range, there will be a
+limit to the number of ONTAP systems that can be monitored by a single deployment of this solution. Therefore, if
+you have a large number of ONTAP systems to monitor, you may need to deploy another instance of the solution in another
+subnet. You might also want to deploy another instance of this solution if the ONTAP systems are geographically located
+in another region. If you deploy a new instance, be sure to use a different S3 bucket. Also, if in another
+region, use resources that are in that region.
+
+### 5.2 Changing the polling interval
+If you decide want to to poll the systems more, or less, frequently, you can change the EventBridge Rule
+to trigger the controller Lambda function at a different interval. The recommended interval is every 15 minutes.
+Make sure to not set the interval to less than the "timeout" value for the Monitoring Lambda function.
+The CloudFormation template sets that to 60 seconds.
+
+To change the interval, go to the controller Lambda function (the name should start with "MOS-controller" if you used
+the CloudFormation template to deploy the solution) and click on the "Configuration" tab, then click on the "Triggers"
+sub-tab on the left hadn side. Next click on the "EventBridge" trigger and then click on the "Edit" button. This will
+bring you to a page where you can change the schedule expression. The default is set to `rate(15 minutes)`.
+Change that to anything you want, as long as it is greater than the timeout value of the monitoring Lambda function.
+
+### 5.3 Adding Destinations
 
 If after the initial deployment you want to add additional destinations for the monitoring program to send
 events to, you can do that by adding the appropriate configuration parameters to the FSxN\_List file. The
 following destinations are supported:
 
-### 6.1 Adding a Webhook
+#### 5.3.1 Adding a Webhook
 
 The first step to adding a webhook destination is creating a payload template file.  The
 actual contents of the file is dependent on what the webhook service is expecting to receive.
-Refer to the [Webhook\_Payload\_configuration\_file\_format](#83-webhook-payload-configuration-file-format)
+Refer to the [Webhook\_Payload\_configuration\_file\_format](#63-webhook-payload-configuration-file-format)
 section on how you can use variables in the template file to insert the pertinent information
 into the message that is sent. Once the payload template file has been created, it needs
 to be uploaded to the S3 bucket.
@@ -512,23 +536,25 @@ for the systems that you want their events to be sent to the webhook:
     Otherwise the program will set the Authorization header as a Basic type with the credentials sent as base64 
     encoded username:password.
 
-:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#82-configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+A third step would be to ensure the security group of the Lambda function allows outbound access to the webhook endpoint.
 
-### 6.2 Adding a Syslog Server
+:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#62-configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+
+#### 5.3.2 Adding a Syslog Server
 
 To add a syslog server you just need to add the syslogIP configuration parameters to the
 FSxN\_List file for all ONTAP systems you want their events sent to the syslog server.
 Note that the monitoring program will send the events to that IP address over UDP port 514.
 
-### 6.3 Adding a CloudWatch Log Stream
+#### 5.3.3 Adding a CloudWatch Log Stream
 
 To have the program send a copy of every event to a CloudWatch log stream, you just need to
 add the cloudWatchLogGroupArn configuration parameter to the FSxN\_List file for each ONTAP
 system you want its events to send to a CloudWatch log stream. You might have to add the appropriate
 permissions to the Lambda function's role to allow it to write to the log stream.
-See the [Monitoring Program Role Permissions](#85-monitoring-program-role-permissions) section for more information.
+See the [Monitoring Program Role Permissions](#65-monitoring-program-role-permissions) section for more information.
 
-## 7 Upgrading the monitoring program
+### 5.4 Upgrading the monitoring program
 
 If you want to upgrade the monitoring program to a newer version and you used CloudFormation or Terraform to deploy it,
 the easiest way is to just delete the stack and redeploy it using the same deployment parameter values. This will not
@@ -539,9 +565,9 @@ If you deployed it manually, you can use the AWS console to update the code of t
 with the new code found in the repo.
 
 ---
-## 8 References
+## 6 References
 
-### 8.1 FSxN\_List File Format
+### 6.1 FSxN\_List File Format
 
 The FSxN\_List file specifies the ONTAP systems to monitor and any configuration parameters you want to specify for each one.
 
@@ -555,7 +581,7 @@ Where:
 - `<OntapAdminServer>` is the fully qualified hostname, or IP address, of the ONTAP system management endpoint you want to monitor.
 - `<SecretArn>` is the ARN of the Secrets Manager secret that contains the credentials for the ONTAP system.
 - `<param>=<value>` are the optional parameters that can be used to specify any configuration parameter for the monitoring program.
-    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#84-monitoring-configuration-parameters) section below.
+    The `param` can be any of the configuration parameters listed in the [Monitoring Configuration Parameters](#64-monitoring-configuration-parameters) section below.
     **Do not** put double quotes around the values.
 
 An example FSxNList file:
@@ -568,20 +594,20 @@ An example FSxNList file:
 198.19.255.162,arn:aws:secretsmanager:us-west-2:759995470648:secret:FSxSecret-prod-8BaX2R,cloudWatchLogGroupArn=arn:aws:logs:us-west-2:759995470648:log-group:mon-ontap-service:*,conditionsFilename=defaultConditions
 ```
 
-:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#82-configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
+:bulb: **Tip** You can use the `configFilename` parameters to specify a [Configuration File](#62-configuration-file-format) that contains a list of parameters. This way you can have a common set of parameters for all your file systems.
 
-:bulb: **Tip** You can use the `conditionsFilename` parameters to specify a file that contains the [Matching Conditions File](#87-matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
+:bulb: **Tip** You can use the `conditionsFilename` parameters to specify a file that contains the [Matching Conditions File](#67-matching-conditions-file). This way you can have a common matching conditions file for all your file systems. Otherwise, each one will have to have its own matching conditions file.
 
-### 8.2 Configuration File Format
+### 6.2 Configuration File Format
 The configuration file is a simple text file that contains a list of parameter assignments. The format of the file is as follows:
 ```
 param1=value1
 param2=value2
 ...
 ```
-Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#84-monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
+Where `param` is the name of the parameter list in the [Monitoring Configuration Parameters](#64-monitoring-configuration-parameters) and `value` is the value you want to assign to that parameter.
 
-### 8.3 Webhook Payload Configuration File Format
+### 6.3 Webhook Payload Configuration File Format
 The format of the webhook payload configuration template file is just plain text, however you can specify various
 placeholders that will be replaced with actual values when the program sends the alert. You specify the placeholders by putting
 them within curly braces `{}`. Here is a list of the available placeholders:
@@ -607,12 +633,12 @@ If you don't provide a webhook payload configuration file, the program will use 
 }
 ```
 
-### 8.4 Monitoring Configuration Parameters
+### 6.4 Monitoring Configuration Parameters
 Below is the list of parameters that configure the Monitoring Lambda function. Some parameters are required to be set
 while others are optional. Some of the optional ones are still required to be set to something but
 if they are not, a usable default value will be assumed.
 
-Instead of passing all these parameters via the FSxN\_List file, you can create a [configuration file](#82-configuration-file-format)
+Instead of passing all these parameters via the FSxN\_List file, you can create a [configuration file](#62-configuration-file-format)
 that contains the parameter assignments. The default filename for the configuration file is what you set OntapAdminServer
 to in the FSxN\_List file plus the string "-config". If you want to use a different filename, for example so you can have
 a common file for all or most of the file systems, then set the `configFilename` parameter in the FSxN\_List file to the
@@ -651,9 +677,9 @@ Then your FSxN\_List file can look like this:
 | snsTopicArn              | No       | None          | Set to the ARN of the SNS topic you want the program to publish alert messages to. This isn't required since the controller function will pass the SNS topic ARN that it was configured with. |
 | cloudWatchLogGroupArn    | No       | None          | The ARN of **an existing** CloudWatch log group that the Lambda function will also send alerts to. If left blank, alerts will not be sent to CloudWatch.|
 | syslogIP                 | No       | None          | Set to the IP address (or DNS hostname) of the syslog server where you want alerts sent to.|
-| webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. |
+| webhookEndpoint          | No       | None          | Set to the webhook endpoint URL you want the program to send alerts to. Note, you'll most likely need to update the `sendWebhook` function to format the message you want to send. If left blank messages will not be sent to a webhook. Also, ensure your Security Group allows access to the endpoint.|
 | webhookSeverity          | No       | INFO          | Sets a threshold for sending webhook messages. Valid values are: DEBUG, INFO, WARNING, ERROR, CRITICAL. Only events with a severity equal to or greater than this value will be sent to the webhook endpoint.|
-| webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Webhook Payload Configuration File Format](#83-webhook-payload-configuration-file-format) section. If left blank a default payload will be used.|
+| webhookConfigFilename    | No       | None          | Set to the filename (S3 object) where you define the payload to be sent to the webhook endpoint. The format of this file is described in the [Webhook Payload Configuration File Format](#63-webhook-payload-configuration-file-format) section. If left blank a default payload will be used.|
 | webhookSecretARN         | No       | None          | Set to the ARN of the Secrets Manager secret that holds the credentials to be used to create an authentication header to the webhook host. If left blank no authentication header will be sent. If the value of the username is `bearer` then a "Bearer" authentication header will be sent with the token set to the value of password, otherwise a "basic" authentication header will be sent. |
 | webhookSecretUsernameKey | No       | username      | Set to the key in the Secrets Manager secret that holds the username to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "username" will be used.|
 | webhookSecretPasswordKey | No       | password      | Set to the key in the Secrets Manager secret that holds the password to be used to create an authentication header. If left blank, and the webhookSecretARN is defined, "password" will be used.|
@@ -669,13 +695,13 @@ Then your FSxN\_List file can look like this:
 | secretsManagerEndPointHostname | No | None          | Set to the DNS hostname assigned to the SecretsManager endpoint created above. Only needed if you had to create a VPC endpoint for the Secrets Manager service.|
 | cloudWatchLogsEndPointHostname | No | None          | Set to the DNS hostname assigned to the CloudWatch Logs endpoint created above. Only needed if you had to create a VPC endpoint for the Cloud Watch Logs service|
 
-### 8.5 Monitoring Program Role Permissions
+### 6.5 Monitoring Program Role Permissions
 
 The following table shows the required permissions needed for the monitoring program to run.
 
 | Permission                    | Minimal Resources | Reason     |
 |:------------------------------|:-----------------:|:----------------|
-|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service.|
+|secretsmanager:GetSecretValue  | An ARN pattern to the secrets that hold the credentials of the ONTAP systems you plan to monitor as well as Webhook authentication secret if used. | To be able to retrieve the credentials to use to access the ONTAP APIs and optionally to the webhook service. See the **Tip** below for an alternate way to allow access to secrets.|
 |sns:Publish                    | The ARN to the SNS topic you wish to publish to. | To allow it to send messages (alerts) via SNS.|
 |s3:PutObject                   | The ARN to the S3 bucket | So it can store its state information in various s3 objects.|
 |s3:GetObject                   | The ARN to the S3 bucket | So it can retrieve previous state information, as well as configuration files, from various s3 objects. |
@@ -692,9 +718,36 @@ The following table shows the required permissions needed for the monitoring pro
 |kms:Decrypt                    | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
 |kms:GenerateDataKey            | The ARN to the KMS key that is used to encrypt objects in the S3 bucket | Optional, only needed if you are using a KMS key to encrypt objects in the S3 bucket. |
 
-:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
+:bulb: **Tip** Instead of adding the last six `ec2` permissions, you can just assign the AWS managed policy
+called `AWSLambdaVPCAccessExecutionRole` to the role. It also has the required permission that allow it to
+write diagnostic logs to CloudWatch which will be very beneficial if something goes wrong.
 
-### 8.6 Controller Program Role Permissions
+:bulb: **Tip** Instead of providing a resource ARN pattern for the `secretsmanager:GetSecretValue` action, you can set
+the resource to `*` but add a condition that only allows access to secrets that have a specific tag. For example, you can
+add a tag called `ONTAPMonitoring` to all the secrets you want the monitoring program to have access to, then you can
+have a policy statement like:
+
+```
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Condition": {
+                "Null": {
+                    "secretsmanager:ResourceTag/ONTAPMonitoring": "false"
+                }
+            },
+            "Action": [
+                "secretsmanager:GetSecretValue"
+            ],
+            "Resource": "*",
+            "Effect": "Allow"
+        }
+    ]
+}
+```
+
+### 6.6 Controller Program Role Permissions
 
 The following table shows the required permissions needed for the controller program to run.
 
@@ -707,7 +760,7 @@ The following table shows the required permissions needed for the controller pro
 
 :bulb: **Tip** To allow the Lambda function to write logs to CloudWatch, you can also assign the AWS managed policy called `AWSLambdaBasicExecutionRole` to the role.
 
-### 8.7 Matching Conditions File
+### 6.7 Matching Conditions File
 
 The Matching Conditions file allows you to specify which events you want to be alerted on. The format of the
 file is JSON. JSON is basically a series of "key" : "value" pairs. Where the value can be object that also has
