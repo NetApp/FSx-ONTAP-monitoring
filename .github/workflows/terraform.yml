@@ -30,12 +30,17 @@ jobs:
       auto_add_cloudwatch_alarms: ${{ steps.filter.outputs.auto_add_cloudwatch_alarms }}
       fsx_ontap_alerting: ${{ steps.filter.outputs.fsx_ontap_alerting }}
     steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Check for path changes
         id: filter
-        uses: dorny/paths-filter@v3
+        uses: step-security/paths-filter@9098a7821b83402dbe267c0c801e7d580ce74f92 # v4.0.2
         with:
           filters: |
             auto_add_cloudwatch_alarms:
