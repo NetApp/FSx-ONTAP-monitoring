@@ -34,6 +34,13 @@ by using tags (see the [Tags to Override Default Thresholds](#tags-to-override-d
 If you don't want alarms to be created for a particular metric, or if you want the program to remove them, just set the threshold to 100.
 By setting the default threshold to 100, it will only create alarms for items that have tags that specify a threshold less than than 100.
 
+Notes:
+- The default threshold for CPU utilization is set to 100, since it is common for an ONTAP system to run at 100% CPU utilization
+while maintaining good performance since it will always treat serving data at a higher priority.
+- The default Volume Files (inodes) Utilization threshold is set to 100% since in most use cases volumes never run out of inodes and
+therefore it doesn't make sense to create this alarm for all volumes by default. Note there is a cost for each CloudWatch alarm.
+If you have a specific volume you want to monitor the recommendation is to set the `files_threshold` tag on that volume to a value less than 100.
+
 ## Deployment Methods
 The preferred way to run this program is as a Lambda function. That is because Lambda functions are very inexpensive
 to run and you don't have to maintain any compute resources to run them. You can use an `EventBridge Schedule` to
