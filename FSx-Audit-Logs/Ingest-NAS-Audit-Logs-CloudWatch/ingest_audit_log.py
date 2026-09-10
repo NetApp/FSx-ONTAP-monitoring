@@ -430,7 +430,7 @@ def checkConfig():
         'fileSystem4SecretARN': fileSystem4SecretARN if 'fileSystem4SecretARN' in globals() else None,  # pylint: disable=E0602
         'fileSystem5SecretARN': fileSystem5SecretARN if 'fileSystem5SecretARN' in globals() else None   # pylint: disable=E0602
     }
-    optionalConfig = ['copyToS3', 'maxRunTime', 'fsxnSecretARNsFile', 'preserveOldEvents',
+    optionalConfig = ['logGroupName', 'copyToS3', 'maxRunTime', 'fsxnSecretARNsFile', 'preserveOldEvents',
                       'fileSystem1ID', 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
                       'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN',
                       'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
@@ -554,14 +554,14 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     for fsx in fsxResponse['FileSystems']:
         #
         # Check to see if the system has been fully deployed.
-        if fsx['OntapConfiguration'].get('Endpoints') is not None and fsx['OntapConfiguration']['Endpoints'].get('Management') is not None and fsx['OntapConfiguration']['Endpoints']['Management'].get('IpAddresses') is not None:
+        if fsx.get('OntapConfiguration') is not None and fsx['OntapConfiguration'].get('Endpoints') is not None and fsx['OntapConfiguration']['Endpoints'].get('Management') is not None and fsx['OntapConfiguration']['Endpoints']['Management'].get('IpAddresses') is not None:
             fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
     #
     # Make sure to get them all since the response is paginated.
     while fsxResponse.get('NextToken') != None:
         fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
         for fsx in fsxResponse['FileSystems']:
-            if fsx['OntapConfiguration'].get('Endpoints') is not None and fsx['OntapConfiguration']['Endpoints'].get('Management') is not None and fsx['OntapConfiguration']['Endpoints']['Management'].get('IpAddresses') is not None:
+            if fsx.get('OntapConfiguration') is not None and fsx['OntapConfiguration'].get('Endpoints') is not None and fsx['OntapConfiguration']['Endpoints'].get('Management') is not None and fsx['OntapConfiguration']['Endpoints']['Management'].get('IpAddresses') is not None:
                 fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
     #
     # Get the last read stats file.
@@ -604,7 +604,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
             #
             # Get the username and password of the ONTAP/FSxN system.
             try:
-                secretsClient = boto3.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3])
+                secretsClient = boto3.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3], config=boto3Config)
                 secretsInfo = secretsClient.get_secret_value(SecretId=secretARNs[fsId])
                 secret = json.loads(secretsInfo['SecretString'])
                 if secret.get('username') is None or secret.get('password') is None:
@@ -613,7 +613,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 username = secret['username']
                 password = secret['password']
                 secretsClient.close()  # Since the next secret could be in a different region.
-            except (botocore.exceptions.ClientError, botocore.exceptions.ConnectionClosedError) as err:
+            except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as err:
                 print(f"Warning: Unable to retrieve the credentials for '{fsId}' using the secretARN '{secretARNs[fsId]}'. {err}")
                 continue # To the next FSxN
         else:
@@ -654,7 +654,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                             continue # To the next SVM.
                         #
                         # Get all the files in the volume that match the audit file pattern.
-                        volumeEndpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
+                        volumeEndpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*&order_by=name%20asc&fields=name"
                         records = []
                         while volumeEndpoint is not None:
                             response = http.request('GET', f"https://{hostname}{volumeEndpoint}", headers=headersQuery, timeout=16.0)
@@ -662,7 +662,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                 data = json.loads(response.data.decode('utf-8'))
                                 if data.get('num_records') == 0:
                                     if len(records) == 0:
-                                        print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
+                                        print(f"Warning: No audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
                                     volumeEndpoint = None  # To break out of the get all files loop.
                                 else:
                                     records.extend(data['records'])
@@ -683,7 +683,10 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                 if localFileName is not None:
                                     if config['copyToS3']:
                                         s3Client.upload_file(localFileName, config['s3BucketName'], filePath)
-                                    ingestAuditFile(localFileName, filePath)
+                                    #
+                                    # Only try to ingest into CW the XML formatted Audit log files.
+                                    if filePath.endswith('.xml') and config['logGroupName'] is not None:
+                                        ingestAuditFile(localFileName, filePath)
                                     if lastFileRead.get(fsId) is None:
                                         lastFileRead[fsId] = {vserverName: getEpoch(filePath)}
                                     else:
