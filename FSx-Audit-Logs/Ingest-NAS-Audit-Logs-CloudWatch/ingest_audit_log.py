@@ -29,6 +29,14 @@ import json
 from urllib3.util import Retry
 import boto3
 import botocore
+from botocore.config import Config
+
+boto3Config = Config(
+    connect_timeout=10,
+    read_timeout=30,
+    retries={'max_attempts': 2},
+    s3={'us_east_1_regional_endpoint':'regional'}
+)
 
 ################################################################################
 # You can configure this script by either setting the following variables in
@@ -422,7 +430,7 @@ def checkConfig():
         'fileSystem4SecretARN': fileSystem4SecretARN if 'fileSystem4SecretARN' in globals() else None,  # pylint: disable=E0602
         'fileSystem5SecretARN': fileSystem5SecretARN if 'fileSystem5SecretARN' in globals() else None   # pylint: disable=E0602
     }
-    optionalConfig = ['copyToS3', 'maxRunTime', 'fsxnSecretARNsFile', 'preserveOldEvents',
+    optionalConfig = ['logGroupName', 'copyToS3', 'maxRunTime', 'fsxnSecretARNsFile', 'preserveOldEvents',
                       'fileSystem1ID', 'fileSystem2ID', 'fileSystem3ID', 'fileSystem4ID',
                       'fileSystem5ID', 'fileSystem1SecretARN', 'fileSystem2SecretARN', 'defaultSecretARN',
                       'fileSystem3SecretARN', 'fileSystem4SecretARN', 'fileSystem5SecretARN']
@@ -458,11 +466,7 @@ def checkConfig():
     config['vserverName'] = vserverName if 'vserverName' in globals() else os.environ.get('vserverName')  # pylint: disable=E0602
     #
     # Create a S3 client.
-    # Since us-east-1 is a special case, we need to handle it differently.
-    if config['s3BucketRegion'] == "us-east-1":
-        s3Client = boto3.client('s3', config['s3BucketRegion'], config=botocore.config.Config(s3={'us_east_1_regional_endpoint':'regional'}))
-    else:
-        s3Client = boto3.client('s3', config['s3BucketRegion'])
+    s3Client = boto3.client('s3', region_name=config['s3BucketRegion'], config=boto3Config)
     #
     # Define the secretsARNs dictionary if it hasn't already been defined.
     if 'secretARNs' not in globals():
@@ -471,11 +475,11 @@ def checkConfig():
     # If the fsxnSecretARNsFile is set, then read the file from S3 and populate the secretARNs dictionary.
     writeSecretsARNs = False
     readFromSecretsARNsFile = False
-    if config['fsxnSecretARNsFile'] is not None and config['fsxnSecretARNsFile'] != '':
+    if config.get('fsxnSecretARNsFile') is not None and config['fsxnSecretARNsFile'] != '':
         try:
             response = s3Client.get_object(Bucket=config['s3BucketName'], Key=config['fsxnSecretARNsFile'])
         except botocore.exceptions.ClientError as err:
-            if err.response['Error']['Code'] != "NoSuchKey":
+            if err.response['Error']['Code'] == "NoSuchKey":
                 writeSecretsARNs = True
             else:
                 raise Exception(f"Unable to open parameter file with secrets '{config['fsxnSecretARNsFile']}' from S3 bucket '{config['s3BucketName']}': {err}")
@@ -492,15 +496,15 @@ def checkConfig():
                 secretARNs[fsId.strip()] = secretArn.strip()
 
     if not readFromSecretsARNsFile:
-        if config['fileSystem1ID'] is not None and config['fileSystem1SecretARN'] is not None:
+        if config.get('fileSystem1ID') is not None and config.get('fileSystem1SecretARN') is not None:
             secretARNs[config['fileSystem1ID']] = config['fileSystem1SecretARN']
-        if config['fileSystem2ID'] is not None and config['fileSystem2SecretARN'] is not None:
+        if config.get('fileSystem2ID') is not None and config.get('fileSystem2SecretARN') is not None:
             secretARNs[config['fileSystem2ID']] = config['fileSystem2SecretARN']
-        if config['fileSystem3ID'] is not None and config['fileSystem3SecretARN'] is not None:
+        if config.get('fileSystem3ID') is not None and config.get('fileSystem3SecretARN') is not None:
             secretARNs[config['fileSystem3ID']] = config['fileSystem3SecretARN']
-        if config['fileSystem4ID'] is not None and config['fileSystem4SecretARN'] is not None:
+        if config.get('fileSystem4ID') is not None and config.get('fileSystem4SecretARN') is not None:
             secretARNs[config['fileSystem4ID']] = config['fileSystem4SecretARN']
-        if config['fileSystem5ID'] is not None and config['fileSystem5SecretARN'] is not None:
+        if config.get('fileSystem5ID') is not None and config.get('fileSystem5SecretARN') is not None:
             secretARNs[config['fileSystem5ID']] = config['fileSystem5SecretARN']
     #
     # If there aren't any credentials, there is no point of continuing.
@@ -529,18 +533,15 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     # Check that we have all the configuration variables we need.
     checkConfig()
     #
-    # Create a Secrets Manager client.
-    session = boto3.session.Session()
-    #
     # Create a S3 client.
-    # Created in the checkCofnig function.
-    # s3Client = boto3.client('s3', config['s3BucketRegion'])
+    # Created in the checkConfig function.
+    # s3Client = boto3.client('s3', region_name=config['s3BucketRegion'], config=boto3Config)
     #
     # Create a FSx client.
-    fsxClient = boto3.client('fsx', config['fsxRegion'])
+    fsxClient = boto3.client('fsx', region_name=config['fsxRegion'], config=boto3Config)
     #
     # Create a CloudWatch client.
-    cwLogsClient = boto3.client('logs', config['fsxRegion'])
+    cwLogsClient = boto3.client('logs', region_name=config['fsxRegion'], config=boto3Config)
     #
     # Disable warning about connecting to servers with self-signed SSL certificates.
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -551,13 +552,17 @@ def lambda_handler(event, context):     # pylint: disable=W0613
     fsxNs = []   # Holds information for each FSxN in the region.
     fsxResponse = fsxClient.describe_file_systems()
     for fsx in fsxResponse['FileSystems']:
-        fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
+        #
+        # Check to see if the system has been fully deployed.
+        if fsx.get('OntapConfiguration') is not None and fsx['OntapConfiguration'].get('Endpoints') is not None and fsx['OntapConfiguration']['Endpoints'].get('Management') is not None and fsx['OntapConfiguration']['Endpoints']['Management'].get('IpAddresses') is not None:
+            fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
     #
     # Make sure to get them all since the response is paginated.
     while fsxResponse.get('NextToken') != None:
         fsxResponse = fsxClient.describe_file_systems(NextToken=fsxResponse['NextToken'])
         for fsx in fsxResponse['FileSystems']:
-            fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
+            if fsx.get('OntapConfiguration') is not None and fsx['OntapConfiguration'].get('Endpoints') is not None and fsx['OntapConfiguration']['Endpoints'].get('Management') is not None and fsx['OntapConfiguration']['Endpoints']['Management'].get('IpAddresses') is not None:
+                fsxNs.append({"fsId": fsx['FileSystemId'], "hostname": fsx['OntapConfiguration']['Endpoints']['Management']['IpAddresses'][0], "DNSName": fsx['OntapConfiguration']['Endpoints']['Management']['DNSName']})
     #
     # Get the last read stats file.
     try:
@@ -599,7 +604,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
             #
             # Get the username and password of the ONTAP/FSxN system.
             try:
-                secretsClient = session.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3])
+                secretsClient = boto3.client(service_name='secretsmanager', region_name=secretARNs[fsId].split(':')[3], config=boto3Config)
                 secretsInfo = secretsClient.get_secret_value(SecretId=secretARNs[fsId])
                 secret = json.loads(secretsInfo['SecretString'])
                 if secret.get('username') is None or secret.get('password') is None:
@@ -608,7 +613,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                 username = secret['username']
                 password = secret['password']
                 secretsClient.close()  # Since the next secret could be in a different region.
-            except botocore.exceptions.ClientError as err:
+            except (botocore.exceptions.ClientError, botocore.exceptions.BotoCoreError) as err:
                 print(f"Warning: Unable to retrieve the credentials for '{fsId}' using the secretARN '{secretARNs[fsId]}'. {err}")
                 continue # To the next FSxN
         else:
@@ -649,7 +654,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                             continue # To the next SVM.
                         #
                         # Get all the files in the volume that match the audit file pattern.
-                        volumeEndpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*.xml&order_by=name%20asc&fields=name"
+                        volumeEndpoint = f"/api/storage/volumes/{volumeUUID}/files?name=audit_{vserverName}_D*&order_by=name%20asc&fields=name"
                         records = []
                         while volumeEndpoint is not None:
                             response = http.request('GET', f"https://{hostname}{volumeEndpoint}", headers=headersQuery, timeout=16.0)
@@ -657,7 +662,7 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                 data = json.loads(response.data.decode('utf-8'))
                                 if data.get('num_records') == 0:
                                     if len(records) == 0:
-                                        print(f"Warning: No XML audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
+                                        print(f"Warning: No audit log files found on FsID: {fsId}; SvmID: {vserverName}; Volume: {config['volumeName']}.")
                                     volumeEndpoint = None  # To break out of the get all files loop.
                                 else:
                                     records.extend(data['records'])
@@ -678,7 +683,10 @@ def lambda_handler(event, context):     # pylint: disable=W0613
                                 if localFileName is not None:
                                     if config['copyToS3']:
                                         s3Client.upload_file(localFileName, config['s3BucketName'], filePath)
-                                    ingestAuditFile(localFileName, filePath)
+                                    #
+                                    # Only try to ingest into CW the XML formatted Audit log files.
+                                    if filePath.endswith('.xml') and config['logGroupName'] is not None:
+                                        ingestAuditFile(localFileName, filePath)
                                     if lastFileRead.get(fsId) is None:
                                         lastFileRead[fsId] = {vserverName: getEpoch(filePath)}
                                     else:

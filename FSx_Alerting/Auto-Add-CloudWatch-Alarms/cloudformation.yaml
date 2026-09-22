@@ -85,7 +85,7 @@ Parameters:
     Type: Number
     MinValue: 0
     MaxValue: 100
-    Default: 80
+    Default: 100
 
   defaultDiskThroughputThreshold:
     Description: "This will define the default disk throughput utilization threshold. You can override the default by having a specific tag associated with the file system. See below for more information."
@@ -302,8 +302,8 @@ Resources:
           # Lastly, you can create an override for the SSD alarm, by creating a tag
           # with the name "SSD_Alarm_Threshold" on the file system resource.
           #
-          # Version: v2.13
-          # Date: 2026-07-22-15:22:58
+          # Version: v2.14
+          # Date: 2026-08-28-11:27:58
           #
           ################################################################################
           #
@@ -328,7 +328,7 @@ Resources:
           #
           # Define the default CPU utilization threshold before sending the alarm.
           # Setting it to 100 will disable the creation of the alarm.
-          defaultCPUThreshold=80
+          defaultCPUThreshold=100
           #
           # Define the default disk throughput utilization threshold before sending the alarm.
           # Setting it to 100 will disable the creation of the alarm.
@@ -344,7 +344,7 @@ Resources:
           #
           # Define the default SSD utilization threshold before sending the alarm.
           # Setting it to 100 will disable the creation of the alarm.
-          defaultSSDThreshold=90
+          defaultSSDThreshold=80
           #
           # Define the default volume utilization threshold before sending the alarm.
           # Setting it to 100 will disable the creation of the alarm.

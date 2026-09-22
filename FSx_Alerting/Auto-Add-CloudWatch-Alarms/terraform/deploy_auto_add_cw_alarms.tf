@@ -51,7 +51,7 @@ variable "customerId" {
 variable "defaultCPUThreshold" {
     description = "This will define the default CPU utilization threshold. You can override the default by having a specific tag associated with the file system."
     type = number
-    default = 80
+    default = 100
     validation {
         condition     = var.defaultCPUThreshold >= 0 && var.defaultCPUThreshold <= 100
         error_message = "The defaultCPUThreshold variable must be between 0 and 100."
@@ -111,7 +111,7 @@ variable "defaultVolumeThreshold" {
 variable "defaultVolumeFilesThreshold" {
     description = "This will define the default Volume files (inodes) utilization threshold. You can override the default by having a specific tag associated with the volume."
     type = number
-    default = 80
+    default = 100
     validation {
         condition     = var.defaultVolumeFilesThreshold >= 0 && var.defaultVolumeFilesThreshold <= 100
         error_message = "The defaultVolumeFilesThreshold variable must be between 0 and 100."
@@ -135,7 +135,7 @@ variable "alarmPrefixString" {
 }
 
 variable "regions" {
-    description = "This is a comma separated list of AWS regions that you want the Lambda function to run in. If left blank, it will run in all regions."
+    description = "This is a comma separated list of AWS regions that you want the Lambda function to look for FSx for ONTAP file systems. If left blank, it will look in all regions."
     type = string
     default = ""
 }
