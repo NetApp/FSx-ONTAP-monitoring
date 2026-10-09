@@ -1,7 +1,7 @@
 region = ""
 SNStopic = ""
 accountId = ""
-defaultCPUThreshold = 80
+defaultCPUThreshold = 100
 defaultDiskThroughputThreshold = 80
 defaultDiskIOPSThreshold = 80
 defaultNetworkThroughputThreshold = 80

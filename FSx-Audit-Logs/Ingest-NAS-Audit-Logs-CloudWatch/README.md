@@ -1,10 +1,46 @@
 # Ingest FSx for ONTAP NAS audit logs into CloudWatch
 
 ## Overview
-This sample demonstrates a way to ingest the NAS audit logs from an FSx for Data ONTAP file system into a CloudWatch log group
+This sample demonstrates a way to ingest the NAS audit logs from an FSx for NetApp ONTAP file system into a CloudWatch log group
 without having to NFS or CIFS mount a volume to access them. It will attempt to gather the audit logs from all the SVMs within
-all the FSx for Data ONTAP file systems that are within a specified region. It will skip any file systems where credentials
-haven't been provided for or SVMs that do not have the appropriate NAS auditing configuration enabled.
+all the FSx for ONTAP file systems that are within a specified region. It will skip any file systems where credentials
+haven't been provided for or any SVMs that do not have the appropriate NAS auditing configuration enabled.
+
+Optionally, it can also copy the raw audit log files into an S3 bucket for long term storage. And/or bypass the CloudWatch
+ingestion and just copy the raw audit log files into an S3 bucket.
+
+Note that the program cannot interpret audit logs that are in the EVTX format and therefore can't translate the contents into
+a format that can be ingested into a CloudWatch LogStream. So, the only viable thing it can do with EVTX audit logs is to copy
+them into an S3 bucket for long term storage.
+
+## Architecture
+This solution is made up of a Lambda function that is triggered by an EventBridge schedule. Once invoked
+the Lambda function will use AWS APIs to gather the list of all the FSx for ONTAP file systems in the
+specified region. It will then use the credentials provided in specified AWS Secrets Manager secret to
+issue ONTAP API calls to list all the volumes in the file system, across all the SVMs, that have the name
+specified in the `VolumeName` parameter. From each one of the volumes it will gather the list of all
+the audit log files and ingest any that haven't been processed before into a CloudWatch Log Group LogStream.
+The name of the LogStream will equal to the name of the audit log file. The program can optionally
+copy the raw audit file into the S3 bucket as well. The Lambda function will update the "stats" file
+in the S3 bucket to keep track of the last time it successfully ingested audit logs from each SVM.
+
+Note that since the Lambda function has to be able to communicate with the FSx for ONTAP
+file system, it must run within a VPC subnet that has connectivity to the FSx for ONTAP management endpoint.
+
+![Architecture](images/INAL_Architecture.png)
+
+### CloudWatch Dashboard
+This solution also provides for a CloudWatch dashboard that will show you various statistics about the
+entries in the audit logs. If you use CloudFormation to deploy the solution, you will have an option to add
+the dashboard. Here's a sample screen shot:
+
+![Dashboard](images/INAL_Dashboard.png)
+
+:bulb: **Tip** In order to improve performance and scalability of the dashboard it is recommended to create a
+`transformer` to the CloudWatch LogGroup that contains the NAS Audit logs. A transformers helps CloudWatch
+parse the log entries to extract the fields that are needed for the dashboard metrics. The recommended
+transformer parser type is `Key Value` with a `Field Delimter` set to a comma `,` and the `Key-value Delimiter`
+set to `=`.
 
 ### Maintaining State
 The program maintains a "stats" file in an S3 bucket that allows it to keep track of the last time it successfully ingested audit logs
@@ -41,59 +77,32 @@ audit logs from:
 will ignore any environment variables that have been set for file system IDs and secret ARNs. Furthermore,
 if the file doesn't exist, but the environment variables have been set, the program will create the file in
 the S3 bucket with the contents of the environment variables. This allows you to use the environment variables
-to create the file in S3, and then use that file for subsequent runs of the program.
-
-### CloudWatch Dashboard
-This solution also provides for a CloudWatch dashboard that will show you various statistics about the
-entries in the audit logs. If you use CloudFormation to deploy the solution, you will have an option to add
-the dashboard. Here's a sample screen shot:
-
-![Dashboard](images/INAL_Dashboard.png)
-
-:bulb: **Tip** In order to improve performance and scalability of the dashboard it is recommended to create a
-`transformer` to the CloudWatch LogGroup that contains the NAS Audit logs. A transformers helps CloudWatch
-parse the log entries to extract the fields that are needed for the dashboard metrics. The recommended
-transformer parser type is `Key Value` with a `Field Delimter` set to a comma `,` and the `Key-value Delimiter`
-set to `=`.
+to create the file in the S3 bucket and then have it use that file for subsequent runs. This makes
+it easier to manage the credentials, and allows you to specific credentials for more than 5 file systems.
 
 ### Methods of installation
 There are two ways to install this program. Either with the [CloudFormation script](cloudformation-template.yaml) found in this repo,
 or by following the manual instructions found in the [README-MANUAL.md](README-MANUAL.md) file.
 
-## Architecture
-This solution is made up of a Lambda function that is triggered by an EventBridge schedule. Once invoked
-the Lambda function will use AWS APIs to gather the list of all the FSx for ONTAP file systems in the
-specified region. It will then use the credentials provided in specified AWS Secrets Manager secret to
-issue ONTAP API calls to list all the volumes in the file system, across all the SVMs, that have the name
-specified in the `VolumeName` parameter. From each one of the volumes it will gather the list of all
-the audit log files and ingest any that haven't been processed before into a CloudWatch Log Group Log
-Stream. The name of the Log Stream will equal to the name of the audit log file. It can optionally
-copy the raw audit file into the S3 bucket as well. The Lambda function will update the "stats" file
-in the S3 bucket to keep track of the last time it successfully ingested audit logs from each SVM.
-
-Note that since the Lambda function has to be able to communicate with the FSx for ONTAP
-file system, it must run within a VPC subnet that has connectivity to the FSx for ONTAP management endpoint.
-
-![Architecture](images/INAL_Architecture.png)
-
 ## Prerequisites
 - An FSx for Data ONTAP file system.
-- Have NAS auditing configured and enabled on the SVM within a FSx for Data ONTAP file system. **Ensure you have selected the XML format for the audit logs.** Also,
-ensure you have set up a rotation schedule. The program will only act on audit log files that have been finalized, and not the "active" one. You can read this
+- Have NAS auditing configured and enabled on the SVM within a FSx for Data ONTAP file system. **Ensure you have selected the XML format**
+    for the audit logs if you want to ingest the audit log records into CloudWatch. Also, ensure you have set up a rotation schedule.
+    The program will only act on audit log files that have been finalized, and not the "active" one. You can read this
 [knowledge based article](https://kb.netapp.com/on-prem/ontap/da/NAS/NAS-KBs/How_to_set_up_NAS_auditing_in_ONTAP_9) for instructions on how to setup NAS auditing.
 - Have the NAS auditing configured to store the audit logs in a volume with the same name in all SVMs on all the FSx for Data ONTAP file
-systems that you want to ingest the audit logs from.
+    systems that you want to ingest the audit logs from.
 - You have applied the necessary SACLs to the files you want to audit. The knowledge base article linked above provides guidance on how to do this.
     **NOTE:** If you need to apply SACLs to all the files in a volume, you should consider using the 'SLAG' (Storage-Level Access Guard) feature of ONTAP
     which allows you to enforce SACLs on all the files in a volume without having to apply them to all the individual files. You can read about SLAG in the
     NetApp documentation [here](https://docs.netapp.com/us-en/ontap/smb-admin/secure-file-access-storage-level-access-guard-concept.html).
 - An S3 bucket to store the "stats" file and optionally a copy of all the raw NAS audit log files. It will also
-hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFormation script.
+    hold a Lambda layer file needed to be able to an add Lambda Layer from a CloudFormation script.
     - You will need to download the [Lambda layer zip file](https://raw.githubusercontent.com/NetApp/FSx-ONTAP-monitoring/main/FSx-Audit-Logs-CloudWatch/lambda_layer.zip)
     from this repo and upload it to the S3 bucket. Be sure to preserve the name `lambda_layer.zip`.
     - The "stats" file is maintained by the program. It is used to keep track of the last time the Lambda function successfully
     ingested audit logs from each SVM. Its size will be small (i.e. less than a few megabytes).
-- A CloudWatch log group to ingest the audit logs into. Each audit log file will get its own log stream within the log group.
+- A CloudWatch log group if you want the program to ingest the audit records into it. Each audit log file will get its own LogStream within the log group.
 - An AWS Secrets Manager secret for each of the FSxN file systems you wish to ingest the audit logs from. The secret should have two keys `username` and `password`. For example:
     ```json
       {
@@ -178,7 +187,7 @@ Follow these steps to deploy the Lambda function using CloudFormation:
     |Stack Name|Yes|The name of the CloudFormation stack. This can be anything, but since it is used as a suffix for some of the resources it creates, keep it under 40 characters.|
     |volumeName|Yes|This is the name of the volume that should contain the audit logs. It should be the same on all SVMs on all the FSx for ONTAP file systems you want to ingest the NAS audit logs from.|
     |checkInterval|Yes|The interval, **in minutes**, that the Lambda function will check for new audit logs. You should set this to match the rotate frequency you have set for your audit logs.|
-    |logGroupName|Yes|The name of the CloudWatch log group to ingest the audit logs into. This should have already been created based on your business requirements.|
+    |logGroupName|No|The name of the CloudWatch log group to ingest the audit logs into. This should have already been created based on your business requirements.|
     |subNetIds|Yes|Select the subnets that you want the Lambda function to run in. Any subnet selected must have connectivity to all the FSxN file system management endpoints that you want to gather audit logs from. It is recommended to **not** be in a "public subnet" (i.e. one that has an Internet Gateway in it) otherwise you'll probably have to add AWS service endpoints in each of these subnets.|
     |lambdaSecruityGroupsIds|Yes|Select the security groups that you want the Lambda function associated with. The security group must allow outbound traffic on TCP port 443. Inbound rules don't matter since the Lambda function is not accessible from a network.|
     |s3BucketName|Yes|The name of the S3 bucket where the stats file is stored into and the `lambda_layer.zip` file has already been uploaded into.|
@@ -187,6 +196,7 @@ Follow these steps to deploy the Lambda function using CloudFormation:
     |snsTopicArn|No|The ARN of the SNS topic to send the alarm to. This is required if `createWatchdogAlarm` is set to `true`.|
     |copyToS3|No|If set to `true` it will copy the audit logs to the S3 bucket specified in `s3BucketName`.|
     |preserveOldEvents|No|Since CloudWatch will reject any event that is more than 14 days old, if you set this parameter to 'true' the program will set the CloudWatch event timestamp to 13 days from the time the event is inserted into CloudWatch LogStream if the audit event is older than 13 days. Note that this will not affect the timestamp recorded in the event message itself, just the CloudWatch event timestamp.|
+    |createDashboard|No|If set to `true` it will create a CloudWatch dashboard that will shows statistics regarding the types of audit records that have been ingested into CloudWatch log group.|
     |fsxnSecretARNsFile|No|The name of a file within the S3 bucket that contains the Secret ARNs for each of the FSxN file systems. See the Overview section above for the format of this file.|
     |defaultSecretARN|No|The ARN of an AWS Secrets Manager Secret to be used if a particular FSxN file system doesn't have a specific secret associated with it.  Use with caution, since it will cause the program to try the credentials in the default secret for all FSxN where there isn't a secret specified for it which could cause an account to be locked out if the credentials are incorrect for that FSxN.|
     |fileSystem1ID|No|The ID of the first FSxN file system to ingest the audit logs from.|

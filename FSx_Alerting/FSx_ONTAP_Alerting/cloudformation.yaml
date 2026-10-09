@@ -8,6 +8,7 @@ Metadata:
           default: "Configuration Parameters"
         Parameters: 
           - s3BucketName
+          - s3APArn
           - FSxNListFilename
           - subNetIds
           - securityGroupIds
@@ -70,6 +71,8 @@ Metadata:
         default: "The file in the S3 bucket that contains the list of FSxNs to monitor."
       s3BucketName:
         default: "S3 Bucket Name"
+      s3APArn:
+        default: "S3 Access Point ARN"
       subNetIds:
         default: "Subnet IDs"
       securityGroupIds:
@@ -97,7 +100,7 @@ Metadata:
       memorySize:
         default: "The amount of memory to allocate to the Lambda function (MB)"
       ServerSideEncryption:
-        default: "Server Side Encryption method to use for S3 Bucket. AES256 is what AWS uses by default"
+        default: "Server Side Encryption method to use for the S3 Bucket. Leave blank for FSxN S3 Access Points"
       SSEKMSKeyArn:
         default: "KMS Key ARN for Server Side Encryption. Only required if ServerSideEncryption is set to 'aws:kms' or 'aws:kms:dsse'"
       createSecretsManagerEndpoint:
@@ -177,6 +180,11 @@ Parameters:
   s3BucketName:
     Description: "The name of the S3 bucket to use to store the status and configuration files. Must also be holding the lambda_layer.zip file."
     Type: String
+
+  s3APArn:
+    Description: "If using an FSx S3 Access Point provide the ARN here. Otherwise, if using a native AWS S3 bucket, leave blank."
+    Type: String
+    Default: ""
 
   subNetIds:
     Description: "The subnet IDs where you want to deploy the Lambda function. Must have connectivity to the FSxN file system to be monitored. Recommended to have at least two. Also recommended to be in a private subnet."
@@ -283,8 +291,9 @@ Parameters:
   ServerSideEncryption:
     Description: "The server-side encryption method to use for the S3 bucket."
     Type: String
-    Default: "AES256"
+    Default: ""
     AllowedValues:
+      - ""
       - AES256
       - aws:kms
       - aws:kms:dsse
@@ -476,6 +485,7 @@ Conditions:
   CreateControllerRole: !Equals [!Ref controllerRoleArn, ""]
   IncludeSns: !Not [!Equals [!Ref snsTopicArn, ""]]
   IncludeKMSKey: !Not [!Equals [!Ref SSEKMSKeyArn, ""]]
+  IncludeS3APArn: !Not [!Equals [!Ref s3APArn, ""]]
 
 Resources:
   SecretManagerEndpoint:
@@ -631,6 +641,8 @@ Resources:
                   - !GetAtt monitoringLambdaFunction.Arn
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
                   - !Sub "arn:aws:s3:::${s3BucketName}"
+                  - !If [IncludeS3APArn, !Ref s3APArn, !Ref "AWS::NoValue"]
+                  - !If [IncludeS3APArn, !Sub "${s3APArn}/*", !Ref "AWS::NoValue"]
                   - !If [IncludeSns, !Ref snsTopicArn, !Ref "AWS::NoValue"]
                   - !If [IncludeKMSKey, !Ref SSEKMSKeyArn, !Ref "AWS::NoValue"]
 
@@ -943,6 +955,8 @@ Resources:
                   - !Ref secretArnPattern
                   - !Sub "arn:aws:s3:::${s3BucketName}"
                   - !Sub "arn:aws:s3:::${s3BucketName}/*"
+                  - !If [IncludeS3APArn, !Ref s3APArn, !Ref "AWS::NoValue"]
+                  - !If [IncludeS3APArn, !Sub "${s3APArn}/*", !Ref "AWS::NoValue"]
                   - !If [IncludeSns, !Ref snsTopicArn, !Ref "AWS::NoValue"]
                   - !If [IncludeKMSKey, !Ref SSEKMSKeyArn, !Ref "AWS::NoValue"]
   #
@@ -1016,8 +1030,8 @@ Resources:
           # "matching conditions."  It is intended to be run as a Lambda function, but
           # can be run as a standalone program.
           #
-          # Version: v4.41
-          # Date: 2026-08-02-11:19:21
+          # Version: v4.42
+          # Date: 2026-10-06-18:30:40
           ################################################################################
           
           import json
@@ -1032,9 +1046,17 @@ Resources:
           import urllib3
           from urllib3.util import Retry
           import botocore
+          from botocore.config import Config
           import boto3
           import hashlib
           import base64
+          
+          boto3Config = Config(
+              connect_timeout=10,
+              read_timeout=10,
+              retries={'total_max_attempts': 1},
+              s3={'us_east_1_regional_endpoint':'regional'}
+          )
           
           emsEventResilience = 200 # Times an ems event has to be missing before it is removed
                                    # from the alert history.
@@ -2334,7 +2356,7 @@ Resources:
                   #
                   # Create a Secrets Manager client.
                   secretRegion = config["webhookSecretARN"].split(":")[3]
-                  client = boto3.client(service_name='secretsmanager', region_name=secretRegion, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
+                  client = boto3.client(service_name='secretsmanager', region_name=secretRegion, config=boto3Config, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
                   #
                   # Get the username and password from the secret.
                   secretsInfo = client.get_secret_value(SecretId=config["webhookSecretARN"])
@@ -3058,7 +3080,7 @@ Resources:
               clusterName = config["OntapAdminServer"]
               #
               # Open a client to the s3 service.
-              s3Client = boto3.client('s3', config["s3BucketRegion"])
+              s3Client = boto3.client('s3', config["s3BucketRegion"], config=boto3Config)
               #
               # Calculate the config filename if it hasn't already been provided.
               defaultConfigFilename = config["OntapAdminServer"] + "-config"
@@ -3203,7 +3225,7 @@ Resources:
               #
               # Create a Secrets Manager client.
               secretRegion = config["secretArn"].split(":")[3]
-              client = boto3.client(service_name='secretsmanager', region_name=secretRegion, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
+              client = boto3.client(service_name='secretsmanager', region_name=secretRegion, config=boto3Config, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
               #
               # Get the username and password of the ONTAP/FSxN system.
               secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
@@ -3220,15 +3242,15 @@ Resources:
               password = secrets[config['secretPasswordKey']]
               #
               # Create clients to the other AWS services we will be using.
-              #s3Client = boto3.client('s3', config["s3BucketRegion"])  # Defined in readInConfig()
+              #s3Client = boto3.client('s3', region_name=config["s3BucketRegion"], config=boto3Config)  # Defined in readInConfig()
               snsClient = None
               if config["snsTopicArn"] is not None:
                   snsRegion = config["snsTopicArn"].split(":")[3]
-                  snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
+                  snsClient = boto3.client('sns', region_name=snsRegion, config=boto3Config, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
               cloudWatchClient = None
               if config["cloudWatchLogGroupArn"] is not None:
                   cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
-                  cloudWatchClient = boto3.client('logs', region_name=cloudWatchRegion, verify=isIpHostname(config["cloudWatchLogsEndPointHostname"]), endpoint_url=f'https://{config["cloudWatchLogsEndPointHostname"]}')
+                  cloudWatchClient = boto3.client('logs', region_name=cloudWatchRegion, config=boto3Config, verify=isIpHostname(config["cloudWatchLogsEndPointHostname"]), endpoint_url=f'https://{config["cloudWatchLogsEndPointHostname"]}')
               #
               # Create a http handle to make ONTAP/FSxN API calls with.
               auth = urllib3.make_headers(basic_auth=f'{username}:{password}')

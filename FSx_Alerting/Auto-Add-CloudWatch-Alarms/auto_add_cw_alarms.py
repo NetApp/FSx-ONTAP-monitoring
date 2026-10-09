@@ -53,7 +53,7 @@ customerId=''
 #
 # Define the default CPU utilization threshold before sending the alarm.
 # Setting it to 100 will disable the creation of the alarm.
-defaultCPUThreshold=80
+defaultCPUThreshold=100
 #
 # Define the default disk throughput utilization threshold before sending the alarm.
 # Setting it to 100 will disable the creation of the alarm.
@@ -69,7 +69,7 @@ defaultNetworkThroughputThreshold=80
 #
 # Define the default SSD utilization threshold before sending the alarm.
 # Setting it to 100 will disable the creation of the alarm.
-defaultSSDThreshold=90
+defaultSSDThreshold=80
 #
 # Define the default volume utilization threshold before sending the alarm.
 # Setting it to 100 will disable the creation of the alarm.

@@ -34,9 +34,17 @@ from cronsim import CronSim
 import urllib3
 from urllib3.util import Retry
 import botocore
+from botocore.config import Config
 import boto3
 import hashlib
 import base64
+
+boto3Config = Config(
+    connect_timeout=10,
+    read_timeout=10,
+    retries={'total_max_attempts': 1},
+    s3={'us_east_1_regional_endpoint':'regional'}
+)
 
 emsEventResilience = 200 # Times an ems event has to be missing before it is removed
                          # from the alert history.
@@ -1336,7 +1344,7 @@ def sendWebHook(message, severity, alert_category):
         #
         # Create a Secrets Manager client.
         secretRegion = config["webhookSecretARN"].split(":")[3]
-        client = boto3.client(service_name='secretsmanager', region_name=secretRegion, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
+        client = boto3.client(service_name='secretsmanager', region_name=secretRegion, config=boto3Config, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
         #
         # Get the username and password from the secret.
         secretsInfo = client.get_secret_value(SecretId=config["webhookSecretARN"])
@@ -2060,7 +2068,7 @@ def readInConfig(event):
     clusterName = config["OntapAdminServer"]
     #
     # Open a client to the s3 service.
-    s3Client = boto3.client('s3', config["s3BucketRegion"])
+    s3Client = boto3.client('s3', config["s3BucketRegion"], config=boto3Config)
     #
     # Calculate the config filename if it hasn't already been provided.
     defaultConfigFilename = config["OntapAdminServer"] + "-config"
@@ -2205,7 +2213,7 @@ def lambda_handler(event, context):
     #
     # Create a Secrets Manager client.
     secretRegion = config["secretArn"].split(":")[3]
-    client = boto3.client(service_name='secretsmanager', region_name=secretRegion, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
+    client = boto3.client(service_name='secretsmanager', region_name=secretRegion, config=boto3Config, verify=isIpHostname(config["secretsManagerEndPointHostname"]), endpoint_url=f'https://{config["secretsManagerEndPointHostname"]}')
     #
     # Get the username and password of the ONTAP/FSxN system.
     secretsInfo = client.get_secret_value(SecretId=config["secretArn"])
@@ -2222,15 +2230,15 @@ def lambda_handler(event, context):
     password = secrets[config['secretPasswordKey']]
     #
     # Create clients to the other AWS services we will be using.
-    #s3Client = boto3.client('s3', config["s3BucketRegion"])  # Defined in readInConfig()
+    #s3Client = boto3.client('s3', region_name=config["s3BucketRegion"], config=boto3Config)  # Defined in readInConfig()
     snsClient = None
     if config["snsTopicArn"] is not None:
         snsRegion = config["snsTopicArn"].split(":")[3]
-        snsClient = boto3.client('sns', region_name=snsRegion, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
+        snsClient = boto3.client('sns', region_name=snsRegion, config=boto3Config, verify=isIpHostname(config["snsEndPointHostname"]), endpoint_url=f'https://{config["snsEndPointHostname"]}')
     cloudWatchClient = None
     if config["cloudWatchLogGroupArn"] is not None:
         cloudWatchRegion = config["cloudWatchLogGroupArn"].split(":")[3]
-        cloudWatchClient = boto3.client('logs', region_name=cloudWatchRegion, verify=isIpHostname(config["cloudWatchLogsEndPointHostname"]), endpoint_url=f'https://{config["cloudWatchLogsEndPointHostname"]}')
+        cloudWatchClient = boto3.client('logs', region_name=cloudWatchRegion, config=boto3Config, verify=isIpHostname(config["cloudWatchLogsEndPointHostname"]), endpoint_url=f'https://{config["cloudWatchLogsEndPointHostname"]}')
     #
     # Create a http handle to make ONTAP/FSxN API calls with.
     auth = urllib3.make_headers(basic_auth=f'{username}:{password}')
