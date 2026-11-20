@@ -19,7 +19,12 @@
 #   {utilization} -> The current utilization of the FSxN file system that is
 #                    breaching the threshold.
 #
-# The program uses the urllib3 library to send the HTTP POST request to the
+# If username and password environment variables are set, the program will add an
+# Authorization header to the webhook request. If the username is set to "bearer",
+# the program will use the password as a bearer token. Otherwise, the program
+# will use the username and password to create a Basic Auth header.
+#
+# Note, the program uses the urllib3 library to send the HTTP POST request to the
 # webhook endpoint.
 ################################################################################
 import os
@@ -46,6 +51,15 @@ def sendWebhook(volume_id, filesystem_id, threshold, utilization):
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
+    #
+    # If the username and password environment variables are set, add the Authorization header to the webhook request.
+    if os.environ.get("username") is not None and os.environ.get("password") is not None:
+        username = os.environ.get("username")
+        password = os.environ.get("password")
+        if username.lower() == "bearer":
+            webhookHeaders["Authorization"] = "Bearer " + password
+        else:
+            webhookHeaders["Authorization"] = "Basic " + base64.b64encode(f'{username}:{password}'.encode('UTF-8')).decode('UTF-8')
     #
     # Note that the urllib3 library that AWS natively provides for their Lambda functions
     # is of the 1.* version, so we have to use the syntax for that version.
