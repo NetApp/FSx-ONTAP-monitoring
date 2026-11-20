@@ -307,12 +307,15 @@ def createCWEvent(event):
             elif data['@Name'] == 'ObjectName' or data['@Name'] == 'FileName':
                 cwData += f", volume={data['#text'].split(';')[0].replace('(', '').replace(')', '')}, name={data['#text'].split(';')[1]}"
             elif data['@Name'] == 'InformationSet':
-                if data.get('#text') == None:
+                if data.get('#text') is None:
                     cwData += ", InformationSet=Null"
                 else:
                     cwData += f", InformationSet={data['#text']}"
             else: # Assume the rest of the fields don't need special handling.
-                cwData += f", {data['@Name']}={data['#text']}"
+                if data.get('#text') is None:
+                    cwData += f", {data['@Name']}=Null"
+                else:
+                    cwData += f", {data['@Name']}={data['#text']}"
 
     return {'timestamp': eventTimestamp, 'message': cwData}
 
