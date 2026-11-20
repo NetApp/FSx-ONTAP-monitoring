@@ -29,6 +29,7 @@
 ################################################################################
 import os
 import json
+import base64
 import urllib3
 #
 # This function sends the webhook.
